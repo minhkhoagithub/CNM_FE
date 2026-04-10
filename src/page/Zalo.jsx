@@ -17,17 +17,19 @@ export default function Zalo() {
     setChat(true);
   };
 
-  const handleLogout = async () => {
-    const response = await userLogout();
+const handleLogout = async () => {
+  try {
+    await userLogout();
+  } catch (err) {
     console.error("Logout error:", err);
-    // Thực hiện logout cơ bản ngay cả khi API fail
-    localStorage.setItem("isLogin", "false");
-    localStorage.removeItem("userProfile");
-    localStorage.removeItem("deviceId");
-    setChat(false);
-    setUserData(null);
-    navigate("/auth/login");
-  };
+  }
+  localStorage.setItem("isLogin", "false");
+  localStorage.removeItem("userProfile");
+  localStorage.removeItem("deviceId");
+  setChat(false);
+  setUserData(null);
+  navigate("/auth/login");
+};
 
   useEffect(() => {
     const fetchUserProfile = async () => {
