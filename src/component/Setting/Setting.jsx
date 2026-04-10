@@ -1,4 +1,5 @@
 import React, { useState, useContext } from "react";
+import UpdateProfileModal from "./UpdateProfileModal";
 import { UserContext } from "../../Context/UserContext";
 import "../../resource/style/component/setting.css";
 import coverimg from "../../resource/img/coverImg/coverimg.jpg";
@@ -7,11 +8,15 @@ import { IoMdClose } from "react-icons/io";
 import { CiCamera } from "react-icons/ci";
 import { IoChevronBackOutline } from "react-icons/io5";
 import { CiSearch } from "react-icons/ci";
+import { FiUser } from "react-icons/fi";
+import DeviceManager from "./DeviceManager";
 import axios from "axios";
 
 export default function Setting({ handleShowSetting }) {
   const { userData, setUserData } = useContext(UserContext);
   const [showChoiceAvatar, setShowChoiceAvatar] = useState(false);
+  const [showUpdateProfile, setShowUpdateProfile] = useState(false);
+  const [activeTab, setActiveTab] = useState("profile"); // "profile" or "devices"
   const [newAvatar, setNewAvatar] = useState("");
   const [dataUpdate, setDataUpdate] = useState({
     avatar: "",
@@ -81,6 +86,7 @@ export default function Setting({ handleShowSetting }) {
     <>
       <div className="screen-mask">
         <div className="box-setting">
+
           <div className="account-infor">
             <div
               className="flex"
@@ -89,145 +95,162 @@ export default function Setting({ handleShowSetting }) {
                 borderBottom: "1px solid #d6dbe1",
               }}
             >
-              {!showChoiceAvatar ? (
-                <h3>Thông tin tài khoản</h3>
-              ) : (
-                <div className="flex">
-                  <h3>
-                    <IoChevronBackOutline
-                      className="icon-back"
-                      onClick={() => handleShowChoiceAvatar(false)}
-                    />
-                    Cập nhật ảnh đại diện
-                  </h3>
-                </div>
-              )}
+                  <h3>Thông tin tài khoản</h3>
+                  {/* <div className="flex">
+                    <h3>
+                      <IoChevronBackOutline
+                        className="icon-back"
+                        onClick={() => handleShowChoiceAvatar(false)}
+                      />
+                      Cập nhật ảnh đại diện
+                    </h3>
+                  </div> */}
+  
 
               <IoMdClose
                 className="btn-close"
                 onClick={() => handleShowSetting(false)}
               />
             </div>
-            {!showChoiceAvatar ? (
-              <div>
-                <div className="account-infor">
-                  <div className="cover-img">
-                    <img src={coverimg} alt="" />
-                  </div>
 
-                  <div className="avatar-img">
-                    <img src={userData.avatar} alt="" />
-                    <div
-                      className="flex"
-                      style={{
-                        justifyContent: "center",
-                        alignContent: "center",
-                        alignItems: "center",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <p className="username">{userData.username}</p>
-                      <CiEdit className="icon-edit" />
+            {/* Profile Tab Content */}
+            {activeTab === "profile" && (
+              <>
+                {!showChoiceAvatar ? (
+                  <div>
+                    <div className="account-infor">
+                      <div className="cover-img">
+                        <img src={coverimg} alt="" />
+                      </div>
+
+                      <div className="avatar-img">
+                        {userData.avatar ? (
+                          <img src={userData.avatar} alt="" />
+                        ) : (
+                          <div className="default-avatar-container">
+                            <FiUser className="default-avatar-icon" />
+                          </div>
+                        )}
+                        <div
+                          className="flex"
+                          style={{
+                            justifyContent: "center",
+                            alignContent: "center",
+                            alignItems: "center",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <p className="username">{userData.displayName}</p>
+                        </div>
+                      </div>
+                      <CiCamera
+                        className="icon-camera"
+                        onClick={() => handleShowChoiceAvatar(true)}
+                      />
                     </div>
-                  </div>
-                  <CiCamera
-                    className="icon-camera"
-                    onClick={() => handleShowChoiceAvatar(true)}
-                  />
-                </div>
-                <div className="user-infor">
-                  <h3>Thông tin cá nhân</h3>
-                  <div>
-                    <table>
-                      <tbody>
-                        <tr>
-                          <td>Giới tính</td>
-                          <td></td>
-                        </tr>
-                        <tr>
-                          <td>Ngày sinh</td>
-                          <td></td>
-                        </tr>
-                        <tr>
-                          <td>Điện thoại</td>
-                          <td>{userData.phone}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                    <p
-                      style={{
-                        color: "#7589a3",
-                        margin: "10px 20px",
-                        fontSize: "13px",
-                      }}
-                    >
-                      Chỉ bạn bè có lưu số của bạn trong danh bạ máy xem được số
-                      này
-                    </p>
-                  </div>
-                  <div>
-                    <div
-                      style={{
-                        paddingTop: "10px",
-                        borderTop: "1px solid rgb(202, 199, 200)",
-                        width: "350px",
-                        margin: "auto",
-                      }}
-                    >
-                      <div className="wrap-btn-update flex">
-                        <p className="btn-update" style={{ fontWeight: 500 }}>
-                          Cập nhật
+                    <div className="user-infor">
+                      <h3>Thông tin cá nhân</h3>
+                      <div>
+                        <table>
+                          <tbody>
+                            <tr>
+                              <td>Giới tính</td>
+                              <td>{userData.gender}</td>
+                            </tr>
+                            <tr>
+                              <td>Ngày sinh</td>
+                              <td>{userData.dob}</td>
+                            </tr>
+                            <tr>
+                              <td>Điện thoại</td>
+                              <td>{userData.phone}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                        <p
+                          style={{
+                            color: "#7589a3",
+                            margin: "10px 20px",
+                            fontSize: "13px",
+                          }}
+                        >
+                          Chỉ bạn bè có lưu số của bạn trong danh bạ máy xem được số
+                          này
                         </p>
-                        <CiEdit className="icon-edit" />
+                      </div>
+                      <div>
+                        <div
+                          style={{
+                            paddingTop: "10px",
+                            borderTop: "1px solid rgb(202, 199, 200)",
+                            width: "350px",
+                            margin: "auto",
+                          }}
+                        >
+                          <div className="wrap-btn-update flex" onClick={() => setShowUpdateProfile(true)} style={{cursor: 'pointer'}}>
+                            <p className="btn-update" style={{ fontWeight: 500 }}>
+                              Cập nhật
+                            </p>
+                            <CiEdit className="icon-edit" />
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            ) : (
-              <div className="change-avatar">
-                <div className="input-number-group">
-                  <CiSearch className="icon-search" />
-                  <input
-                    type="text"
-                    placeholder="Nhập url hình ảnh"
-                    name="avatar"
-                    value={dataUpdate.avatar}
-                    onChange={handleChangeDataUpdate}
-                  />
-                </div>
-                <div>
-                  <ul className="ex-avatar flex">
-                    {listAvatarGr?.map((item, index) => (
-                      <li key={index}>
-                        <img
-                          src={item}
-                          alt=""
-                          className={
-                            item === newAvatar ? "ex-avatar-choice" : ""
-                          }
-                          onClick={() => handleChoiceNewAvatar(item)}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="btn-find-friend flex">
-                    <button onClick={() => handleShowChoiceAvatar(false)}>
-                      Hủy
-                    </button>
-                    <button
-                      onClick={handleUpdateAvatar}
-                      style={{ backgroundColor: "#0068ff", color: "white" }}
-                    >
-                      Cập nhật
-                    </button>
+                ) : (
+                  <div className="change-avatar">
+                    <div className="input-number-group">
+                      <CiSearch className="icon-search" />
+                      <input
+                        type="text"
+                        placeholder="Nhập url hình ảnh"
+                        name="avatar"
+                        value={dataUpdate.avatar}
+                        onChange={handleChangeDataUpdate}
+                      />
+                    </div>
+                    <div>
+                      <ul className="ex-avatar flex">
+                        {listAvatarGr?.map((item, index) => (
+                          <li key={index}>
+                            <img
+                              src={item}
+                              alt=""
+                              className={
+                                item === newAvatar ? "ex-avatar-choice" : ""
+                              }
+                              onClick={() => handleChoiceNewAvatar(item)}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="btn-find-friend flex">
+                        <button onClick={() => handleShowChoiceAvatar(false)}>
+                          Hủy
+                        </button>
+                        <button
+                          onClick={handleUpdateAvatar}
+                          style={{ backgroundColor: "#0068ff", color: "white" }}
+                        >
+                          Cập nhật
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
+              </>
+            )}
+
+            {/* Devices Tab Content */}
+            {activeTab === "devices" && (
+              <div style={{ padding: "0 15px" }}>
+                <DeviceManager />
               </div>
             )}
           </div>
         </div>
       </div>
+    {showUpdateProfile && <UpdateProfileModal onClose={() => setShowUpdateProfile(false)} />}
     </>
   );
 }

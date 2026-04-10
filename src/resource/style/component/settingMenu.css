@@ -1,0 +1,164 @@
+/* Setting Menu Dropdown - Zalo Style */
+
+.setting-menu-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 900;
+  background: transparent;
+}
+
+.setting-menu-dropdown {
+  position: fixed;
+  top: 130px;
+  right: 20px;
+  width: 280px;
+  z-index: 1000;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  animation: slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Menu List */
+.setting-menu-list {
+  padding: 8px 0;
+}
+
+.setting-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  background: white;
+}
+
+.setting-menu-item:hover {
+  background: #f5f5f5;
+}
+
+.setting-menu-item:active {
+  background: #efefef;
+}
+
+.setting-menu-item.active {
+  background: #e3f2fd;
+}
+
+.setting-menu-item.active .menu-item-icon {
+  color: #0090f2;
+}
+
+/* Menu Item Icon */
+.menu-item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: #f0f2f5;
+  color: #333;
+  font-size: 20px;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.setting-menu-item:hover .menu-item-icon {
+  background: #e8e8e8;
+}
+
+.setting-menu-item.active .menu-item-icon {
+  background: #e3f2fd;
+  color: #0090f2;
+}
+
+/* Menu Item Content */
+.menu-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.menu-item-content h3 {
+  margin: 0 0 2px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #111;
+  line-height: 1.3;
+}
+
+.menu-item-content p {
+  margin: 0;
+  font-size: 12px;
+  color: #999;
+  line-height: 1.3;
+}
+
+.setting-menu-item.active .menu-item-content h3 {
+  color: #0090f2;
+}
+
+/* Arrow */
+.menu-item-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: #ccc;
+  font-size: 20px;
+  line-height: 1;
+  transition: all 0.2s ease;
+}
+
+.setting-menu-item:hover .menu-item-arrow {
+  color: #999;
+  transform: translateX(2px);
+}
+
+.setting-menu-item.active .menu-item-arrow {
+  color: #0090f2;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .setting-menu-dropdown {
+    right: 10px;
+    width: 260px;
+    top: 120px;
+  }
+
+  .setting-menu-item {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .menu-item-icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .menu-item-content h3 {
+    font-size: 13px;
+  }
+
+  .menu-item-content p {
+    font-size: 11px;
+  }
+}
