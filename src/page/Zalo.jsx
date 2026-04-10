@@ -1,44 +1,83 @@
 import React, { useContext, useLayoutEffect, useState, useEffect } from "react";
 import { UserContext } from "../Context/UserContext";
+import { useNavigate } from "react-router-dom";
 import Login from "./Login";
 import Chat from "./Chat";
 import Loadding from "./Loadding";
-import { userLogout, userLoginByToken } from "../util/api";
+import { userLogout, userLoginByToken, getCurrentUser } from "../util/api";
+import WebSocketService from "../services/WebSocketService";
 
 export default function Zalo() {
   const [chat, setChat] = useState(false);
   const { setUserData } = useContext(UserContext);
   const [isLoadding, setIsLoadding] = useState(true);
+  const navigate = useNavigate();
 
   const handleChangeStateChat = () => {
     setChat(true);
   };
 
+  const handleLogout = async () => {
+    const response = await userLogout();
+    console.error("Logout error:", err);
+    // Thực hiện logout cơ bản ngay cả khi API fail
+    localStorage.setItem("isLogin", "false");
+    localStorage.removeItem("userProfile");
+    localStorage.removeItem("deviceId");
+    setChat(false);
+    setUserData(null);
+    navigate("/auth/login");
+  };
+
   useEffect(() => {
-    const fetchLoginToken = async () => {
+    const fetchUserProfile = async () => {
       try {
-        const response = await userLoginByToken();
-        if (response.status === 200) {
-          setUserData(response.data);
-          setChat(true);
+        // Check isLogin từ localStorage
+        const isLogin = localStorage.getItem("isLogin");
+        
+        if (isLogin === "true") {
+          // Gọi getCurrentUser để lấy thông tin người dùng
+          const response = await getCurrentUser();
+          
+          if (response.data) {
+            // Lưu thông tin người dùng vào localStorage
+            localStorage.setItem("userProfile", JSON.stringify(response.data));
+            // Context wrapper sẽ tự động transform
+            setUserData(response.data);
+            setChat(true);
+          } else {
+            setChat(false);
+          }
         } else {
           setChat(false);
         }
         setIsLoadding(false);
       } catch (err) {
+        console.error("Fetch user profile error:", err);
+        setChat(false);
         setIsLoadding(false);
       }
     };
-    fetchLoginToken();
+    fetchUserProfile();
   }, []);
 
-  const handleLogout = async () => {
-    const response = await userLogout();
-    if (response.status === 200) {
-      localStorage.clear();
-      setChat(false);
+  // Setup WebSocket listener for remote logout
+  useEffect(() => {
+    if (chat) {
+      // Khi nhận được device-logout từ WebSocket, gọi handleLogout
+      const handleRemoteLogout = (event) => {
+        console.log("[Zalo] Remote logout received:", event);
+        handleLogout();
+      };
+
+      WebSocketService.on("device-logout", handleRemoteLogout);
+
+      return () => {
+        // Cleanup listener khi component unmount
+        WebSocketService.off("device-logout", handleRemoteLogout);
+      };
     }
-  };
+  }, [chat]);
 
   return (
     <>

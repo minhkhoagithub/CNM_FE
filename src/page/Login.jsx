@@ -7,6 +7,8 @@ import { IoIosPhonePortrait } from "react-icons/io";
 import { CiLock } from "react-icons/ci";
 import Loadding from "./Loadding";
 import { userLogin } from "../util/api";
+import FingerprintJS from "@fingerprintjs/fingerprintjs";
+import { UAParser } from "ua-parser-js";
 
 export default function Login({ handleChangeStateChat }) {
   const [activeQr, setActiveQr] = useState(true);
@@ -84,15 +86,81 @@ function LoginQr() {
 
 function LoginAccount({ handleChangeStateChat }) {
   const { setUserData } = useContext(UserContext);
+  const navigate = useNavigate();
+  const handleForgotPassword = () => {
+    navigate("/auth/forgot-password");
+  };
   const [value, setValue] = useState({
-    phone: "",
+    username: "",
     password: "",
+    deviceId: "",
+    deviceName: "",
   });
   const [stateLogin, setStateLogin] = useState("");
   const [disableBtn, setDisableBtn] = useState(true);
 
+  // Get device fingerprint and platform from user agent
   useEffect(() => {
-    if (value.phone.length >= 4 && value.password.length >= 4) {
+    const initializeDeviceInfo = async () => {
+      try {
+        // Get device fingerprint
+        const fp = await FingerprintJS.load();
+        const result = await fp.get();
+        const deviceId = result.visitorId;
+
+        // Get platform and device info from user agent
+        const parser = new UAParser();
+        const ua = parser.getResult();
+        const osName = ua.os.name || "Unknown";
+        const osVersion = ua.os.version || "";
+        const browserName = ua.browser.name || "Unknown";
+        
+        // Format OS name with version
+        const osFullName = osVersion ? `${osName} ${osVersion}` : osName;
+        const deviceName = `${browserName} on ${osFullName}`;
+
+        // Determine platform
+        let platform = "WEB";
+        if (ua.os.name === "Android") {
+          platform = "ANDROID";
+        } else if (ua.os.name === "iOS") {
+          platform = "IOS";
+        } else {
+          platform = "WEB";
+        }
+
+        // Save to state
+        setValue((prev) => ({
+          ...prev,
+          deviceId: deviceId,
+          deviceName: deviceName,
+          platform: platform,
+        }));
+
+        // Console log info
+        console.log("Device ID:", deviceId);
+        console.log("Device Name:", deviceName);
+        console.log("Platform:", platform);
+
+        // Save device ID to localStorage
+        localStorage.setItem("deviceId", deviceId);
+      } catch (error) {
+        console.error("Error getting device info:", error);
+        // Fallback values
+        setValue((prev) => ({
+          ...prev,
+          deviceId: localStorage.getItem("deviceId") || "WEB_" + Date.now(),
+          deviceName: "Zalo Web",
+          platform: "WEB",
+        }));
+      }
+    };
+
+    initializeDeviceInfo();
+  }, []);
+
+  useEffect(() => {
+    if (value.username.length >= 4 && value.password.length >= 4) {
       setDisableBtn(false);
     } else {
       setDisableBtn(true);
@@ -106,23 +174,30 @@ function LoginAccount({ handleChangeStateChat }) {
   const handleLoginAccount = async () => {
     try {
       const response = await userLogin({
-        phone: value.phone,
-        password: value.phone,
+        username: value.username,
+        password: value.password,
+        deviceId: value.deviceId,
+        platform: value.platform || "WEB",
+        deviceName: value.deviceName,
       });
       if (response.status === 200) {
-        setUserData(response.data);
-        handleChangeStateChat();
+        // Lưu isLogin vào localStorage
+        localStorage.setItem("isLogin", "true");
+        
+        // Pass data từ response.data.data, context sẽ transform
+        setUserData(response.data.data);
         setStateLogin("");
-      }
-
-      if (response.status === 200) {
-        setUserData(response.data);
-        handleChangeStateChat();
-        setStateLogin("");
+        
+        // Redirect tới trang chính
+        navigate("/");
       }
     } catch (err) {
-      setStateLogin("Tài khoản hoặc mật khẩu không đúng");
-      // setStateLogin(err);
+      // Lấy message lỗi chi tiết từ server hoặc dùng message generic
+      const errorMessage = err.response?.data?.message || 
+                          err.response?.data?.error || 
+                          "Tài khoản hoặc mật khẩu không đúng";
+      
+      setStateLogin(errorMessage);
     }
   };
 
@@ -143,9 +218,9 @@ function LoginAccount({ handleChangeStateChat }) {
               <IoIosPhonePortrait className="icon-login" />
               <input
                 type="text"
-                placeholder="Số điện thoại"
-                name="phone"
-                value={value.phone}
+                placeholder="Số điện thoại hoặc email"
+                name="username"
+                value={value.username}
                 onChange={(e) => handleChangeData(e)}
                 onKeyDown={handleButtonLogin}
               />
@@ -153,7 +228,7 @@ function LoginAccount({ handleChangeStateChat }) {
             <div className="flex">
               <CiLock className="icon-login" />
               <input
-                type="text"
+                type="password"
                 placeholder="Mật khẩu"
                 value={value.password}
                 name="password"
@@ -188,7 +263,11 @@ function LoginAccount({ handleChangeStateChat }) {
             </div>
           </div>
         </div>
-        <div className="login-forgot-pass">
+        <div 
+          className="login-forgot-pass"
+          onClick={handleForgotPassword}
+          style={{ cursor: 'pointer' }}
+        >
           <p>Quên mật khẩu?</p>
         </div>
       </div>
