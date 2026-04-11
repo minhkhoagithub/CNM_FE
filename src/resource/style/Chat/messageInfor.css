@@ -25,13 +25,14 @@
 
 .mess-infor-header-infor {
   background-color: white;
-  height: 235px;
+  min-height: 255px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  padding-bottom: 12px;
 }
 .mess-infor-wrap-avatar {
-  height: 130px;
+  min-height: 150px;
   display: flex;
   flex-direction: column;
   justify-content: space-around;
@@ -61,14 +62,16 @@
   width: 85px;
   height: 85px;
   border-radius: 50%;
+  box-shadow: 0 16px 28px rgba(52, 68, 88, 0.12);
 }
 .mess-infor-header-infor-tool {
   justify-content: space-around;
   padding-bottom: 8px;
   margin: 10px;
+  gap: 8px;
 }
 .mess-infor-header-infor-tool div {
-  width: 75px;
+  width: 82px;
   display: flex;
   flex-direction: column;
   flex-wrap: wrap;
@@ -78,15 +81,56 @@
   cursor: pointer;
   text-align: center;
 }
+.mess-infor-status-chips {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 0 16px;
+}
+.mess-infor-status-chip {
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #5c6d80;
+  background-color: #eef3f7;
+}
+.mess-infor-status-chip.pinned {
+  color: #8a5a00;
+  background-color: #fff2cf;
+}
+.mess-infor-status-chip.muted {
+  color: #5f6772;
+  background-color: #edf1f5;
+}
+.mess-infor-status-chip.archived {
+  color: #597369;
+  background-color: #edf5ef;
+}
+.mess-infor-quick-action {
+  padding: 10px 6px;
+  border-radius: 14px;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+.mess-infor-quick-action:hover {
+  background-color: #f5f8fc;
+  transform: translateY(-1px);
+}
 .mess-infor-footer-tool {
   min-height: 248px;
+  background: linear-gradient(180deg, #f7fafc 0%, #ffffff 10%);
 }
 .mess-infor-footer-tool li {
   background-color: white;
-  margin: 8px 0;
+  margin: 10px 8px;
+  border: 1px solid #e8edf2;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 10px 24px rgba(48, 61, 78, 0.06);
 }
 .title-tool {
-  padding: 12px;
+  padding: 14px 14px;
   cursor: pointer;
   justify-content: space-between;
 }
@@ -134,8 +178,68 @@
 }
 
 .li-tool-active {
-  height: 170px;
-  transition: height 0.3s;
+  min-height: 170px;
+  height: auto;
+  transition: min-height 0.3s;
+}
+.mess-infor-panel-body {
+  padding: 0 14px 14px;
+  display: grid;
+  gap: 12px;
+}
+.mess-infor-section-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #7589a3;
+  background-color: #f7fafc;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+.mess-infor-member-list,
+.mess-infor-add-member {
+  display: grid;
+  gap: 8px;
+}
+.mess-infor-member-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #dfe6ed;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background-color: #fcfdff;
+}
+.mess-infor-member-actions {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+.mess-infor-danger-outline,
+.mess-infor-danger-soft {
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mess-infor-danger-outline {
+  border: 1px solid #d84747;
+  background-color: white;
+  color: #d84747;
+}
+.mess-infor-danger-soft {
+  border: 1px solid #b42318;
+  background-color: #fff5f4;
+  color: #b42318;
+}
+.mess-infor-feedback-error {
+  color: #c53737;
+  font-size: 13px;
+  margin: 8px 12px 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background-color: #fff1f1;
 }
 .li-tool-active .btn-all-data {
   visibility: visible;

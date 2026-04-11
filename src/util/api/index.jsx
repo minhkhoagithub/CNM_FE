@@ -56,7 +56,7 @@ export const userLoginByToken = async () => {
   try {
     const response = await apiClient.post("/auth/token", {});
     return response;
-  } catch (error) {
+  } catch {
     // Mock data nếu backend không sẵn sàng
     return {
       status: 200,
@@ -102,14 +102,6 @@ export const getFriendByName = async ({ friendName, userId }) => {
   });
   return response;
 };
-export const createGroup = async ({ groupName, listMember, avatarGroup }) => {
-  const response = await apiClient.post("/group/creategroup", {
-    groupName,
-    listMember,
-    avatarGroup,
-  });
-  return response;
-};
 export const getUserByPhone = async ({ phone, id }) => {
   const response = await apiClient.post("/user/getphone", {
     phone,
@@ -132,37 +124,6 @@ export const getFriendRes = async ({ id }) => {
 export const getGroupReq = async ({ userId }) => {
   const response = await apiClient.post("/user/getgroupreq", {
     id: userId,
-  });
-  return response;
-};
-// Conversation
-export const getAllConversation = async ({ id }) => {
-  const response = await apiClient.post(
-    "/conversation/getallconversationbyuser",
-    { id }
-  );
-  return response;
-};
-export const getConversationByIdFriend = async ({ userId, friendId }) => {
-  const response = await apiClient.post(
-    "/conversation/getconversationbyfriendid",
-    {
-      userId,
-      friendId,
-    }
-  );
-  return response;
-};
-export const delConversationById = async ({ idConversation }) => {
-  const response = await apiClient.post("/conversation/delconversation", {
-    idConversation: idConversation,
-  });
-  return response;
-};
-// Message
-export const getMessageByConversation = async ({ idConversation }) => {
-  const response = await apiClient.post("/message/getallmessage", {
-    idConversation: idConversation,
   });
   return response;
 };

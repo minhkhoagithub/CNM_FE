@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState, useRef } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import "../../resource/style/AddressBook/contentMenuContact.css";
 import {
   LoiMoiKetBan,
@@ -8,223 +8,177 @@ import {
 } from "./MenuContact";
 import { UserContext } from "../../Context/UserContext";
 import { TbMessageDots } from "react-icons/tb";
-import axios from "axios";
 import { crudFriend, getFriendReq } from "../../util/api";
 
-export const HUY_LOI_MOI_KET_BAN = "Thu hồi lời mời";
-export const KET_BAN = "Kết bạn";
-export const DONG_Y = "Đồng ý";
-export const BAN_BE = "Bạn bè";
-export const XOA_BAN_BE = "Xóa bạn bè";
-export const BO_QUA = "Bỏ qua";
-export const ACTIVE = "Active";
+export const HUY_LOI_MOI_KET_BAN = "Thu hoi loi moi";
+export const KET_BAN = "Ket ban";
+export const DONG_Y = "Dong y";
+export const BAN_BE = "Ban be";
+export const XOA_BAN_BE = "Xoa ban be";
+export const BO_QUA = "Bo qua";
 
-export default function ({
+const defaultFlags = {
+  XoaKetBan: false,
+  ThuHoiLoiMoi: false,
+  DongY: false,
+  KetBan: false,
+  BoQua: false,
+  BanBe: false,
+  XoaBanBe: false,
+};
+
+const buildListData = (dataContentContac, title) => {
+  const nextMap = new Map();
+
+  if (Array.isArray(dataContentContac) && dataContentContac.length > 0) {
+    if (title === DanhSachBanBe) {
+      dataContentContac.forEach((item) => {
+        nextMap.set(item._id, {
+          ...item,
+          ...defaultFlags,
+          XoaBanBe: true,
+          BanBe: true,
+        });
+      });
+    } else if (title === LoiMoiKetBan) {
+      dataContentContac.forEach((item) => {
+        nextMap.set(item._id, {
+          ...item,
+          ...defaultFlags,
+          DongY: true,
+          BoQua: true,
+        });
+      });
+    }
+  }
+
+  return nextMap;
+};
+
+export default function ContentMenuContact({
   dataContentContac,
   title,
   count,
   handleShowSoftConversation,
 }) {
-  const { userData, socket } = useContext(UserContext);
-  const [currentContact, setCurrentContact] = useState(null);
+  const { userData } = useContext(UserContext);
   const [friendReq, setFriendReq] = useState([]);
-  const contant = {
-    XoaKetBan: false,
-    ThuHoiLoiMoi: false,
-    DongY: false,
-    KetBan: false,
-    BoQua: false,
-    BanBe: false,
-    XoaBanBe: false,
-  };
-
-  const [listData, setListData] = useState(new Map([]));
+  const [listData, setListData] = useState(() => buildListData(dataContentContac, title));
   const [resultSearch, setResultSearch] = useState({
     state: false,
     data: new Map([]),
   });
 
   useEffect(() => {
-    setListData(new Map([]));
-    if (dataContentContac && dataContentContac.length > 0) {
-      if (title === DanhSachBanBe) {
-        setListData(() => {
-          const mapConact = new Map();
-          dataContentContac?.map((item) => {
-            const state = {
-              ...item,
-              ...contant,
-              XoaBanBe: true,
-              BanBe: true,
-            };
-            mapConact.set(item._id, state);
-          });
-          return mapConact;
-        });
-      } else if (title === LoiMoiKetBan) {
-        setListData(() => {
-          const mapContact = new Map();
-          dataContentContac?.map((item) => {
-            const state = {
-              ...item,
-              ...contant,
-              DongY: true,
-              BoQua: true,
-            };
-            mapContact.set(item._id, state);
-          });
-          return mapContact;
-        });
-      } else {
-        setListData(new Map([]));
-      }
-    }
-    setCurrentContact(null);
-  }, [title]);
-
-  useEffect(() => {
     const fetch = async () => {
-      // Neu la loi moi ket ban thi call ca friend req
       if (title === LoiMoiKetBan) {
         const response = await getFriendReq({ id: userData._id });
-        if (response.status === 200) {
-          if (response.data.length > 0) {
-            setFriendReq(response.data);
-          }
+        if (response.status === 200 && Array.isArray(response.data)) {
+          setFriendReq(response.data);
+        } else {
+          setFriendReq([]);
         }
       }
     };
+
     fetch();
-  }, [title]);
+  }, [title, userData?._id]);
 
-  useEffect(() => {
-    if (currentContact) {
-      socket.current.on("recieve-crud-fr", (data) => {
-        if (data.mess === KET_BAN) {
-          let temp = listData.get(currentContact);
+  const updateListStateByAction = (friendId, action) => {
+    setListData((prevState) => {
+      const nextState = new Map(prevState);
+      const current = nextState.get(friendId);
 
-          if (temp) {
-            const newListData = listData.set(currentContact, {
-              ...temp,
-              ...contant,
-              KetBan: true,
-            });
-            setListData(new Map(newListData));
-          }
-        }
-        if (data.mess === HUY_LOI_MOI_KET_BAN) {
-          let temp = listData.get(currentContact);
+      if (!current) {
+        return nextState;
+      }
 
-          if (temp) {
-            const newListData = listData.set(currentContact, {
-              ...temp,
-              ...contant,
-              ThuHoiLoiMoi: true,
-            });
-            setListData(new Map(newListData));
-          }
-        }
-        if (data.mess === DONG_Y) {
-          let temp = listData.get(currentContact);
+      if (action === HUY_LOI_MOI_KET_BAN) {
+        nextState.delete(friendId);
+        return nextState;
+      }
 
-          if (temp) {
-            const newListData = listData.set(currentContact, {
-              ...temp,
-              ...contant,
-              DongY: true,
-            });
-            setListData(new Map(newListData));
-          }
-        }
-        if (data.mess === BO_QUA) {
-          let temp = listData.get(currentContact);
+      if (action === XOA_BAN_BE) {
+        nextState.delete(friendId);
+        return nextState;
+      }
 
-          if (temp) {
-            const newListData = listData.set(currentContact, {
-              ...temp,
-              ...contant,
-              BoQua: true,
-            });
-            setListData(new Map(newListData));
-          }
-        }
-        if (data.mess === BAN_BE) {
-          let temp = listData.get(currentContact);
+      if (action === DONG_Y || action === BAN_BE) {
+        nextState.set(friendId, {
+          ...current,
+          ...defaultFlags,
+          BanBe: true,
+          XoaBanBe: true,
+        });
+        return nextState;
+      }
 
-          if (temp) {
-            const newListData = listData.set(currentContact, {
-              ...temp,
-              ...contant,
-              BanBe: true,
-              XoaBanBe: true,
-            });
-            setListData(new Map(newListData));
-          }
-        }
-      });
-    }
+      if (action === BO_QUA) {
+        nextState.delete(friendId);
+        return nextState;
+      }
 
-    if (socket.current) {
-      return () => {
-        socket.current.off("recieve-crud-fr");
-      };
-    }
-  }, [currentContact]);
+      if (action === KET_BAN) {
+        nextState.set(friendId, {
+          ...current,
+          ...defaultFlags,
+          ThuHoiLoiMoi: true,
+        });
+      }
 
-  const handleCrudFriend = async (friend, e, key) => {
-    setCurrentContact(key);
+      return nextState;
+    });
+  };
+
+  const handleCrudFriend = async (friend, e) => {
+    const action = e.target.textContent;
     const data = {
       userId: userData._id,
       friendId: friend._id,
-      state: e.target.textContent,
+      state: action,
     };
     const response = await crudFriend(data);
+
     if (response.status === 200) {
-      if (data.state === HUY_LOI_MOI_KET_BAN && title === LoiMoiKetBan) {
-        setFriendReq((prevFriendReq) => {
-          const newFriendReq = prevFriendReq.filter(
-            (item) => item._id !== friend._id
-          );
-          return newFriendReq;
-        });
-        return;
-      } else {
-        socket.current.emit("crud-friend", data);
+      if (action === HUY_LOI_MOI_KET_BAN && title === LoiMoiKetBan) {
+        setFriendReq((prevFriendReq) =>
+          prevFriendReq.filter((item) => item._id !== friend._id)
+        );
       }
+
+      updateListStateByAction(friend._id, action);
     }
   };
 
   const handleSeachContact = (e) => {
     const stringName = e.target.value;
-    if (
-      stringName !== "" &&
-      stringName !== undefined &&
-      stringName.length > 0
-    ) {
-      if (stringName.trim() !== "") {
-        const stringPure = stringName.trim().toLowerCase();
-        const newMap = new Map();
-        Array.from(listData).map(([key, item]) => {
-          if (item.username.trim().toLowerCase().startsWith(stringPure)) {
-            newMap.set(key, item);
-          }
-        });
-        setResultSearch({
-          state: true,
-          data: newMap.size > 0 ? newMap : new Map([]),
-        });
-      }
-    } else {
-      setResultSearch({
-        state: false,
-        data: new Map([]),
+    if (stringName && stringName.trim() !== "") {
+      const stringPure = stringName.trim().toLowerCase();
+      const nextMap = new Map();
+
+      Array.from(listData).forEach(([key, item]) => {
+        const itemName = item.username || item.displayName || "";
+        if (itemName.trim().toLowerCase().startsWith(stringPure)) {
+          nextMap.set(key, item);
+        }
       });
+
+      setResultSearch({
+        state: true,
+        data: nextMap,
+      });
+      return;
     }
+
+    setResultSearch({
+      state: false,
+      data: new Map([]),
+    });
   };
 
   return (
     <>
-      {listData && (
+      {listData ? (
         <div className="waper-content-menu-contact">
           <div className="header-content-menu-contact flex">
             <h3>{title}</h3>
@@ -232,27 +186,21 @@ export default function ({
           <div className="list-fetch-contact">
             <div className="total-fetch">{count}</div>
             <div className="content-fetch-contact">
-              {listData?.size > 0 && (
+              {listData?.size > 0 ? (
                 <div>
-                  <input
-                    type="text"
-                    placeholder="Tìm kiếm"
-                    onChange={handleSeachContact}
-                  />
+                  <input type="text" placeholder="Tim kiem" onChange={handleSeachContact} />
                 </div>
-              )}
-              {
-                <ul
-                  style={{
-                    display: listData.size === 0 ? "flex" : undefined,
-                    justifyContent: listData.size === 0 ? "center" : undefined,
-                    alignItems: listData.size === 0 ? "center" : undefined,
-                  }}
-                >
-                  {listData.size > 0 ? (
-                    Array.from(
-                      resultSearch.state ? resultSearch.data : listData
-                    ).map(([key, item], index) => (
+              ) : null}
+              <ul
+                style={{
+                  display: listData.size === 0 ? "flex" : undefined,
+                  justifyContent: listData.size === 0 ? "center" : undefined,
+                  alignItems: listData.size === 0 ? "center" : undefined,
+                }}
+              >
+                {listData.size > 0 ? (
+                  Array.from(resultSearch.state ? resultSearch.data : listData).map(
+                    ([key, item], index) => (
                       <li
                         key={index}
                         style={{ justifyContent: "space-between" }}
@@ -263,109 +211,86 @@ export default function ({
                           onClick={() =>
                             handleShowSoftConversation({
                               ...item,
-                              idChatWidth: item._id,
+                              userId: item.userId || item._id,
                             })
                           }
                         >
                           <img
-                            src={item.avatar}
-                            alt={`avatar by ${item.username}`}
+                            src={item.avatar || item.avatarUrl}
+                            alt={`avatar by ${item.username || item.displayName}`}
                           />
-                          <p>{item.username}</p>
+                          <p>{item.username || item.displayName}</p>
                         </div>
-                        <div
-                          className="btn-state-contact"
-                          style={{ display: "none" }}
-                        >
-                          {item.BanBe && (
+                        <div className="btn-state-contact" style={{ display: "none" }}>
+                          {item.BanBe ? (
                             <button
-                              style={{
-                                backgroundColor: "rgb(220 224 227)",
-                                color: "black",
-                              }}
+                              style={{ backgroundColor: "rgb(220 224 227)", color: "black" }}
                               onClick={(e) => handleCrudFriend(item, e, key)}
                             >
                               {XOA_BAN_BE}
                             </button>
-                          )}
-                          {item.BanBe && (
-                            <button
-                              onClick={(e) => handleCrudFriend(item, e, key)}
-                            >
+                          ) : null}
+                          {item.BanBe ? (
+                            <button onClick={(e) => handleCrudFriend(item, e, key)}>
                               {BAN_BE}
                             </button>
-                          )}
-                          {item.KetBan && (
-                            <button
-                              onClick={(e) => handleCrudFriend(item, e, key)}
-                            >
+                          ) : null}
+                          {item.KetBan ? (
+                            <button onClick={(e) => handleCrudFriend(item, e, key)}>
                               {KET_BAN}
                             </button>
-                          )}
-                          {item.DongY && (
-                            <button
-                              onClick={(e) => handleCrudFriend(item, e, key)}
-                            >
+                          ) : null}
+                          {item.DongY ? (
+                            <button onClick={(e) => handleCrudFriend(item, e, key)}>
                               {BO_QUA}
                             </button>
-                          )}
-                          {item.DongY && (
-                            <button
-                              onClick={(e) => handleCrudFriend(item, e, key)}
-                            >
+                          ) : null}
+                          {item.DongY ? (
+                            <button onClick={(e) => handleCrudFriend(item, e, key)}>
                               {DONG_Y}
                             </button>
-                          )}
-                          {item.ThuHoiLoiMoi && (
-                            <button
-                              onClick={(e) => handleCrudFriend(item, e, key)}
-                            >
+                          ) : null}
+                          {item.ThuHoiLoiMoi ? (
+                            <button onClick={(e) => handleCrudFriend(item, e, key)}>
                               {HUY_LOI_MOI_KET_BAN}
                             </button>
-                          )}
+                          ) : null}
                         </div>
                       </li>
-                    ))
-                  ) : (
-                    <div>
-                      <img
-                        src="https://chat.zalo.me/assets/invitation-emptystate.248ad1da229565685f19d3d527985812.png"
-                        alt=""
-                      />
-                      <p style={{ padding: "10px", color: "#7589a3" }}>
-                        Không có dữ liệu
-                      </p>
-                    </div>
-                  )}
-                </ul>
-              }
+                    )
+                  )
+                ) : (
+                  <div>
+                    <img
+                      src="https://chat.zalo.me/assets/invitation-emptystate.248ad1da229565685f19d3d527985812.png"
+                      alt=""
+                    />
+                    <p style={{ padding: "10px", color: "#7589a3" }}>Khong co du lieu</p>
+                  </div>
+                )}
+              </ul>
             </div>
           </div>
-          {friendReq?.length > 0 && title === LoiMoiKetBan && (
+          {friendReq?.length > 0 && title === LoiMoiKetBan ? (
             <div>
               <div className="list-fetch-contact">
-                <div className="total-fetch">
-                  Lời mời đã gửi ({friendReq?.length})
-                </div>
+                <div className="total-fetch">Loi moi da gui ({friendReq?.length})</div>
               </div>
               <div className="friend-req">
                 <ul className="flex">
                   {friendReq.map((item, index) => (
                     <li key={index}>
-                      <div
-                        className="flex"
-                        style={{ justifyContent: "space-between" }}
-                      >
+                      <div className="flex" style={{ justifyContent: "space-between" }}>
                         <div className="item-fetch flex">
-                          <img src={item.avatar} alt="" />
-                          <p>{item.username}</p>
+                          <img src={item.avatar || item.avatarUrl} alt="" />
+                          <p>{item.username || item.displayName}</p>
                         </div>
                         <div
                           className="btn-soft-mess"
                           onClick={() =>
                             handleShowSoftConversation({
                               ...item,
-                              idChatWidth: item._id,
+                              userId: item.userId || item._id,
                             })
                           }
                         >
@@ -374,7 +299,7 @@ export default function ({
                       </div>
                       <div>
                         <button onClick={(e) => handleCrudFriend(item, e)}>
-                          Thu hồi lời mời
+                          Thu hoi loi moi
                         </button>
                       </div>
                     </li>
@@ -382,9 +307,9 @@ export default function ({
                 </ul>
               </div>
             </div>
-          )}
+          ) : null}
         </div>
-      )}
+      ) : null}
     </>
   );
 }
