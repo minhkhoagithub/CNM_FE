@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useContext, memo, useRef } from "react";
+import React, { useState, useEffect, useContext, memo, useRef, useCallback } from "react";
 import { UserContext } from "../Context/UserContext";
 import { FiUser } from "react-icons/fi";
 import { MdDelete, MdRefresh } from "react-icons/md";
 import axios from "axios";
-import io from "socket.io-client";
 import "../resource/style/Chat/chat.css";
 import Message from "../component/Message/Message";
 import AddressBook from "../component/AddressBook/AddressBook";
@@ -19,7 +18,7 @@ import toolbox from "../resource/svg/chat/toolbox.svg";
 import setting from "../resource/svg/chat/setting.svg";
 
 function Chat({ handleLogout }) {
-  const { userData, socket } = useContext(UserContext);
+  const { userData } = useContext(UserContext);
 
   const [showPageAddressBook, setShowPageAddressBook] = useState(false);
   const topMenu = [mess, addressbook, todo];
@@ -79,7 +78,7 @@ function Chat({ handleLogout }) {
   }, [boxRef, setIsShoeStartup, boxSettingRef, setShowSettingMenu]);
 
   // Fetch devices from backend
-  const fetchDevices = async () => {
+  const fetchDevices = useCallback(async () => {
     try {
       setLoadingDevices(true);
       setDeviceError(null);
@@ -105,7 +104,7 @@ function Chat({ handleLogout }) {
     } finally {
       setLoadingDevices(false);
     }
-  };
+  }, []);
 
   // Get device icon based on platform
   const getDeviceIcon = (platform) => {
@@ -153,7 +152,7 @@ function Chat({ handleLogout }) {
     if (accountSubSection === "loginLocations") {
       fetchDevices();
     }
-  }, [accountSubSection]);
+  }, [accountSubSection, fetchDevices]);
 
   const handleLogoutDevice = async (deviceId, platform, deviceName) => {
     if (!window.confirm(`Bạn có chắc chắn muốn đăng xuất khỏi "${deviceName}" không?`)) {

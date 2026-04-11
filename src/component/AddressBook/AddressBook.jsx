@@ -1,13 +1,11 @@
-import React, { useContext, useRef, useState } from "react";
+import React, { useContext, useState } from "react";
 import { ContactContext } from "../../Context/ContactConext";
-import { UserContext } from "../../Context/UserContext";
 import MessageInfor from "../Message/MessageInfor";
 import ContainerMess from "../Message/ContainerMess";
-import axios from "axios";
 import MenuContact from "./MenuContact";
 import ContentMenuContact from "./ContentMenuContact";
-import { useEffect } from "react";
-import { getConversationByIdFriend, getFriendById } from "../../util/api";
+import { createConversationV1 } from "../../services/chat/conversationApi";
+import { mapConversation } from "../../mappers/conversationMapper";
 
 export default function AddressBook() {
   const [dataContact, setDataContact] = useState(null);
@@ -17,64 +15,38 @@ export default function AddressBook() {
     title: null,
     count: null,
   });
-  const { socket, userData } = useContext(UserContext);
-  const handleChangeSoftContact = (value) => {
-    setDataContact(value);
-    setShowContentMenuContact({
-      state: false,
-      data: null,
-      title: null,
-      count: null,
+  const { openConversation } = useContext(ContactContext);
+
+  const resolveConversation = async (value) => {
+    if (value?.id) {
+      const nextConversation = openConversation(value);
+      setDataContact(nextConversation);
+      return nextConversation;
+    }
+
+    const participantId = value?.userId || value?._id || null;
+    if (!participantId) {
+      return null;
+    }
+
+    const response = await createConversationV1({
+      type: "PRIVATE",
+      participantIds: [participantId],
     });
+    const nextConversation = openConversation(mapConversation(response));
+    setDataContact(nextConversation);
+    return nextConversation;
   };
 
   const handleChangeContact = async (value) => {
     try {
-      if (value.idConversation === null || value.idConversation === undefined) {
-        const response = await getConversationByIdFriend({
-          userId: userData._id,
-          friendId: value._id,
-        });
-        if (response.status === 200) {
-          delete value.userId;
-          delete value._id;
-
-          const resData = response.data;
-          const format = {
-            ...resData,
-            ...value,
-          };
-          setDataContact(format);
-          setShowContentMenuContact({
-            state: false,
-            data: null,
-            title: null,
-            count: null,
-          });
-          return;
-        }
-        if (response.status === 204) {
-          const data = {
-            userId: value.userId,
-            friendId: value._id,
-          };
-
-          const response = await getFriendById({
-            friendId: data.friendId,
-          });
-          if (response.status === 200) {
-            setDataContact({ ...response.data, idChatWith: response.data._id });
-          }
-        }
-      } else {
-        setDataContact(value);
-        setShowContentMenuContact({
-          state: false,
-          data: null,
-          title: null,
-          count: null,
-        });
-      }
+      await resolveConversation(value);
+      setShowContentMenuContact({
+        state: false,
+        data: null,
+        title: null,
+        count: null,
+      });
     } catch (err) {
       console.error(err);
     }
@@ -86,46 +58,31 @@ export default function AddressBook() {
 
   const handleShowSoftConversation = (conversation) => {
     handleChangeContact(conversation);
-    setShowContentMenuContact({
-      state: false,
-      data: null,
-      title: null,
-      count: null,
-    });
   };
 
   return (
-    <>
-      <div className="container-mess flex">
-        <div>
-          <MenuContact
-            // Mo conversation
-            handleChangeContact={handleChangeContact}
-            // Mo conversation da co tn
-            handleChangeSoftContact={handleChangeSoftContact}
-            // Mo content cua menu contact AddressBook
-            handleSetContentMenuContact={handleSetContentMenuContact}
-          />
-        </div>
-
-        <div className="fetch-menu-contact">
-          {showContentMenuContact.state && (
-            <ContentMenuContact
-              dataContentContac={showContentMenuContact?.data}
-              title={showContentMenuContact?.title}
-              count={showContentMenuContact?.count}
-              handleShowSoftConversation={handleShowSoftConversation}
-            />
-          )}
-        </div>
-
-        <div>
-          {dataContact !== null && <ContainerMess contactData={dataContact} />}
-        </div>
-        <div>
-          {dataContact !== null && <MessageInfor contactData={dataContact} />}
-        </div>
+    <div className="container-mess flex">
+      <div>
+        <MenuContact
+          handleChangeContact={handleChangeContact}
+          handleSetContentMenuContact={handleSetContentMenuContact}
+        />
       </div>
-    </>
+
+      <div className="fetch-menu-contact">
+        {showContentMenuContact.state ? (
+          <ContentMenuContact
+            key={`${showContentMenuContact?.title || "none"}-${showContentMenuContact?.count || "0"}`}
+            dataContentContac={showContentMenuContact?.data}
+            title={showContentMenuContact?.title}
+            count={showContentMenuContact?.count}
+            handleShowSoftConversation={handleShowSoftConversation}
+          />
+        ) : null}
+      </div>
+
+      <div>{dataContact ? <ContainerMess contactData={dataContact} /> : null}</div>
+      <div>{dataContact ? <MessageInfor contactData={dataContact} /> : null}</div>
+    </div>
   );
 }

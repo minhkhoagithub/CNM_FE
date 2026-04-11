@@ -4,7 +4,7 @@ import React, {
   useContext,
   useRef,
   memo,
-  useLayoutEffect,
+  useMemo,
 } from "react";
 import { UserContext } from "../../Context/UserContext";
 import { ContactContext } from "../../Context/ContactConext";
@@ -12,27 +12,38 @@ import "../../resource/style/Chat/contact.css";
 import { CiSearch } from "react-icons/ci";
 import { HiOutlineUserPlus } from "react-icons/hi2";
 import { HiOutlineUserGroup } from "react-icons/hi2";
-import { MdExpandMore, MdMore } from "react-icons/md";
+import { MdExpandMore } from "react-icons/md";
 import { IoIosMore } from "react-icons/io";
 import { IoMdClose } from "react-icons/io";
 import { IoTriangle } from "react-icons/io5";
 import { BsFillCameraFill } from "react-icons/bs";
 import { RxDotFilled } from "react-icons/rx";
-import MenuContact from "../AddressBook/MenuContact";
-import { IconBase } from "react-icons/lib";
 import {
-  createGroup,
+  createConversationV1,
+  updateConversationArchiveV1,
+  updateConversationMuteV1,
+  updateConversationPinV1,
+} from "../../services/chat/conversationApi";
+import { mapConversation } from "../../mappers/conversationMapper";
+import {
   crudFriend,
-  delConversationById,
+  getAllFriend,
   getFriendByName,
   getUserByPhone,
 } from "../../util/api";
 
+const getUnreadConversationCount = (conversation) =>
+  Number(conversation?.unreadCount || 0);
+
+const getConversationDisplayName = (conversation) =>
+  conversation?.displayName || conversation?.title || "";
+
+const getConversationPreview = (conversation) =>
+  conversation?.lastMessage || `Gui loi chao den ${getConversationDisplayName(conversation)}`;
+
 function Contact({
   handleChangeContact,
   showPageAddressBook,
-  handleChangeSoftContact,
-  disableContainer,
 }) {
   const [textSearch, setTextSearch] = useState("");
   const [isSearch, setIsSearch] = useState({
@@ -49,8 +60,9 @@ function Contact({
     group: false,
   });
   const [allMessActive, setAllMessActive] = useState(true);
-  const [conversationList, setConversationList] = useState([]);
-  const [conversationListNotSeen, setConversationListNotSeen] = useState([]);
+  const [showArchived, setShowArchived] = useState(false);
+  const [conversationSettingsError, setConversationSettingsError] = useState("");
+  const [pendingConversationId, setPendingConversationId] = useState(null);
 
   const [dataUserPhone, setDataUserPhone] = useState({
     username: "",
@@ -67,6 +79,7 @@ function Contact({
     showAvt: false,
     avatar: null,
   });
+  const [friendOptions, setFriendOptions] = useState([]);
   const listAvatarGr = [
     "https://res.zaloapp.com/pc/avt_group/1_family.jpg",
     "https://res.zaloapp.com/pc/avt_group/2_family.jpg",
@@ -82,15 +95,24 @@ function Contact({
     "https://res.zaloapp.com/pc/avt_group/12_school.jpg",
   ];
   const {
-    contact,
-    setContact,
+    conversations,
     fetchConversation,
-    currentConversation,
-    setCurrentConversation,
+    fetchArchivedConversations,
+    upsertConversation,
+    archivedConversations,
+    selectedConversationId,
+    updateConversationById,
   } = useContext(ContactContext);
-  const { userData, socket } = useContext(UserContext);
+  const { userData } = useContext(UserContext);
   const searchTimeout = useRef(null);
-  const conversationAvticve = useRef(null);
+  const displayedConversationList = showArchived ? archivedConversations : conversations;
+  const displayedConversationListNotSeen = useMemo(
+    () =>
+      displayedConversationList.filter(
+        (item) => getUnreadConversationCount(item) > 0
+      ),
+    [displayedConversationList]
+  );
 
   useEffect(() => {
     const local = localStorage.getItem("user-search");
@@ -105,89 +127,29 @@ function Contact({
   }, []);
 
   useEffect(() => {
-    if (socket.current) {
-      socket.current.on("received-soft-conversation", (data) => {
-        setContact((prevContact) => [data, ...prevContact]);
-        setConversationList((prevContact) => [data, ...prevContact]);
-      });
-      socket.current.on("received-soft-contact-conversation", (data) => {
-        setContact((prevContact) => [data, ...prevContact]);
-        handleChangeContact({ ...data, userId: userData._id });
-        conversationAvticve.current = data._id;
-      });
-      socket.current.on("received-soft-mess", (data) => {
-        data.idChatWith = data._id;
-        handleChangeSoftContact(data);
-      });
-      socket.current.on("recieve-lastmess", (data) => {
-        if (contact && contact.length > 0) {
-          setContact((prevState) => {
-            let itemReviece = {};
-            const filter = prevState.filter((item) => {
-              if (item.idConversation == data.idConversation) {
-                item.lastMessage = data.lastMessage;
-                item.lastSend = data.lastSend;
-                itemReviece = item;
-              } else {
-                return item;
-              }
-            });
-            return [itemReviece, ...filter];
-          });
-        }
-      });
-      socket.current.on("recieve-count-seen", (data) => {
-        if (contact && contact.length > 0) {
-          setContact((prevState) => {
-            const filter = prevState.map((item) => {
-              if (item.idConversation == data.idConversation) {
-                item.countMessseen = data.countMessseen;
-              }
-              return item;
-            });
-            return filter;
-          });
-        }
-      });
-    }
-    if (socket.current) {
-      return () => {
-        socket.current.off("received-soft-conversation");
-        socket.current.off("received-soft-contact-conversation");
-        socket.current.off("received-soft-mess");
-        socket.current.off("recieve-lastmess");
-        socket.current.off("recieve-count-seen");
-      };
-    }
-  }, [socket.current]);
+    const fetchFriendOptions = async () => {
+      if (!userData?._id) {
+        return;
+      }
 
-  useEffect(() => {
-    if (socket.current) {
-      socket.current.on("recieve-crud-fr", (data) => {
-        if (dataUserPhone.data?._id == data.id) {
-          if (data.refreshCoversation) {
-            fetchConversation();
-          }
-          setDataUserPhone((prevState) => {
-            return {
-              ...prevState,
-              state: data.mess,
-              show: prevState.state !== null ? true : false,
-              cancel: data.cancel ? data.cancel : null,
-              unfriend: data.unfriend ? data.unfriend : null,
-              // checkId: data.id,
-            };
-          });
-        }
-      });
-    }
+      try {
+        const response = await getAllFriend({ id: userData._id });
+        const nextFriends = Array.isArray(response?.data)
+          ? response.data.map((friend) => ({
+              userId: friend.userId || friend._id,
+              displayName: friend.username || friend.displayName || friend.name || friend.phone,
+              avatarUrl: friend.avatar || friend.avatarUrl || "",
+            }))
+          : [];
 
-    return () => {
-      if (socket.current) {
-        socket.current.off("recieve-crud-fr");
+        setFriendOptions(nextFriends.filter((friend) => friend.userId));
+      } catch (error) {
+        console.error("Failed to load friend options:", error);
       }
     };
-  }, [dataUserPhone]);
+
+    fetchFriendOptions();
+  }, [userData?._id]);
 
   useEffect(() => {
     if (textSearch === "") {
@@ -201,55 +163,6 @@ function Contact({
       });
     }
   }, [textSearch]);
-
-  useEffect(() => {
-    if (contact !== null) {
-      setConversationList(contact);
-      if (socket.current) {
-        socket.current.on("received-soft-user", (data) => {
-          data.idChatWith = data._id;
-          handleChangeSoftContact(data);
-        });
-        socket.current.on("recieve-lastmess", (data) => {
-          if (contact && contact.length > 0) {
-            setContact((prevState) => {
-              let itemReviece = {};
-              const filter = prevState.filter((item) => {
-                if (item?.idConversation == data?.idConversation) {
-                  item.lastMessage = data.lastMessage;
-                  item.lastSend = data.lastSend;
-                  itemReviece = item;
-                } else {
-                  return item;
-                }
-              });
-              return [itemReviece, ...filter];
-            });
-          }
-        });
-        socket.current.on("recieve-count-seen", (data) => {
-          if (contact && contact.length > 0) {
-            setContact((prevState) => {
-              const filter = prevState.map((item) => {
-                if (item.idConversation == data.idConversation) {
-                  item.countMessseen = data.countMessseen;
-                }
-                return item;
-              });
-              return filter;
-            });
-          }
-        });
-      }
-    }
-    if (socket.current) {
-      return () => {
-        socket.current.off("received-soft-mess");
-        socket.current.off("recieve-lastmess");
-        socket.current.off("recieve-count-seen");
-      };
-    }
-  }, [contact]);
 
   const handleSearchDb = (value) => {
     if (value !== "") {
@@ -295,18 +208,6 @@ function Contact({
 
   const handleChangeShowMessSeen = (value) => {
     setAllMessActive(value);
-    if (!value) {
-      if (conversationList?.length > 0) {
-        const filterMessSeen = conversationList.filter((item) => {
-          if (item.countMessseen > 0 && item.lastSend !== userData._id) {
-            return item;
-          }
-        });
-        setConversationListNotSeen(filterMessSeen);
-      } else {
-        setConversationListNotSeen(null);
-      }
-    }
   };
 
   const handleChangeIsSearch = (value) => {
@@ -318,6 +219,59 @@ function Contact({
     });
     if (!value) {
       setTextSearch("");
+    }
+  };
+
+  const handleToggleArchivedView = async () => {
+    setConversationSettingsError("");
+
+    if (!showArchived) {
+      try {
+        await fetchArchivedConversations();
+      } catch (error) {
+        console.error("Failed to load archived conversations:", error);
+        setConversationSettingsError("Khong the tai danh sach luu tru.");
+        return;
+      }
+    }
+
+    setShowArchived((prevState) => !prevState);
+  };
+
+  const handleConversationSettingChange = async (event, conversation, action) => {
+    event.stopPropagation();
+
+    const conversationId = conversation?.id;
+    if (!conversationId) {
+      return;
+    }
+
+    setConversationSettingsError("");
+    setPendingConversationId(conversationId);
+
+    try {
+      if (action === "pin") {
+        const nextPinned = !conversation.pinned;
+        await updateConversationPinV1(conversationId, nextPinned);
+        updateConversationById(conversationId, { pinned: nextPinned });
+      }
+
+      if (action === "archive") {
+        const nextArchived = !conversation.archived;
+        await updateConversationArchiveV1(conversationId, nextArchived);
+        updateConversationById(conversationId, { archived: nextArchived });
+      }
+
+      if (action === "mute") {
+        const nextMuted = !conversation.muted;
+        await updateConversationMuteV1(conversationId, nextMuted);
+        updateConversationById(conversationId, { muted: nextMuted });
+      }
+    } catch (error) {
+      console.error("Failed to update conversation setting:", error);
+      setConversationSettingsError("Khong the cap nhat thiet lap hoi thoai.");
+    } finally {
+      setPendingConversationId(null);
     }
   };
 
@@ -400,26 +354,12 @@ function Contact({
   const handleCreateGroup = async () => {
     handleShowAddGroup(false);
 
-    const response = await createGroup({
-      groupName: dataCreateGr.username,
-      listMember: [...dataCreateGr.listMember, userData._id],
-      avatarGroup: dataCreateGr.avatar,
+    const response = await createConversationV1({
+      type: "GROUP",
+      name: dataCreateGr.username,
+      participantIds: dataCreateGr.listMember,
     });
-    if (response.status === 200) {
-      setContact((prevState) => {
-        return [
-          {
-            _id: response.data._id,
-            groupName: response.data.groupName,
-            avatarGroup: response.data.avatarGroup,
-            type: response.data.type,
-            lastMessage: response.data.lastMessage,
-            member: response.data.member,
-          },
-          ...prevState,
-        ];
-      });
-    }
+    upsertConversation(mapConversation(response));
     setDataCreateGr({
       username: null,
       listMember: [],
@@ -511,34 +451,9 @@ function Contact({
     });
 
     if (response.status === 200) {
-      socket.current.emit("crud-friend", {
-        userId: userData._id,
-        friendId: friendId,
-        state: state,
-      });
+      fetchConversation();
     }
   };
-  const handleChangeConversationActive = (data) => {
-    conversationAvticve.current = data.idConversation;
-  };
-
-  const handleDelConversation = async (id) => {
-    if (id === currentConversation.idConversation) {
-      disableContainer();
-    }
-
-    const response = await delConversationById({ idConversation: id });
-    if (response.status === 200) {
-      setContact((prevContact) => {
-        const newContact = prevContact.filter(
-          (item) => item.idConversation !== id
-        );
-        return newContact;
-      });
-    }
-  };
-
-  const handleChange = () => {};
   return (
     <>
       <div className="contact-container-contact">
@@ -796,11 +711,11 @@ function Contact({
                         />
                       </div>
                       <div className="list-contact">
-                        {contact &&
-                          contact.map((item, index) => (
+                        {friendOptions &&
+                          friendOptions.map((item, index) => (
                             <li
                               key={index}
-                              onClick={() => handleAddMember(item.idChatWith)}
+                              onClick={() => handleAddMember(item.userId)}
                             >
                               <div className="contact-detial-conversation flex">
                                 <div className="flex">
@@ -809,7 +724,7 @@ function Contact({
                                       type="button"
                                       className={`${
                                         dataCreateGr.listMember.includes(
-                                          item.idChatWith
+                                          item.userId
                                         )
                                           ? "active"
                                           : ""
@@ -817,10 +732,10 @@ function Contact({
                                     />
                                   </div>
                                   <div className="contact-avatar-friend">
-                                    <img src={item.avatar} alt="" />
+                                    <img src={item.avatarUrl} alt="" />
                                   </div>
                                   <div className="contact-overview-mess">
-                                    <h3>{item.username}</h3>
+                                    <h3>{item.displayName}</h3>
                                   </div>
                                 </div>
                               </div>
@@ -889,8 +804,14 @@ function Contact({
               {!isSearch.state ? (
                 <div className="contact-right-filter">
                   <div className="contact- flex">
-                    <div className="contact-classification-filter flex">
+                    <div
+                      className="contact-classification-filter flex"
+                      onClick={handleToggleArchivedView}
+                    >
                       <p>Phân loại</p>
+                      <p style={{ fontSize: 12, marginRight: 4 }}>
+                        {showArchived ? "Luu tru" : "Mo luu tru"}
+                      </p>
                       <MdExpandMore className="icon-filter" />
                     </div>
                     <div className="contact-more-filter">
@@ -903,6 +824,22 @@ function Contact({
               )}
             </div>
           )}
+          {conversationSettingsError ? (
+            <p className="contact-feedback-error">
+              {conversationSettingsError}
+            </p>
+          ) : null}
+          {!isSearch.state ? (
+            <div className="contact-list-status-row">
+              <span className={`contact-list-scope-chip ${showArchived ? "archived" : "active"}`}>
+                {showArchived ? "Dang xem luu tru" : "Dang xem hoi thoai"}
+              </span>
+              <span className="contact-list-scope-subtle">
+                {displayedConversationList.length}
+                {showArchived ? " muc" : " hoi thoai"}
+              </span>
+            </div>
+          ) : null}
         </div>
         {isSearch.state ? (
           <div className="recent-search">
@@ -921,8 +858,8 @@ function Contact({
                           onClick={() => handleChoiceContact(item)}
                         >
                           <div className="flex">
-                            <img src={item.avatar} alt="" />
-                            <p>{item.username}</p>
+                            <img src={item.avatarUrl} alt="" />
+                            <p>{item.displayName}</p>
                           </div>
                         </li>
                       ))}
@@ -942,8 +879,8 @@ function Contact({
                           onClick={() => handleChoiceContact(item)}
                         >
                           <div className="flex">
-                            <img src={item.avatar} alt="" />
-                            <p>{item.username}</p>
+                            <img src={item.avatarUrl} alt="" />
+                            <p>{item.displayName}</p>
                           </div>
                         </li>
                       ))}
@@ -958,59 +895,54 @@ function Contact({
               <div className="contact-listConversation">
                 {allMessActive ? (
                   <ul>
-                    {conversationList &&
-                      conversationList.map((data, index) => (
+                    {displayedConversationList &&
+                      displayedConversationList.map((data, index) => (
                         <li
                           className={
-                            data?.idConversation === conversationAvticve.current
-                              ? "conversation-active "
+                            data?.id === selectedConversationId
+                              ? "conversation-active"
                               : ""
                           }
                           key={index}
                           onClick={() => {
                             handleChangeContact(data);
-                            handleChangeConversationActive(data);
                           }}
                         >
-                          <div className="contact-detial-conversation flex">
+                          <div
+                            className={`contact-detial-conversation flex ${
+                              data?.pinned ? "contact-conversation-pinned" : ""
+                            } ${data?.muted ? "contact-conversation-muted" : ""}`}
+                          >
                             <div className="flex">
                               <div className="contact-avatar-friend">
                                 <img
-                                  src={
-                                    data?.type === "single"
-                                      ? data?.avatar
-                                      : data?.avatarGroup
-                                  }
+                                  src={data?.avatar}
                                   alt=""
                                 />
                               </div>
                               <div className="contact-overview-mess">
                                 <h3>
-                                  {data.type == "single"
-                                    ? data.username
-                                    : data.groupName}
+                                  <span>{getConversationDisplayName(data)}</span>
+                                  <span className="contact-conversation-flags">
+                                    {data.pinned ? (
+                                      <span className="contact-conversation-pill pinned">
+                                        Ghim
+                                      </span>
+                                    ) : null}
+                                    {data.muted ? (
+                                      <span className="contact-conversation-pill muted">
+                                        Tat TB
+                                      </span>
+                                    ) : null}
+                                  </span>
                                 </h3>
-                                {data.type == "single" ? (
-                                  <p>
-                                    {data.lastMessage
-                                      ? `${
-                                          data.lastSend == userData._id
-                                            ? "Bạn: "
-                                            : `${data.username}: `
-                                        } ${data.lastMessage}`
-                                      : `Gửi lời chào đến ${data.username}`}{" "}
-                                  </p>
-                                ) : (
-                                  <p>
-                                    {data.lastMessage
-                                      ? data.lastMessage
-                                      : `Gửi lời chào đến ${data.groupName}`}{" "}
-                                  </p>
-                                )}
+                                <p title={getConversationPreview(data)}>
+                                  {getConversationPreview(data)}
+                                </p>
                               </div>
                             </div>
                             <div className="contact-last-onl flex">
-                              <p>
+                              <p className="contact-row-status">
                                 {data.lastActive === "Active" ? (
                                   <RxDotFilled
                                     style={{
@@ -1029,30 +961,53 @@ function Contact({
                                 }}
                                 style={{
                                   display: "none",
+                                  flexDirection: "column",
+                                  alignItems: "flex-end",
                                 }}
                               >
                                 <IoIosMore className="icon-more-conversation" />
                                 <div
                                   className="box-del-conversation"
                                   key={index}
-                                  onClick={(e) => {
-                                    handleDelConversation(data.idConversation);
-                                  }}
+                                  style={{ width: 150, display: "block", fontSize: 0 }}
                                 >
+                                  <p
+                                    style={{ fontSize: 13 }}
+                                    onClick={(event) =>
+                                      handleConversationSettingChange(event, data, "pin")
+                                    }
+                                  >
+                                    {data.pinned ? "Bo ghim" : "Ghim"}
+                                  </p>
+                                  <p
+                                    style={{ fontSize: 13 }}
+                                    onClick={(event) =>
+                                      handleConversationSettingChange(event, data, "archive")
+                                    }
+                                  >
+                                    {data.archived ? "Bo luu tru" : "Luu tru"}
+                                  </p>
+                                  <p
+                                    style={{ fontSize: 13 }}
+                                    onClick={(event) =>
+                                      handleConversationSettingChange(event, data, "mute")
+                                    }
+                                  >
+                                    {data.muted ? "Bat thong bao" : "Tat thong bao"}
+                                  </p>
+                                  {pendingConversationId === data.id ? (
+                                    <p style={{ fontSize: 13 }}>Dang cap nhat...</p>
+                                  ) : null}
                                   <p>Xóa hội thoại</p>
                                 </div>
                               </div>
-                              {parseInt(data.countMessseen) > 0 &&
-                                data.lastSend !== userData._id && (
-                                  <div
-                                    className="wrap-count-seen"
-                                    style={{ display: "block !important" }}
-                                  >
-                                    <p className="count-seen">
-                                      {parseInt(data.countMessseen)}
-                                    </p>
-                                  </div>
-                                )}
+                              {getUnreadConversationCount(data) > 0 && (
+                                <div className="wrap-count-seen">
+                                  <p className="count-seen">
+                                    {getUnreadConversationCount(data)}
+                                  </p>
+                                </div>
+                              )}
                             </div>
                           </div>
                         </li>
@@ -1060,52 +1015,40 @@ function Contact({
                   </ul>
                 ) : (
                   <ul>
-                    {conversationListNotSeen &&
-                      conversationListNotSeen.map((data, index) => (
+                    {displayedConversationListNotSeen &&
+                      displayedConversationListNotSeen.map((data, index) => (
                         <li
-                          key={index}
+                          className={data?.id === selectedConversationId ? "conversation-active" : ""}
+                          key={data?.id || index}
                           onClick={() => handleChangeContact(data)}
                         >
-                          <div className="contact-detial-conversation flex">
+                          <div
+                            className={`contact-detial-conversation flex ${
+                              data?.pinned ? "contact-conversation-pinned" : ""
+                            } ${data?.muted ? "contact-conversation-muted" : ""}`}
+                          >
                             <div className="flex">
                               <div className="contact-avatar-friend">
-                                <img
-                                  src={
-                                    data.type === "single"
-                                      ? data.avatar
-                                      : data.avatarGroup
-                                  }
-                                  alt=""
-                                />
+                                <img src={data?.avatar} alt="" />
                               </div>
                               <div className="contact-overview-mess">
                                 <h3>
-                                  {data.type == "single"
-                                    ? data.username
-                                    : data.groupName}
+                                  <span>{getConversationDisplayName(data)}</span>
+                                  <span className="contact-conversation-flags">
+                                    {data?.pinned ? (
+                                      <span className="contact-conversation-pill pinned">Ghim</span>
+                                    ) : null}
+                                    {data?.muted ? (
+                                      <span className="contact-conversation-pill muted">Tat TB</span>
+                                    ) : null}
+                                  </span>
                                 </h3>
-                                {data.type == "single" ? (
-                                  <p>
-                                    {data.lastMessage
-                                      ? `${
-                                          data.lastSend == userData._id
-                                            ? "Bạn: "
-                                            : `${data.username}: `
-                                        } ${data.lastMessage}`
-                                      : `Gửi lời chào đến ${data.username}`}{" "}
-                                  </p>
-                                ) : (
-                                  <p>
-                                    {data.lastMessage
-                                      ? data.lastMessage
-                                      : `Gửi lời chào đến ${data.groupName}`}{" "}
-                                  </p>
-                                )}
+                                <p title={getConversationPreview(data)}>{getConversationPreview(data)}</p>
                               </div>
                             </div>
                             <div className="contact-last-onl flex">
-                              <p>
-                                {data.lastActive === "Active" ? (
+                              <p className="contact-row-status">
+                                {data?.lastActive === "Active" ? (
                                   <RxDotFilled
                                     style={{
                                       fontSize: "20px",
@@ -1113,20 +1056,14 @@ function Contact({
                                     }}
                                   />
                                 ) : (
-                                  data.lastActive
+                                  data?.lastActive
                                 )}
                               </p>
-                              {parseInt(data.countMessseen) > 0 &&
-                                data.lastSend !== userData._id && (
-                                  <div
-                                    className="wrap-count-seen"
-                                    style={{ display: "block !important" }}
-                                  >
-                                    <p className="count-seen">
-                                      {parseInt(data.countMessseen)}
-                                    </p>
-                                  </div>
-                                )}
+                              {getUnreadConversationCount(data) > 0 ? (
+                                <div className="wrap-count-seen">
+                                  <p className="count-seen">{getUnreadConversationCount(data)}</p>
+                                </div>
+                              ) : null}
                             </div>
                           </div>
                         </li>
@@ -1143,3 +1080,5 @@ function Contact({
 }
 
 export default memo(Contact);
+
+

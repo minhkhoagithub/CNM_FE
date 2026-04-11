@@ -2,21 +2,14 @@ import React, { useEffect, useState, useContext, useRef, memo } from "react";
 import { UserContext } from "../../Context/UserContext";
 import { ContactContext } from "../../Context/ContactConext";
 import "../../resource/style/Chat/contact.css";
+import "../../resource/style/AddressBook/menuContact.css";
 import { CiSearch } from "react-icons/ci";
-import { HiOutlineUsers } from "react-icons/hi2";
-import { HiOutlineUserPlus } from "react-icons/hi2";
-import { HiOutlineUserGroup } from "react-icons/hi2";
-import { MdExpandMore } from "react-icons/md";
-import { IoIosMore } from "react-icons/io";
+import { HiOutlineUsers, HiOutlineUserPlus, HiOutlineUserGroup } from "react-icons/hi2";
 import { IoMdClose } from "react-icons/io";
 import { IoTriangle } from "react-icons/io5";
 import { BsFillCameraFill } from "react-icons/bs";
-import { RxDotFilled } from "react-icons/rx";
-import "../../resource/style/AddressBook/menuContact.css";
-import axios from "axios";
 import {
   getFriendByName,
-  createGroup,
   getAllGroup,
   getFriendRes,
   getGroupReq,
@@ -24,17 +17,23 @@ import {
   crudFriend,
   getAllFriend,
 } from "../../util/api/index.jsx";
+import { createConversationV1 } from "../../services/chat/conversationApi";
+import { mapConversation } from "../../mappers/conversationMapper";
 
-export const LoiMoiKetBan = "Lời mời kết bạn";
-export const LoiMoiVaoNhom = "Lời mời vào nhóm";
-export const DanhSachBanBe = "Danh sách bạn bè";
-export const DanhSachNhom = "Danh sách nhóm";
+export const LoiMoiKetBan = "Loi moi ket ban";
+export const LoiMoiVaoNhom = "Loi moi vao nhom";
+export const DanhSachBanBe = "Danh sach ban be";
+export const DanhSachNhom = "Danh sach nhom";
 
-function MenuContact({
-  handleChangeContact,
-  handleChangeSoftContact,
-  handleSetContentMenuContact,
-}) {
+function MenuContact({ handleChangeContact, handleSetContentMenuContact }) {
+  const initialRecentSearch = (() => {
+    try {
+      const local = localStorage.getItem("user-search");
+      return local ? JSON.parse(local) : [];
+    } catch {
+      return [];
+    }
+  })();
   const listMenu = [
     { title: DanhSachBanBe, icon: <HiOutlineUsers /> },
     { title: DanhSachNhom, icon: <HiOutlineUserGroup /> },
@@ -48,16 +47,13 @@ function MenuContact({
     response: false,
   });
   const [dataSearch, setDataSearch] = useState({
-    recent: [],
+    recent: initialRecentSearch,
     response: [],
   });
   const [addUser, setAddUser] = useState({
     friend: false,
     group: false,
   });
-  const [allMessActive, setAllMessActive] = useState(true);
-  const [conversationList, setConversationList] = useState([]);
-
   const [dataUserPhone, setDataUserPhone] = useState({
     username: "",
     show: false,
@@ -67,13 +63,13 @@ function MenuContact({
     unfriend: null,
     checkId: null,
   });
-
   const [dataCreateGr, setDataCreateGr] = useState({
-    username: null,
+    username: "",
     listMember: [],
     showAvt: false,
     avatar: null,
   });
+  const [friendOptions, setFriendOptions] = useState([]);
   const listAvatarGr = [
     "https://res.zaloapp.com/pc/avt_group/1_family.jpg",
     "https://res.zaloapp.com/pc/avt_group/2_family.jpg",
@@ -88,160 +84,34 @@ function MenuContact({
     "https://res.zaloapp.com/pc/avt_group/11_school.jpg",
     "https://res.zaloapp.com/pc/avt_group/12_school.jpg",
   ];
-  const { contact, setContact, fetchConversation } = useContext(ContactContext);
-  const { userData, socket } = useContext(UserContext);
+  const { userData } = useContext(UserContext);
+  const { upsertConversation, fetchConversation } = useContext(ContactContext);
   const searchTimeout = useRef(null);
 
   useEffect(() => {
-    const local = localStorage.getItem("user-search");
-    if (local !== null) {
-      setDataSearch((prevState) => {
-        return {
-          ...prevState,
-          recent: JSON.parse(local),
-        };
-      });
-    }
-  }, []);
+    const fetchFriendOptions = async () => {
+      if (!userData?._id) {
+        return;
+      }
 
-  useEffect(() => {
-    if (socket.current) {
-      socket.current.on("received-soft-contact-conversation", (data) => {
-        setContact((prevContact) => [data, ...prevContact]);
-        handleChangeContact({ ...data, userId: userData._id });
-      });
-      socket.current.on("received-soft-conversation", (data) => {
-        setContact((prevContact) => [data, ...prevContact]);
-        setConversationList((prevContact) => [data, ...prevContact]);
-      });
-      socket.current.on("received-soft-mess", (data) => {
-        data.idChatWith = data._id;
-        handleChangeSoftContact(data);
-      });
-      socket.current.on("recieve-lastmess", (data) => {
-        if (contact && contact.length > 0) {
-          setContact((prevState) => {
-            let itemReviece = {};
-            const filter = prevState.filter((item) => {
-              if (item.idConversation == data.idConversation) {
-                item.lastMessage = data.lastMessage;
-                item.lastSend = data.lastSend;
-                itemReviece = item;
-              } else {
-                return item;
-              }
-            });
-            return [itemReviece, ...filter];
-          });
-        }
-      });
-      socket.current.on("recieve-count-seen", (data) => {
-        if (contact && contact.length > 0) {
-          setContact((prevState) => {
-            const filter = prevState.map((item) => {
-              if (item.idConversation == data.idConversation) {
-                item.countMessseen = data.countMessseen;
-              }
-              return item;
-            });
-            return filter;
-          });
-        }
-      });
-    }
-    if (socket.current) {
-      return () => {
-        socket.current.off("received-soft-conversation");
-        socket.current.off("received-soft-contact-conversation");
-        socket.current.off("received-soft-mess");
-        socket.current.off("recieve-lastmess");
-        socket.current.off("recieve-count-seen");
-      };
-    }
-  }, [socket.current]);
+      try {
+        const response = await getAllFriend({ id: userData._id });
+        const nextFriends = Array.isArray(response?.data)
+          ? response.data.map((friend) => ({
+              userId: friend.userId || friend._id,
+              displayName:
+                friend.username || friend.displayName || friend.name || friend.phone,
+              avatarUrl: friend.avatar || friend.avatarUrl || "",
+            }))
+          : [];
+        setFriendOptions(nextFriends.filter((friend) => friend.userId));
+      } catch (error) {
+        console.error("Failed to load friend options:", error);
+      }
+    };
 
-  useEffect(() => {
-    if (socket.current) {
-      socket.current.on("recieve-crud-fr", (data) => {
-        if (dataUserPhone.data?._id == data.id) {
-          if (data.refreshCoversation) {
-            fetchConversation();
-          }
-          setDataUserPhone((prevState) => {
-            return {
-              ...prevState,
-              state: data.mess,
-              show: prevState.state !== null ? true : false,
-              cancel: data.cancel ? data.cancel : null,
-              unfriend: data.unfriend ? data.unfriend : null,
-              // checkId: data.id,
-            };
-          });
-        }
-      });
-    }
-  }, [dataUserPhone]);
-
-  useEffect(() => {
-    if (textSearch === "") {
-      clearTimeout(searchTimeout.current);
-      setIsSearch((prevState) => {
-        return {
-          ...prevState,
-          recent: true,
-          response: false,
-        };
-      });
-    }
-  }, [textSearch]);
-
-  // useEffect(() => {
-  //   if (contact !== null) {
-  //     setConversationList(contact);
-  //     if (socket.current) {
-  //       socket.current.on("received-soft-mess", (data) => {
-  //         data.idChatWith = data._id;
-  //       });
-  //       socket.current.on("recieve-lastmess", (data) => {
-  //         if (contact && contact.length > 0) {
-  //           setContact((prevState) => {
-  //             let itemReviece = {};
-  //             const filter = prevState.filter((item) => {
-  //               if (item.idConversation == data.idConversation) {
-  //                 item.lastMessage = data.lastMessage;
-  //                 item.lastSend = data.lastSend;
-  //                 itemReviece = item;
-  //               } else {
-  //                 return item;
-  //               }
-  //             });
-  //             return [itemReviece, ...filter];
-  //           });
-  //         }
-  //       });
-  //       socket.current.on("recieve-count-seen", (data) => {
-  //         if (contact && contact.length > 0) {
-  //           setContact((prevState) => {
-  //             const filter = prevState.map((item) => {
-  //               if (item.idConversation == data.idConversation) {
-  //                 item.countMessseen = data.countMessseen;
-  //               }
-  //               return item;
-  //             });
-  //             return filter;
-  //           });
-  //         }
-  //       });
-  //     }
-  //   }
-  //   if (socket.current) {
-  //     return () => {
-  //       socket.current.off("received-soft-mess");
-  //       socket.current.off("recieve-lastmess");
-  //       socket.current.off("recieve-count-seen");
-  //     };
-  //   }
-  // }, [contact]);
+    fetchFriendOptions();
+  }, [userData?._id]);
 
   const handleSearchDb = (value) => {
     if (value !== "") {
@@ -253,80 +123,70 @@ function MenuContact({
           friendName: value,
           userId: userData._id,
         });
-        if (response.status === 200) {
-          setDataSearch((prevState) => {
-            return {
-              ...prevState,
-              response: response.data,
-            };
-          });
-        } else {
-          setDataSearch((prevState) => {
-            return {
-              ...prevState,
-              response: [],
-            };
-          });
-        }
-        setIsSearch((prevState) => {
-          return {
-            ...prevState,
-            response: true,
-            recent: false,
-          };
-        });
+        setDataSearch((prevState) => ({
+          ...prevState,
+          response: response.status === 200 ? response.data : [],
+        }));
+        setIsSearch((prevState) => ({
+          ...prevState,
+          response: true,
+          recent: false,
+        }));
       }, 300);
     }
   };
 
   const handleChangeTextSearch = (e) => {
-    let data = e.target.value;
-    setTextSearch(data);
-    handleSearchDb(data);
+    const value = e.target.value;
+    setTextSearch(value);
+    if (value === "") {
+      clearTimeout(searchTimeout.current);
+      setIsSearch((prevState) => ({
+        ...prevState,
+        recent: true,
+        response: false,
+      }));
+    }
+    handleSearchDb(value);
   };
 
   const handleChangeIsSearch = (value) => {
-    setIsSearch((prevState) => {
-      return {
-        ...prevState,
-        state: value,
-      };
-    });
+    setIsSearch((prevState) => ({
+      ...prevState,
+      state: value,
+    }));
     if (!value) {
       setTextSearch("");
     }
   };
 
+  const storeLocal = (value) => {
+    const nextRecent = [
+      value,
+      ...dataSearch.recent.filter((item) => item._id !== value._id),
+    ];
+    setDataSearch((prevState) => ({
+      ...prevState,
+      recent: nextRecent,
+    }));
+    localStorage.setItem("user-search", JSON.stringify(nextRecent));
+  };
+
   const handleChoiceContact = (value) => {
     storeLocal(value);
-    handleChangeContact({ ...value, userId: userData._id });
-    setIsSearch((prevState) => {
-      return {
-        ...prevState,
-        state: false,
-      };
-    });
+    handleChangeContact({ ...value, userId: value?.userId || value?._id });
+    setIsSearch((prevState) => ({
+      ...prevState,
+      state: false,
+    }));
     setTextSearch("");
   };
 
-  const storeLocal = (value) => {
-    setDataSearch((prevState) => {
-      const filterRecent = prevState.recent.filter((x) => x._id !== value._id);
-      return {
-        response: prevState.response,
-        recent: [value, ...filterRecent],
-      };
-    });
-    localStorage.setItem("user-search", JSON.stringify(dataSearch.recent));
-  };
-
   const handleShowAddFriend = (value) => {
-    setAddUser((prevState) => {
-      return {
-        ...prevState,
-        friend: value,
-      };
-    });
+    setAddUser((prevState) => ({
+      ...prevState,
+      friend: value,
+    }));
 
     if (!value) {
       setDataUserPhone({
@@ -335,68 +195,49 @@ function MenuContact({
         data: null,
         state: null,
         cancel: null,
+        unfriend: null,
+        checkId: null,
       });
     }
   };
 
   const handleShowAddGroup = (value) => {
-    setAddUser((prevState) => {
-      return {
-        ...prevState,
-        group: value,
-      };
-    });
+    setAddUser((prevState) => ({
+      ...prevState,
+      group: value,
+    }));
   };
 
   const handleAddMember = (value) => {
     setDataCreateGr((prevState) => {
-      if (prevState.listMember.length < 0) {
-        return {
-          ...prevState,
-          listMember: [value],
-        };
-      } else {
-        const check = prevState.listMember.includes(value);
-        if (check) {
-          const filter = prevState.listMember.filter((item) => item !== value);
-          return {
-            ...prevState,
-            listMember: [...filter],
-          };
-        } else {
-          return {
-            ...prevState,
-            listMember: [value, ...prevState.listMember],
-          };
-        }
-      }
+      const exists = prevState.listMember.includes(value);
+      return {
+        ...prevState,
+        listMember: exists
+          ? prevState.listMember.filter((item) => item !== value)
+          : [value, ...prevState.listMember],
+      };
     });
   };
 
   const handleCreateGroup = async () => {
     handleShowAddGroup(false);
-    const response = await createGroup({
-      groupName: dataCreateGr.username,
-      listMember: [...dataCreateGr.listMember, userData._id],
-      avatarGroup: dataCreateGr.avatar,
-    });
-    if (response.status === 200) {
-      setContact((prevState) => {
-        return [
-          {
-            _id: response.data._id,
-            groupName: response.data.groupName,
-            avatarGroup: response.data.avatarGroup,
-            type: response.data.type,
-            lastMessage: response.data.lastMessage,
-            member: response.data.member,
-          },
-          ...prevState,
-        ];
+
+    try {
+      const response = await createConversationV1({
+        type: "GROUP",
+        name: dataCreateGr.username,
+        participantIds: dataCreateGr.listMember,
       });
+      const nextConversation = mapConversation(response);
+      upsertConversation(nextConversation);
+      handleChangeContact(nextConversation);
+    } catch (error) {
+      console.error("Failed to create group conversation:", error);
     }
+
     setDataCreateGr({
-      username: null,
+      username: "",
       listMember: [],
       showAvt: false,
       avatar: null,
@@ -404,30 +245,24 @@ function MenuContact({
   };
 
   const handleShowAvatarGr = (value) => {
-    setDataCreateGr((prevState) => {
-      return {
-        ...prevState,
-        showAvt: value,
-      };
-    });
+    setDataCreateGr((prevState) => ({
+      ...prevState,
+      showAvt: value,
+    }));
   };
 
   const handleChoiceAvatarGr = (value) => {
-    setDataCreateGr((prevState) => {
-      return {
-        ...prevState,
-        avatar: value,
-      };
-    });
+    setDataCreateGr((prevState) => ({
+      ...prevState,
+      avatar: value,
+    }));
   };
 
   const handleChangURl = (e) => {
-    setDataCreateGr((prevState) => {
-      return {
-        ...prevState,
-        avatar: e.target.value,
-      };
-    });
+    setDataCreateGr((prevState) => ({
+      ...prevState,
+      avatar: e.target.value,
+    }));
   };
 
   const handleSaveAvatarGr = () => {
@@ -435,21 +270,19 @@ function MenuContact({
       handleShowAvatarGr(false);
     }
   };
+
   const handleChangeNameGr = (e) => {
-    setDataCreateGr((prevState) => {
-      return {
-        ...prevState,
-        username: e.target.value,
-      };
-    });
+    setDataCreateGr((prevState) => ({
+      ...prevState,
+      username: e.target.value,
+    }));
   };
+
   const handleChangePhone = (e) => {
-    setDataUserPhone((prevState) => {
-      return {
-        ...prevState,
-        username: e.target.value,
-      };
-    });
+    setDataUserPhone((prevState) => ({
+      ...prevState,
+      username: e.target.value,
+    }));
   };
 
   const handleFindUserByPhone = async () => {
@@ -466,6 +299,7 @@ function MenuContact({
           state: response.data.state,
           cancel: response.data.cancel ? response.data.cancel : null,
           unfriend: response.data.unfriend ? response.data.unfriend : null,
+          checkId: response.data.data?._id || null,
         });
       } else {
         setDataUserPhone({
@@ -475,21 +309,21 @@ function MenuContact({
           state: response.data.state,
           cancel: null,
           unfriend: null,
+          checkId: null,
         });
       }
     }
   };
 
   const handleCRUDFriend = async (friendId, state) => {
-    const data = {
+    const response = await crudFriend({
       userId: userData._id,
-      friendId: friendId,
-      state: state,
-    };
-    const response = await crudFriend(data);
+      friendId,
+      state,
+    });
 
     if (response.status === 200) {
-      socket.current.emit("crud-friend", data);
+      fetchConversation();
     }
   };
 
@@ -501,7 +335,7 @@ function MenuContact({
           state: true,
           data: response.data,
           title: DanhSachBanBe,
-          count: `Bạn bè (${response.data?.length})`,
+          count: `Ban be (${response.data?.length || 0})`,
         });
       }
     } else if (title === DanhSachNhom) {
@@ -511,7 +345,7 @@ function MenuContact({
           state: true,
           data: response.data,
           title: DanhSachNhom,
-          count: `Nhóm (${response.data?.length})`,
+          count: `Nhom (${response.data?.length || 0})`,
         });
       }
     } else if (title === LoiMoiKetBan) {
@@ -521,7 +355,7 @@ function MenuContact({
           state: true,
           data: response.data,
           title: LoiMoiKetBan,
-          count: `Lời mời kết bạn (${response.data?.length})`,
+          count: `Loi moi ket ban (${response.data?.length || 0})`,
         });
       }
     } else if (title === LoiMoiVaoNhom) {
@@ -531,7 +365,7 @@ function MenuContact({
           state: true,
           data: response.data,
           title: LoiMoiVaoNhom,
-          count: `Lời mời vào nhóm (${response.data?.length})`,
+          count: `Loi moi vao nhom (${response.data?.length || 0})`,
         });
       }
     }
@@ -548,13 +382,13 @@ function MenuContact({
                 type="text"
                 value={textSearch}
                 onChange={handleChangeTextSearch}
-                placeholder="Tìm kiếm"
+                placeholder="Tim kiem"
                 onClick={() => handleChangeIsSearch(true)}
               />
             </div>
             {isSearch.state ? (
               <div className="btn-close-search">
-                <p onClick={() => handleChangeIsSearch(false)}>Đóng</p>
+                <p onClick={() => handleChangeIsSearch(false)}>Dong</p>
               </div>
             ) : (
               <div className="contact-group-add-user flex">
@@ -569,11 +403,11 @@ function MenuContact({
               </div>
             )}
             <div className="add-friend-group">
-              {addUser.friend && (
+              {addUser.friend ? (
                 <div className="screen-mask">
                   <div className="wrap-add">
                     <div className="header-add-friend flex">
-                      <p>Thêm bạn</p>
+                      <p>Them ban</p>
                       <IoMdClose
                         className="btn-close"
                         onClick={() => handleShowAddFriend(false)}
@@ -598,111 +432,80 @@ function MenuContact({
                             type="text"
                             value={dataUserPhone.username}
                             onChange={handleChangePhone}
-                            placeholder="Số điện thoại"
+                            placeholder="So dien thoai"
                           />
                         </div>
                       </div>
                       <div className="recent-result">
-                        <p>
-                          Kết quả{" "}
-                          {dataUserPhone.show !== null ? "" : "gần nhất"}
-                        </p>
-                        {dataUserPhone.state &&
-                          dataUserPhone.state.length > 20 && (
-                            <p>{dataUserPhone.state}</p>
-                          )}
+                        <p>Ket qua</p>
+                        {dataUserPhone.state && dataUserPhone.state.length > 20 ? (
+                          <p>{dataUserPhone.state}</p>
+                        ) : null}
                       </div>
-                      {dataUserPhone.data !== null && (
+                      {dataUserPhone.data !== null ? (
                         <div className="wrap-result-phone flex">
                           <div className="flex" style={{ maxWidth: "200px" }}>
                             <img src={dataUserPhone.data.avatar} alt="" />
                             <div>
-                              <p className="username ">
-                                {dataUserPhone.data.username}
-                              </p>
-                              <p className="phone">
-                                {dataUserPhone.data.phone}
-                              </p>
+                              <p className="username ">{dataUserPhone.data.username}</p>
+                              <p className="phone">{dataUserPhone.data.phone}</p>
                             </div>
                           </div>
                           <div>
-                            {dataUserPhone.cancel &&
-                              dataUserPhone.cancel !== null && (
-                                <button
-                                  style={{
-                                    backgroundColor: "#eaedf0",
-                                    color: "black",
-                                  }}
-                                  onClick={() =>
-                                    handleCRUDFriend(
-                                      dataUserPhone.data._id,
-                                      dataUserPhone.cancel
-                                    )
-                                  }
-                                >
-                                  {dataUserPhone.cancel}
-                                </button>
-                              )}
-                            {dataUserPhone.unfriend &&
-                              dataUserPhone.unfriend !== null && (
-                                <button
-                                  style={{
-                                    backgroundColor: "#eaedf0",
-                                    color: "black",
-                                  }}
-                                  onClick={() =>
-                                    handleCRUDFriend(
-                                      dataUserPhone.data._id,
-                                      dataUserPhone.unfriend
-                                    )
-                                  }
-                                >
-                                  {dataUserPhone.unfriend}
-                                </button>
-                              )}
+                            {dataUserPhone.cancel ? (
+                              <button
+                                style={{ backgroundColor: "#eaedf0", color: "black" }}
+                                onClick={() =>
+                                  handleCRUDFriend(
+                                    dataUserPhone.data._id,
+                                    dataUserPhone.cancel
+                                  )
+                                }
+                              >
+                                {dataUserPhone.cancel}
+                              </button>
+                            ) : null}
+                            {dataUserPhone.unfriend ? (
+                              <button
+                                style={{ backgroundColor: "#eaedf0", color: "black" }}
+                                onClick={() =>
+                                  handleCRUDFriend(
+                                    dataUserPhone.data._id,
+                                    dataUserPhone.unfriend
+                                  )
+                                }
+                              >
+                                {dataUserPhone.unfriend}
+                              </button>
+                            ) : null}
                             <button
                               onClick={() =>
-                                handleCRUDFriend(
-                                  dataUserPhone.data._id,
-                                  dataUserPhone.state
-                                )
+                                handleCRUDFriend(dataUserPhone.data._id, dataUserPhone.state)
                               }
                             >
                               {dataUserPhone?.state}
                             </button>
                           </div>
                         </div>
-                      )}
-                      {dataUserPhone.show &&
-                        dataUserPhone.checkId == dataUserPhone.data._id && (
-                          <div className="recent-result">
-                            <p>
-                              {dataUserPhone.data === null &&
-                                dataUserPhone.state &&
-                                `${dataUserPhone.state}`}
-                            </p>
-                          </div>
-                        )}
+                      ) : null}
                       <div className="btn-find-friend flex">
-                        <button onClick={() => handleShowAddFriend(false)}>
-                          Hủy
-                        </button>
+                        <button onClick={() => handleShowAddFriend(false)}>Huy</button>
                         <button
                           style={{ backgroundColor: "#0068ff", color: "white" }}
                           onClick={handleFindUserByPhone}
                         >
-                          Tìm kiếm
+                          Tim kiem
                         </button>
                       </div>
                     </div>
                   </div>
                 </div>
-              )}
-              {dataCreateGr.showAvt && (
+              ) : null}
+              {dataCreateGr.showAvt ? (
                 <div className="screen-mask" style={{ zIndex: 1001 }}>
                   <div className="choice-avatar-gr">
                     <div className="header-add-friend flex">
-                      <p>Cập nhật ảnh đại diện</p>
+                      <p>Cap nhat anh dai dien</p>
                       <IoMdClose
                         className="btn-close"
                         onClick={() => handleShowAvatarGr(false)}
@@ -712,53 +515,41 @@ function MenuContact({
                       <CiSearch className="icon-search" />
                       <input
                         type="text"
-                        placeholder="Nhập url hình ảnh"
-                        value={dataCreateGr.avatar}
+                        placeholder="Nhap url hinh anh"
+                        value={dataCreateGr.avatar || ""}
                         onChange={handleChangURl}
                       />
                     </div>
                     <div>
                       <ul className="ex-avatar flex">
-                        {listAvatarGr?.map((item, index) => (
-                          <li
-                            key={index}
-                            onClick={() => handleChoiceAvatarGr(item)}
-                          >
+                        {listAvatarGr.map((item) => (
+                          <li key={item} onClick={() => handleChoiceAvatarGr(item)}>
                             <img
                               src={item}
                               alt=""
-                              className={
-                                item === dataCreateGr.avatar
-                                  ? "ex-avatar-choice"
-                                  : ""
-                              }
+                              className={item === dataCreateGr.avatar ? "ex-avatar-choice" : ""}
                             />
                           </li>
                         ))}
                       </ul>
-                      <div
-                        className="btn-find-friend flex"
-                        style={{ position: "relative" }}
-                      >
-                        <button onClick={() => handleShowAvatarGr(false)}>
-                          Hủy
-                        </button>
+                      <div className="btn-find-friend flex" style={{ position: "relative" }}>
+                        <button onClick={() => handleShowAvatarGr(false)}>Huy</button>
                         <button
                           onClick={handleSaveAvatarGr}
                           style={{ backgroundColor: "#0068ff", color: "white" }}
                         >
-                          Cập nhật
+                          Cap nhat
                         </button>
                       </div>
                     </div>
                   </div>
                 </div>
-              )}
-              {addUser.group && (
+              ) : null}
+              {addUser.group ? (
                 <div className="screen-mask">
                   <div className="wrap-add wrap-add-group">
                     <div className="header-add-friend flex">
-                      <p>Tạo nhóm</p>
+                      <p>Tao nhom</p>
                       <IoMdClose
                         className="btn-close"
                         onClick={() => handleShowAddGroup(false)}
@@ -780,55 +571,40 @@ function MenuContact({
                         <div className="input-number group">
                           <input
                             type="text"
-                            placeholder="Nhập tên nhóm"
+                            placeholder="Nhap ten nhom"
                             onChange={handleChangeNameGr}
                             value={dataCreateGr.username}
                           />
                         </div>
                       </div>
-                      <div className="input-number-group">
-                        <CiSearch className="icon-search" />
-                        <input
-                          type="text"
-                          placeholder="Nhập tên, số điện thoại, hoặc danh sách số"
-                        />
-                      </div>
                       <div className="list-contact">
-                        {contact &&
-                          contact.map((item, index) => (
-                            <li
-                              key={index}
-                              onClick={() => handleAddMember(item.idChatWith)}
-                            >
-                              <div className="contact-detial-conversation flex">
-                                <div className="flex">
-                                  <div className="checkbox-add">
-                                    <input
-                                      type="button"
-                                      className={`${
-                                        dataCreateGr.listMember.includes(
-                                          item.idChatWith
-                                        )
-                                          ? "active"
-                                          : ""
-                                      }`}
-                                    />
-                                  </div>
-                                  <div className="contact-avatar-friend">
-                                    <img src={item.avatar} alt="" />
-                                  </div>
-                                  <div className="contact-overview-mess">
-                                    <h3>{item.username}</h3>
-                                  </div>
+                        {friendOptions.map((item) => (
+                          <li key={item.userId} onClick={() => handleAddMember(item.userId)}>
+                            <div className="contact-detial-conversation flex">
+                              <div className="flex">
+                                <div className="checkbox-add">
+                                  <input
+                                    type="button"
+                                    className={`${
+                                      dataCreateGr.listMember.includes(item.userId)
+                                        ? "active"
+                                        : ""
+                                    }`}
+                                  />
+                                </div>
+                                <div className="contact-avatar-friend">
+                                  <img src={item.avatarUrl} alt="" />
+                                </div>
+                                <div className="contact-overview-mess">
+                                  <h3>{item.displayName}</h3>
                                 </div>
                               </div>
-                            </li>
-                          ))}
+                            </div>
+                          </li>
+                        ))}
                       </div>
                       <div className="btn-find-friend flex">
-                        <button onClick={() => handleShowAddGroup(false)}>
-                          Hủy
-                        </button>
+                        <button onClick={() => handleShowAddGroup(false)}>Huy</button>
                         <button
                           onClick={handleCreateGroup}
                           style={{
@@ -837,71 +613,60 @@ function MenuContact({
                             color: "white",
                           }}
                         >
-                          Tạo nhóm{" "}
-                          {dataCreateGr.listMember.length < 1
-                            ? ""
-                            : ` (${dataCreateGr.listMember.length})`}
+                          Tao nhom
+                          {dataCreateGr.listMember.length > 0
+                            ? ` (${dataCreateGr.listMember.length})`
+                            : ""}
                         </button>
                       </div>
                     </div>
                   </div>
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
         </div>
         {isSearch.state ? (
           <div className="recent-search">
             <ul className="wrap-recent-search">
-              {isSearch.recent && (
+              {isSearch.recent ? (
                 <div>
                   <p style={{ margin: "10px 0 10px 20px", fontWeight: "500" }}>
-                    Tìm gần đây
+                    Tim gan day
                   </p>
                   <div className="wrap-result-search">
-                    {isSearch.recent &&
-                      dataSearch.recent !== null &&
-                      dataSearch.recent.map((item, index) => (
-                        <li
-                          key={index}
-                          onClick={() => handleChoiceContact(item)}
-                        >
-                          <div className="flex">
-                            <img src={item.avatar} alt="" />
-                            <p>{item.username}</p>
-                          </div>
-                        </li>
-                      ))}
+                    {dataSearch.recent.map((item, index) => (
+                      <li key={index} onClick={() => handleChoiceContact(item)}>
+                        <div className="flex">
+                          <img src={item.avatar || item.avatarUrl} alt="" />
+                          <p>{item.username || item.displayName}</p>
+                        </div>
+                      </li>
+                    ))}
                   </div>
                 </div>
-              )}
+              ) : null}
 
-              {isSearch.response && (
+              {isSearch.response ? (
                 <div>
                   <div className="wrap-result-search">
-                    {isSearch.response &&
-                      dataSearch.response !== null &&
-                      Array.isArray(dataSearch.response) &&
-                      dataSearch.response.map((item, index) => (
-                        <li
-                          key={index}
-                          onClick={() => handleChoiceContact(item)}
-                        >
-                          <div className="flex">
-                            <img src={item.avatar} alt="" />
-                            <p>{item.username}</p>
-                          </div>
-                        </li>
-                      ))}
+                    {Array.isArray(dataSearch.response)
+                      ? dataSearch.response.map((item, index) => (
+                          <li key={index} onClick={() => handleChoiceContact(item)}>
+                            <div className="flex">
+                              <img src={item.avatar || item.avatarUrl} alt="" />
+                              <p>{item.username || item.displayName}</p>
+                            </div>
+                          </li>
+                        ))
+                      : null}
                   </div>
                 </div>
-              )}
+              ) : null}
             </ul>
           </div>
-        ) : (
-          ""
-        )}
-        {!isSearch?.state && (
+        ) : null}
+        {!isSearch?.state ? (
           <div className="menu-contact">
             <ul>
               {listMenu.map((item, index) => (
@@ -916,7 +681,7 @@ function MenuContact({
               ))}
             </ul>
           </div>
-        )}
+        ) : null}
       </div>
     </>
   );
