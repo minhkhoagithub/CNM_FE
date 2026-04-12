@@ -3,24 +3,18 @@ import { ContactContext } from "../../Context/ContactConext";
 import MessageInfor from "./MessageInfor";
 import Contact from "./Contact";
 import ContainerMess from "./ContainerMess";
-import { openOrCreatePrivateConversationV1 } from "../../services/chat/conversationApi";
 
 export default function Message({ showPageAddressBook }) {
-  const { currentConversationNormalized, openConversation, clearSelectedConversation } =
+  const {
+    currentConversationNormalized,
+    openConversation,
+    openPrivateConversationForUser,
+    clearSelectedConversation,
+  } =
     useContext(ContactContext);
   const [openChatError, setOpenChatError] = React.useState("");
 
   const activeConversation = currentConversationNormalized;
-
-  const resolveConversation = async (value) => {
-    const participantId = value?.userId || value?._id || null;
-
-    if (!participantId) {
-      throw new Error("Missing participant user id");
-    }
-
-    return openConversation(await openOrCreatePrivateConversationV1(participantId));
-  };
 
   const handleChangeContact = async (value) => {
     setOpenChatError("");
@@ -31,7 +25,7 @@ export default function Message({ showPageAddressBook }) {
         return;
       }
 
-      await resolveConversation({ ...value, userId: value?.userId || value?._id });
+      await openPrivateConversationForUser(value);
     } catch (err) {
       console.error(err);
       setOpenChatError("Khong the mo cuoc tro chuyen nay.");
@@ -58,10 +52,10 @@ export default function Message({ showPageAddressBook }) {
               {openChatError}
             </div>
           ) : null}
-          {activeConversation !== null ? <ContainerMess contactData={activeConversation} /> : ""}
+          {activeConversation !== null ? <ContainerMess /> : ""}
         </div>
         <div>
-          {activeConversation !== null ? <MessageInfor contactData={activeConversation} /> : ""}
+          {activeConversation !== null ? <MessageInfor /> : ""}
         </div>
       </div>
     </>

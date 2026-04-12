@@ -4,10 +4,8 @@ import MessageInfor from "../Message/MessageInfor";
 import ContainerMess from "../Message/ContainerMess";
 import MenuContact from "./MenuContact";
 import ContentMenuContact from "./ContentMenuContact";
-import { openOrCreatePrivateConversationV1 } from "../../services/chat/conversationApi";
 
 export default function AddressBook() {
-  const [dataContact, setDataContact] = useState(null);
   const [openChatError, setOpenChatError] = useState("");
   const [showContentMenuContact, setShowContentMenuContact] = useState({
     state: false,
@@ -15,32 +13,21 @@ export default function AddressBook() {
     title: null,
     count: null,
   });
-  const { openConversation } = useContext(ContactContext);
-
-  const resolveConversation = async (value) => {
-    if (value?.id) {
-      const nextConversation = openConversation(value);
-      setDataContact(nextConversation);
-      return nextConversation;
-    }
-
-    const participantId = value?.userId || value?._id || null;
-    if (!participantId) {
-      throw new Error("Missing participant user id");
-    }
-
-    const nextConversation = openConversation(
-      await openOrCreatePrivateConversationV1(participantId)
-    );
-    setDataContact(nextConversation);
-    return nextConversation;
-  };
+  const {
+    currentConversationNormalized,
+    openConversation,
+    openPrivateConversationForUser,
+  } = useContext(ContactContext);
 
   const handleChangeContact = async (value) => {
     setOpenChatError("");
 
     try {
-      await resolveConversation(value);
+      if (value?.id) {
+        openConversation(value);
+      } else {
+        await openPrivateConversationForUser(value);
+      }
       setShowContentMenuContact({
         state: false,
         data: null,
@@ -87,8 +74,8 @@ export default function AddressBook() {
         ) : null}
       </div>
 
-      <div>{dataContact ? <ContainerMess contactData={dataContact} /> : null}</div>
-      <div>{dataContact ? <MessageInfor contactData={dataContact} /> : null}</div>
+      <div>{currentConversationNormalized ? <ContainerMess /> : null}</div>
+      <div>{currentConversationNormalized ? <MessageInfor /> : null}</div>
     </div>
   );
 }

@@ -35,7 +35,10 @@ import {
   uploadAttachmentV1,
 } from "../../services/chat/messageApi";
 import chatRealtimeService from "../../services/chat/chatRealtimeService";
+import { mapConversationMembers } from "../../mappers/conversationMapper";
 import {
+  RECALLED_MESSAGE_PLACEHOLDER,
+  createReplyPreviewText,
   createAttachmentPreviewText,
   isImageAttachment,
   mapMessage,
@@ -69,6 +72,9 @@ const codeBackground = [
 const REACTION_OPTIONS = ["LIKE", "LOVE", "HAHA"];
 const TYPING_DEBOUNCE_MS = 400;
 const TYPING_IDLE_MS = 1200;
+const REMOTE_TYPING_TIMEOUT_MS = 3000;
+const PRIVATE_CONVERSATION_LABEL = "Nguoi dung";
+const GROUP_CONVERSATION_LABEL = "Nhom";
 const REACTION_LABELS = {
   LIKE: "👍",
   LOVE: "❤️",
@@ -127,6 +133,72 @@ const applyLocalReactionChange = (message, nextReaction) => {
   };
 };
 
+const truncateText = (value, maxLength = 90) => {
+  const normalizedValue = String(value || "").trim();
+  if (!normalizedValue) {
+    return "";
+  }
+
+  return normalizedValue.length > maxLength
+    ? `${normalizedValue.slice(0, maxLength - 3)}...`
+    : normalizedValue;
+};
+
+const buildReplyPreview = (message) =>
+  truncateText(createReplyPreviewText(message), 90) || "Tin nhan";
+
+const normalizeTypingPayload = (event) => {
+  const payload =
+    event?.payload && typeof event.payload === "object" ? event.payload : event;
+
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const senderId = payload.senderId || payload.userId || payload.actorUserId || null;
+  const isTyping = payload.isTyping ?? payload.typing;
+
+  if (!senderId || typeof isTyping !== "boolean") {
+    return null;
+  }
+
+  return {
+    senderId,
+    isTyping,
+    conversationId: payload.conversationId || payload.chatId || null,
+    displayName: payload.displayName || payload.senderDisplayName || payload.senderName || "",
+    raw: payload,
+  };
+};
+
+const resolveTypingStatusText = (typingUsers, conversationType) => {
+  if (!typingUsers.length) {
+    return "";
+  }
+
+  if (conversationType !== "group") {
+    return "Dang go tin nhan...";
+  }
+
+  const namedTypingUsers = typingUsers
+    .map((item) => String(item?.displayName || "").trim())
+    .filter(Boolean);
+
+  if (!namedTypingUsers.length) {
+    return "Co nguoi dang go tin nhan...";
+  }
+
+  if (namedTypingUsers.length === 1) {
+    return `${namedTypingUsers[0]} dang go tin nhan...`;
+  }
+
+  if (namedTypingUsers.length === 2) {
+    return `${namedTypingUsers[0]} va ${namedTypingUsers[1]} dang go tin nhan...`;
+  }
+
+  return "Nhieu nguoi dang go tin nhan...";
+};
+
 
 function ContainerMess({ contactData }) {
   const scrollRef = useRef(null);
@@ -136,7 +208,7 @@ function ContainerMess({ contactData }) {
   const typingStateRef = useRef(false);
   const typingDebounceTimeoutRef = useRef(null);
   const typingIdleTimeoutRef = useRef(null);
-  const remoteTypingTimeoutRef = useRef(null);
+  const remoteTypingTimeoutsRef = useRef(new Map());
   const [messages, setMessages] = useState([]);
   const [menuControl, setMenuControl] = useState({
     tableColor: false,
@@ -149,7 +221,8 @@ function ContainerMess({ contactData }) {
   const [isSending, setIsSending] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [editingText, setEditingText] = useState("");
-  const [typingUserId, setTypingUserId] = useState(null);
+  const [typingUsers, setTypingUsers] = useState([]);
+  const [replyingToMessage, setReplyingToMessage] = useState(null);
   const { userData } = useContext(UserContext);
   const {
     selectedConversationId,
@@ -158,28 +231,52 @@ function ContainerMess({ contactData }) {
   } = useContext(ContactContext);
   const { theme, handleChangeTheme } = useContext(ThemeContext);
   const currentUserId = userData?.userId || userData?._id || null;
-  const backendConversationId = selectedConversationId || contactData?.id || null;
+  const currentUserDisplayName =
+    userData?.displayName || userData?.username || "Ban";
   const activeConversation = useMemo(() => {
-    if (
-      currentConversationNormalized?.id &&
-      currentConversationNormalized.id === backendConversationId
-    ) {
+    if (currentConversationNormalized?.id) {
       return currentConversationNormalized;
     }
 
-    return contactData || currentConversationNormalized || null;
-  }, [backendConversationId, contactData, currentConversationNormalized]);
+    if (
+      contactData?.id &&
+      (!selectedConversationId || String(contactData.id) === String(selectedConversationId))
+    ) {
+      return contactData;
+    }
+
+    return null;
+  }, [contactData, currentConversationNormalized, selectedConversationId]);
+  const backendConversationId = activeConversation?.id || null;
   const conversationName =
     activeConversation?.displayName ||
     activeConversation?.trustedDisplayName ||
-    activeConversation?.title ||
-    "";
+    (activeConversation?.type === "group"
+      ? GROUP_CONVERSATION_LABEL
+      : PRIVATE_CONVERSATION_LABEL);
   const conversationAvatar =
     activeConversation?.avatarUrl ||
     activeConversation?.trustedAvatarUrl ||
-    activeConversation?.avatar ||
     null;
   const currentUserAvatar = userData?.avatarUrl || userData?.avatar || null;
+  const conversationMembers = useMemo(
+    () =>
+      mapConversationMembers(
+        Array.isArray(activeConversation?.members) && activeConversation.members.length
+          ? { members: activeConversation.members }
+          : activeConversation?.raw || activeConversation
+      ),
+    [activeConversation]
+  );
+  const memberNameMap = useMemo(
+    () =>
+      new Map(
+        conversationMembers
+          .filter((member) => member?.userId)
+          .map((member) => [String(member.userId), member.displayName || ""])
+      ),
+    [conversationMembers]
+  );
   const renderAvatar = (avatarUrl, className = "", alt = "") =>
     avatarUrl ? (
       <img className={className} src={avatarUrl} alt={alt} />
@@ -195,6 +292,37 @@ function ContainerMess({ contactData }) {
         }}
       />
     );
+  const resolveUserDisplayName = useCallback(
+    (userId, fallbackName = "") => {
+      if (userId && String(userId) === String(currentUserId)) {
+        return currentUserDisplayName;
+      }
+
+      if (userId && memberNameMap.has(String(userId))) {
+        return memberNameMap.get(String(userId)) || fallbackName || "Nguoi dung";
+      }
+
+      return fallbackName || "Nguoi dung";
+    },
+    [currentUserDisplayName, currentUserId, memberNameMap]
+  );
+  const buildReplyTarget = useCallback(
+    (message) => ({
+      id: message?.id || null,
+      senderId: message?.senderId || null,
+      senderDisplayName: resolveUserDisplayName(
+        message?.senderId,
+        message?.senderDisplayName
+      ),
+      contentPreview: buildReplyPreview(message),
+      type:
+        message?.type ||
+        (Array.isArray(message?.attachments) && message.attachments.length
+          ? "ATTACHMENT"
+          : "TEXT"),
+    }),
+    [resolveUserDisplayName]
+  );
 
   const pushTypingState = useCallback(
     async (isTyping) => {
@@ -207,12 +335,15 @@ function ContainerMess({ contactData }) {
       }
 
       typingStateRef.current = isTyping;
+      console.log("[TYPING SEND]", {
+        conversationId: backendConversationId,
+        isTyping,
+        timestamp: Date.now(),
+      });
 
       try {
         await sendTypingState(backendConversationId, isTyping);
-      } catch (error) {
-        console.error("Failed to update typing state:", error);
-      }
+      } catch {}
     },
     [backendConversationId]
   );
@@ -333,9 +464,10 @@ function ContainerMess({ contactData }) {
         clearTimeout(typingIdleTimeoutRef.current);
       }
 
-      if (remoteTypingTimeoutRef.current) {
-        clearTimeout(remoteTypingTimeoutRef.current);
-      }
+      remoteTypingTimeoutsRef.current.forEach((timeoutId) => {
+        clearTimeout(timeoutId);
+      });
+      remoteTypingTimeoutsRef.current.clear();
     };
   }, []);
 
@@ -344,6 +476,22 @@ function ContainerMess({ contactData }) {
       pushTypingState(false);
     };
   }, [pushTypingState]);
+
+  useEffect(() => {
+    setTypingUsers([]);
+    setReplyingToMessage(null);
+    typingStateRef.current = false;
+    if (typingDebounceTimeoutRef.current) {
+      clearTimeout(typingDebounceTimeoutRef.current);
+    }
+    if (typingIdleTimeoutRef.current) {
+      clearTimeout(typingIdleTimeoutRef.current);
+    }
+    remoteTypingTimeoutsRef.current.forEach((timeoutId) => {
+      clearTimeout(timeoutId);
+    });
+    remoteTypingTimeoutsRef.current.clear();
+  }, [backendConversationId]);
 
   useEffect(() => {
     const fetchMessages = async () => {
@@ -428,34 +576,80 @@ function ContainerMess({ contactData }) {
 
   useEffect(() => {
     if (!backendConversationId) {
-      setTypingUserId(null);
+      setTypingUsers([]);
       return undefined;
     }
 
     const subscriptionKey = `chat:conversation:${backendConversationId}:typing`;
     chatRealtimeService
       .subscribe(subscriptionKey, `/topic/typing/${backendConversationId}`, (event) => {
-        if (event?.type !== "TYPING_UPDATED" || !event.payload?.userId) {
+        console.log("[TYPING RECEIVE RAW]", event);
+
+        const typingEvent = normalizeTypingPayload(event);
+        if (!typingEvent) {
           return;
         }
 
-        if (event.payload.userId === currentUserId) {
+        if (
+          typingEvent.conversationId &&
+          String(typingEvent.conversationId) !== String(backendConversationId)
+        ) {
           return;
         }
 
-        if (remoteTypingTimeoutRef.current) {
-          clearTimeout(remoteTypingTimeoutRef.current);
-        }
-
-        if (event.payload.isTyping) {
-          setTypingUserId(event.payload.userId);
-          remoteTypingTimeoutRef.current = setTimeout(() => {
-            setTypingUserId(null);
-          }, TYPING_IDLE_MS + 600);
+        if (String(typingEvent.senderId) === String(currentUserId)) {
           return;
         }
 
-        setTypingUserId(null);
+        console.log("[TYPING PARSED]", {
+          senderId: typingEvent.senderId,
+          isTyping: typingEvent.isTyping,
+        });
+
+        const typingUserId = String(typingEvent.senderId);
+        const resolvedDisplayName = resolveUserDisplayName(
+          typingUserId,
+          typingEvent.displayName
+        );
+        const currentTimeout = remoteTypingTimeoutsRef.current.get(typingUserId);
+        if (currentTimeout) {
+          clearTimeout(currentTimeout);
+        }
+
+        console.log("[TYPING STATE UPDATE]", {
+          senderId: typingUserId,
+          isTyping: typingEvent.isTyping,
+        });
+
+        if (typingEvent.isTyping) {
+          setTypingUsers((prevState) => {
+            const nextState = prevState.filter(
+              (item) => String(item.userId) !== typingUserId
+            );
+            return [
+              ...nextState,
+              {
+                userId: typingUserId,
+                displayName: resolvedDisplayName,
+              },
+            ];
+          });
+
+          const timeoutId = setTimeout(() => {
+            console.log("[TYPING CLEAR]", typingUserId);
+            setTypingUsers((prevState) =>
+              prevState.filter((item) => String(item.userId) !== typingUserId)
+            );
+            remoteTypingTimeoutsRef.current.delete(typingUserId);
+          }, REMOTE_TYPING_TIMEOUT_MS);
+          remoteTypingTimeoutsRef.current.set(typingUserId, timeoutId);
+          return;
+        }
+
+        remoteTypingTimeoutsRef.current.delete(typingUserId);
+        setTypingUsers((prevState) =>
+          prevState.filter((item) => String(item.userId) !== typingUserId)
+        );
       })
       .catch((error) => {
         console.error("Failed to subscribe to typing updates:", error);
@@ -463,12 +657,13 @@ function ContainerMess({ contactData }) {
 
     return () => {
       chatRealtimeService.unsubscribe(subscriptionKey);
-      setTypingUserId(null);
-      if (remoteTypingTimeoutRef.current) {
-        clearTimeout(remoteTypingTimeoutRef.current);
-      }
+      setTypingUsers([]);
+      remoteTypingTimeoutsRef.current.forEach((timeoutId) => {
+        clearTimeout(timeoutId);
+      });
+      remoteTypingTimeoutsRef.current.clear();
     };
-  }, [backendConversationId, currentUserId]);
+  }, [backendConversationId, currentUserId, resolveUserDisplayName]);
 
   const handleSeenMess = useCallback(() => {
     if (!backendConversationId) {
@@ -568,6 +763,7 @@ function ContainerMess({ contactData }) {
         conversationId: backendConversationId,
         ...(messageText ? { content: messageText } : {}),
         ...(uploadedAttachments.length ? { attachments: uploadedAttachments } : {}),
+        ...(replyingToMessage?.id ? { replyToMessageId: replyingToMessage.id } : {}),
       });
 
       const nextMessage = mapMessage(response);
@@ -578,16 +774,29 @@ function ContainerMess({ contactData }) {
         updatedAt: nextMessage.editedAt || nextMessage.createdAt,
       });
       resetComposer();
+      setReplyingToMessage(null);
     } catch (error) {
       console.error("Failed to send message:", error);
       setActionError(
-        selectedAttachments.length > 0
+        replyingToMessage
+          ? "Khong the gui tin nhan tra loi."
+          : selectedAttachments.length > 0
           ? "Khong the gui tep dinh kem."
           : "Khong the gui tin nhan."
       );
     } finally {
       setIsSending(false);
     }
+  };
+
+  const handleReplyToMessage = (message) => {
+    setReplyingToMessage(buildReplyTarget(message));
+    setActionError("");
+    inputMessage.current?.focus();
+  };
+
+  const handleCancelReply = () => {
+    setReplyingToMessage(null);
   };
 
   const handleButtonSendMess = (event) => {
@@ -708,12 +917,19 @@ function ContainerMess({ contactData }) {
   };
 
   const normalizedMessages = useMemo(() => normalizeMessageList(messages), [messages]);
-  const statusHint =
-    typingUserId
-      ? "Dang go tin nhan..."
-      : activeConversation?.lastActive && activeConversation.lastActive !== "Active"
-      ? activeConversation.lastActive
-      : "Dang hoat dong";
+  const typingStatusText = useMemo(
+    () => resolveTypingStatusText(typingUsers, activeConversation?.type),
+    [activeConversation?.type, typingUsers]
+  );
+  const statusHint = typingStatusText
+    ? typingStatusText
+    : activeConversation?.lastActive && activeConversation.lastActive !== "Active"
+    ? activeConversation.lastActive
+    : "Dang hoat dong";
+  console.log("[TYPING RENDER]", {
+    typingUsers,
+    currentConversationId: backendConversationId,
+  });
   // Keep status UI intentionally minimal for now; live message-status topic wiring can come later.
   const lastOwnMessageId = useMemo(() => {
     const ownMessages = normalizedMessages.filter((message) => message.senderId === currentUserId);
@@ -731,8 +947,15 @@ function ContainerMess({ contactData }) {
           <div className="friend-mess-infor">
             <h3>{conversationName}</h3>
             <div>
-              {typingUserId ? (
-                <p className="typing-indicator">{statusHint}</p>
+              {typingStatusText ? (
+                <div className="typing-indicator">
+                  <p>{statusHint}</p>
+                  <span className="typing-indicator-dots" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                </div>
               ) : activeConversation?.lastActive && activeConversation.lastActive !== "Active" ? (
                 <p>{statusHint}</p>
               ) : (
@@ -756,13 +979,28 @@ function ContainerMess({ contactData }) {
           <ul>
             {normalizedMessages.map((item, index) => {
               const isMine = item.senderId === currentUserId;
-              const imageAttachments = item.attachments.filter(isImageAttachment);
-              const fileAttachments = item.attachments.filter(
+              const isDeleted = Boolean(item.deletedAt);
+              const visibleAttachments = isDeleted ? [] : item.attachments;
+              const imageAttachments = visibleAttachments.filter(isImageAttachment);
+              const fileAttachments = visibleAttachments.filter(
                 (attachment) => !isImageAttachment(attachment)
               );
               const canEdit =
-                isMine && !item.deletedAt && !item.attachments.length && Boolean(item.content);
-              const canDelete = isMine && !item.deletedAt;
+                isMine && !isDeleted && !visibleAttachments.length && Boolean(item.content);
+              const canDelete = isMine && !isDeleted;
+              const canReply = Boolean(item.id) && !isDeleted;
+              const replyPreviewSenderName = !isDeleted && item.replyTo
+                ? resolveUserDisplayName(
+                    item.replyTo.senderId,
+                    item.replyTo.senderDisplayName
+                  )
+                : "";
+              const replyPreviewText = !isDeleted && item.replyTo
+                ? truncateText(item.replyTo.contentPreview || "Tin nhan", 90)
+                : "";
+              const displayText = isDeleted
+                ? RECALLED_MESSAGE_PLACEHOLDER
+                : item.content;
 
               return (
                 <li
@@ -779,7 +1017,7 @@ function ContainerMess({ contactData }) {
                   )}
                   <div
                     className={`detail-mess ${
-                      item.deletedAt ? "detail-mess-deleted" : ""
+                      isDeleted ? "detail-mess-deleted" : ""
                     } ${fileAttachments.length ? "detail-mess-has-files" : ""}`}
                   >
                     {!isMine && <p className="name-mess">{conversationName}</p>}
@@ -809,6 +1047,14 @@ function ContainerMess({ contactData }) {
                       </div>
                     ) : (
                       <>
+                        {!isDeleted && item.replyTo ? (
+                          <div className="message-reply-preview">
+                            <p className="message-reply-sender">
+                              {replyPreviewSenderName || "Tin nhan duoc tra loi"}
+                            </p>
+                            <p className="message-reply-text">{replyPreviewText}</p>
+                          </div>
+                        ) : null}
                         {imageAttachments.length > 0 && (
                           <ul className="list-imgs-mess flex">
                             {imageAttachments.map((attachment) => (
@@ -836,21 +1082,21 @@ function ContainerMess({ contactData }) {
                             ))}
                           </div>
                         )}
-                        {item.content ? (
+                        {displayText ? (
                           <p
                             className={`text-mess ${
-                              item.deletedAt ? "message-text-deleted" : ""
+                              isDeleted ? "message-text-deleted" : ""
                             }`}
                           >
-                            {item.content}
+                            {displayText}
                           </p>
                         ) : null}
-                        {item.editedAt && !item.deletedAt ? (
+                        {item.editedAt && !isDeleted ? (
                           <p className="message-state-chip">Da chinh sua</p>
                         ) : null}
                       </>
                     )}
-                    {!item.deletedAt && (
+                    {!isDeleted && (
                       <div className="flex message-action-row">
                         <button
                           className={`message-action-btn ${
@@ -873,6 +1119,15 @@ function ContainerMess({ contactData }) {
                             {REACTION_LABELS[reactionType]}
                           </button>
                         ))}
+                        {canReply ? (
+                          <button
+                            className="message-action-btn subtle"
+                            type="button"
+                            onClick={() => handleReplyToMessage(item)}
+                          >
+                            Tra loi
+                          </button>
+                        ) : null}
                         {canEdit ? (
                           <button
                             className="message-action-btn subtle"
@@ -988,6 +1243,26 @@ function ContainerMess({ contactData }) {
             onChange={handleAttachmentPick}
           />
           <div className="chat-input-web">
+            {replyingToMessage ? (
+              <div className="composer-reply-banner">
+                <div className="composer-reply-text">
+                  <p className="composer-reply-label">
+                    Tra loi {replyingToMessage.senderDisplayName || "tin nhan"}
+                  </p>
+                  <p className="composer-reply-preview">
+                    {replyingToMessage.contentPreview || "Tin nhan"}
+                  </p>
+                </div>
+                <button
+                  className="composer-reply-close"
+                  type="button"
+                  onClick={handleCancelReply}
+                  aria-label="Huy tra loi"
+                >
+                  <IoMdClose />
+                </button>
+              </div>
+            ) : null}
             <ul className="list-img flex">
               {selectedAttachments.map((attachment) => (
                 <li key={attachment.id} className="selected-attachment-card">

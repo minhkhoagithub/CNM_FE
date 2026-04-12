@@ -58,12 +58,18 @@ const getFriendActionMeta = (relationshipStatus) => {
 
 const getUnreadConversationCount = (conversation) =>
   Number(conversation?.unreadCount || 0);
+const PRIVATE_CONVERSATION_LABEL = "Nguoi dung";
+const GROUP_CONVERSATION_LABEL = "Nhom";
 
 const getConversationDisplayName = (conversation) =>
-  conversation?.displayName || conversation?.trustedDisplayName || conversation?.title || "";
+  conversation?.displayName ||
+  conversation?.trustedDisplayName ||
+  (conversation?.type === "group"
+    ? GROUP_CONVERSATION_LABEL
+    : PRIVATE_CONVERSATION_LABEL);
 
 const getConversationAvatarUrl = (conversation) =>
-  conversation?.avatarUrl || conversation?.trustedAvatarUrl || conversation?.avatar || "";
+  conversation?.avatarUrl || conversation?.trustedAvatarUrl || "";
 
 const getConversationPreview = (conversation) =>
   conversation?.lastMessage || `Gui loi chao den ${getConversationDisplayName(conversation)}`;
@@ -355,20 +361,19 @@ const handleSearchDb = (value) => {
   // };
 
   const handleChoiceContact = (value) => {
-  storeLocal(value);
-  console.log("Selected contact:", value);
-  handleChangeContact({
-    ...value,
-    userId: value?.userId || value?._id,
-  });
-  setIsSearch((prevState) => {
-    return {
-      ...prevState,
-      state: false,
-    };
-  });
-  setTextSearch("");
-};
+    storeLocal(value);
+    handleChangeContact({
+      ...value,
+      userId: value?.userId || value?._id,
+    });
+    setIsSearch((prevState) => {
+      return {
+        ...prevState,
+        state: false,
+      };
+    });
+    setTextSearch("");
+  };
 
 
   // const storeLocal = (value) => {

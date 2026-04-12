@@ -29,6 +29,22 @@ const NOTIFICATION_OPTIONS = [
   { value: "MENTIONS_ONLY", label: "Chi nhac toi" },
   { value: "NONE", label: "Tat" },
 ];
+const PRIVATE_CONVERSATION_LABEL = "Nguoi dung";
+const GROUP_CONVERSATION_LABEL = "Nhom";
+
+const renderAvatarPlaceholder = (className, size = 32) => (
+  <div
+    className={className}
+    aria-hidden="true"
+    style={{
+      width: size,
+      height: size,
+      borderRadius: "50%",
+      backgroundColor: "#e9eef5",
+      flexShrink: 0,
+    }}
+  />
+);
 
 function MessageInfor({ contactData }) {
   const [showTool, setShowTool] = useState([]);
@@ -44,23 +60,40 @@ function MessageInfor({ contactData }) {
   const { userData } = useContext(UserContext);
   const {
     currentConversationNormalized,
+    selectedConversationId,
     updateConversationById,
     removeConversationById,
     clearSelectedConversation,
   } = useContext(ContactContext);
 
   const activeConversation = useMemo(
-    () => currentConversationNormalized || contactData || null,
-    [contactData, currentConversationNormalized]
+    () => {
+      if (currentConversationNormalized?.id) {
+        return currentConversationNormalized;
+      }
+
+      if (
+        contactData?.id &&
+        (!selectedConversationId || String(contactData.id) === String(selectedConversationId))
+      ) {
+        return contactData;
+      }
+
+      return null;
+    },
+    [contactData, currentConversationNormalized, selectedConversationId]
   );
 
   const conversationId = activeConversation?.id || null;
   const effectiveDisplayName =
-    activeConversation?.displayName || activeConversation?.trustedDisplayName || "";
+    activeConversation?.displayName ||
+    activeConversation?.trustedDisplayName ||
+    (activeConversation?.type === "group"
+      ? GROUP_CONVERSATION_LABEL
+      : PRIVATE_CONVERSATION_LABEL);
   const avatarUrl =
     activeConversation?.avatarUrl ||
     activeConversation?.trustedAvatarUrl ||
-    activeConversation?.avatar ||
     null;
   const isGroupConversation = activeConversation?.type === "group";
   const currentUserId = userData?.userId || userData?._id || null;
@@ -168,10 +201,9 @@ function MessageInfor({ contactData }) {
         await updateConversationNotificationLevelV1(conversationId, nextValue);
       }
 
-      updateConversationById(conversationId, (currentConversation) => ({
-        ...currentConversation,
+      updateConversationById(conversationId, {
         [key]: nextValue,
-      }));
+      });
     } catch (error) {
       console.error("Failed to update room preference:", error);
       setSettingsError("Khong the cap nhat tuy chon hoi thoai.");
@@ -439,11 +471,15 @@ function MessageInfor({ contactData }) {
       <div className="mess-infor-scrool-header">
         <div className="mess-infor-header-infor">
           <div className="mess-infor-wrap-avatar">
-            <img
-              className="mess-infor-avatar-infor"
-              src={avatarUrl || undefined}
-              alt=""
-            />
+            {avatarUrl ? (
+              <img
+                className="mess-infor-avatar-infor"
+                src={avatarUrl}
+                alt=""
+              />
+            ) : (
+              renderAvatarPlaceholder("mess-infor-avatar-infor", 86)
+            )}
             <div className="mess-infor-nickname flex">
               <p>{effectiveDisplayName}</p>
               <CiEdit style={{ fontSize: "23px", cursor: "pointer" }} />
@@ -613,16 +649,20 @@ function MessageInfor({ contactData }) {
                         return (
                           <div key={member.userId} className="mess-infor-member-row">
                             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                              <img
-                                src={member.avatarUrl || avatarUrl}
-                                alt=""
-                                style={{
-                                  width: 32,
-                                  height: 32,
-                                  borderRadius: "50%",
-                                  objectFit: "cover",
-                                }}
-                              />
+                              {member.avatarUrl ? (
+                                <img
+                                  src={member.avatarUrl}
+                                  alt=""
+                                  style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: "50%",
+                                    objectFit: "cover",
+                                  }}
+                                />
+                              ) : (
+                                renderAvatarPlaceholder("", 32)
+                              )}
                               <div>
                                 <p style={{ margin: 0, fontWeight: 500 }}>
                                   {member.displayName}
