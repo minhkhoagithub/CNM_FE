@@ -7,6 +7,8 @@ import { IoMdClose } from "react-icons/io";
 export default function UpdateProfileModal({ onClose }) {
   const { userData, setUserData } = useContext(UserContext);
   const [form, setForm] = useState({
+    firstName: userData.firstName || "",
+    lastName: userData.lastName || "",
     displayName: userData.displayName || userData.username || "",
     gender: userData.gender || "",
     dob: userData.dob || "",
@@ -25,10 +27,11 @@ export default function UpdateProfileModal({ onClose }) {
     setLoading(true);
     try {
       const res = await updateUserProfile(form);
-    //   if (res && res.data) {
-    //     setUserData((prev) => ({ ...prev, ...res.data }));
-    //     console.log(res.data);
-    //   }
+      // console.log("res", res);
+      
+      if (res && res.data && res.data.data) {
+        setUserData(res.data.data);
+      }
       setLoading(false);
       onClose();
     } catch (err) {

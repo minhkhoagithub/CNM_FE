@@ -254,6 +254,7 @@ function Chat({ handleLogout }) {
                   src={userData.avatar}
                   alt=""
                   onClick={handleShowStartup}
+                  style={{ objectFit: "cover" }}
                 />
               ) : (
                 <div
@@ -266,7 +267,7 @@ function Chat({ handleLogout }) {
               )}
               {isShowStartup && (
                 <div ref={boxRef} className="startup">
-                  <p>{userData.username}</p>
+                  <p>{userData.displayName}</p>
                   <div>
                     <p onClick={() => {
                       handleShowSetting(true);
@@ -478,21 +479,42 @@ function Chat({ handleLogout }) {
                                     <p className="device-platform">{location.platform}</p>
                                     <p className="login-time">{location.time}</p>
                                   </div>
-                                  <button
-                                    className="btn-logout-device"
-                                    onClick={() => handleLogoutDevice(location.deviceId, location.platform, location.device)}
-                                    disabled={logoutingDeviceId === location.deviceId}
-                                    title="Đăng xuất thiết bị này"
-                                  >
-                                    {logoutingDeviceId === location.deviceId ? (
-                                      <span>Đang xử lý...</span>
-                                    ) : (
-                                      <>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div>
+                                      {localStorage.getItem("deviceId") === location.deviceId ? (
+                                        <span style={{color: '#0068ff', fontWeight: 500, fontSize: 13}}>(Hiện tại)</span>
+                                      ) : (
+                                        <p className="login-time" style={{ display: 'inline' }}>{location.time}</p>
+                                      )}
+                                    </div>
+                                    {localStorage.getItem("deviceId") === location.deviceId ? (
+                                      <button
+                                        className="btn-logout-device"
+                                        disabled
+                                        style={{ opacity: 0.6, cursor: "not-allowed" }}
+                                        title="Không thể đăng xuất thiết bị hiện tại"
+                                      >
                                         <MdDelete size={16} />
                                         Đăng xuất
-                                      </>
+                                      </button>
+                                    ) : (
+                                      <button
+                                        className="btn-logout-device"
+                                        onClick={() => handleLogoutDevice(location.deviceId, location.platform, location.device)}
+                                        disabled={logoutingDeviceId === location.deviceId}
+                                        title="Đăng xuất thiết bị này"
+                                      >
+                                        {logoutingDeviceId === location.deviceId ? (
+                                          <span>Đang xử lý...</span>
+                                        ) : (
+                                          <>
+                                            <MdDelete size={16} />
+                                            Đăng xuất
+                                          </>
+                                        )}
+                                      </button>
                                     )}
-                                  </button>
+                                  </div>
                                 </div>
                               ))
                             )}
