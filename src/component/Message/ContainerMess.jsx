@@ -151,12 +151,50 @@ function ContainerMess({ contactData }) {
   const [editingText, setEditingText] = useState("");
   const [typingUserId, setTypingUserId] = useState(null);
   const { userData } = useContext(UserContext);
-  const { selectedConversationId, updateConversationById } = useContext(ContactContext);
+  const {
+    selectedConversationId,
+    currentConversationNormalized,
+    updateConversationById,
+  } = useContext(ContactContext);
   const { theme, handleChangeTheme } = useContext(ThemeContext);
   const currentUserId = userData?.userId || userData?._id || null;
   const backendConversationId = selectedConversationId || contactData?.id || null;
-  const conversationName = contactData?.displayName || contactData?.title || "";
-  const conversationAvatar = contactData?.avatar || userData?.avatar || "";
+  const activeConversation = useMemo(() => {
+    if (
+      currentConversationNormalized?.id &&
+      currentConversationNormalized.id === backendConversationId
+    ) {
+      return currentConversationNormalized;
+    }
+
+    return contactData || currentConversationNormalized || null;
+  }, [backendConversationId, contactData, currentConversationNormalized]);
+  const conversationName =
+    activeConversation?.displayName ||
+    activeConversation?.trustedDisplayName ||
+    activeConversation?.title ||
+    "";
+  const conversationAvatar =
+    activeConversation?.avatarUrl ||
+    activeConversation?.trustedAvatarUrl ||
+    activeConversation?.avatar ||
+    null;
+  const currentUserAvatar = userData?.avatarUrl || userData?.avatar || null;
+  const renderAvatar = (avatarUrl, className = "", alt = "") =>
+    avatarUrl ? (
+      <img className={className} src={avatarUrl} alt={alt} />
+    ) : (
+      <div
+        className={className}
+        aria-hidden="true"
+        style={{
+          backgroundColor: "#e9eef5",
+          borderRadius: "50%",
+          minWidth: className ? undefined : 40,
+          minHeight: className ? undefined : 40,
+        }}
+      />
+    );
 
   const pushTypingState = useCallback(
     async (isTyping) => {
@@ -673,8 +711,8 @@ function ContainerMess({ contactData }) {
   const statusHint =
     typingUserId
       ? "Dang go tin nhan..."
-      : contactData?.lastActive && contactData.lastActive !== "Active"
-      ? contactData.lastActive
+      : activeConversation?.lastActive && activeConversation.lastActive !== "Active"
+      ? activeConversation.lastActive
       : "Dang hoat dong";
   // Keep status UI intentionally minimal for now; live message-status topic wiring can come later.
   const lastOwnMessageId = useMemo(() => {
@@ -688,14 +726,14 @@ function ContainerMess({ contactData }) {
       <div className="top-container flex">
         <div className="flex">
           <div className="zavatar">
-            <img src={conversationAvatar} alt="" />
+            {renderAvatar(conversationAvatar)}
           </div>
           <div className="friend-mess-infor">
             <h3>{conversationName}</h3>
             <div>
               {typingUserId ? (
                 <p className="typing-indicator">{statusHint}</p>
-              ) : contactData?.lastActive && contactData.lastActive !== "Active" ? (
+              ) : activeConversation?.lastActive && activeConversation.lastActive !== "Active" ? (
                 <p>{statusHint}</p>
               ) : (
                 <div className="flex">
@@ -734,7 +772,11 @@ function ContainerMess({ contactData }) {
                     item.deletedAt ? "message-row-deleted" : ""
                   } flex`}
                 >
-                  <img src={conversationAvatar} alt="" />
+                  {renderAvatar(
+                    isMine ? currentUserAvatar : conversationAvatar,
+                    "",
+                    ""
+                  )}
                   <div
                     className={`detail-mess ${
                       item.deletedAt ? "detail-mess-deleted" : ""

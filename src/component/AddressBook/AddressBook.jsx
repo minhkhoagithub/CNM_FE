@@ -4,11 +4,11 @@ import MessageInfor from "../Message/MessageInfor";
 import ContainerMess from "../Message/ContainerMess";
 import MenuContact from "./MenuContact";
 import ContentMenuContact from "./ContentMenuContact";
-import { createConversationV1 } from "../../services/chat/conversationApi";
-import { mapConversation } from "../../mappers/conversationMapper";
+import { openOrCreatePrivateConversationV1 } from "../../services/chat/conversationApi";
 
 export default function AddressBook() {
   const [dataContact, setDataContact] = useState(null);
+  const [openChatError, setOpenChatError] = useState("");
   const [showContentMenuContact, setShowContentMenuContact] = useState({
     state: false,
     data: null,
@@ -26,19 +26,19 @@ export default function AddressBook() {
 
     const participantId = value?.userId || value?._id || null;
     if (!participantId) {
-      return null;
+      throw new Error("Missing participant user id");
     }
 
-    const response = await createConversationV1({
-      type: "PRIVATE",
-      participantIds: [participantId],
-    });
-    const nextConversation = openConversation(mapConversation(response));
+    const nextConversation = openConversation(
+      await openOrCreatePrivateConversationV1(participantId)
+    );
     setDataContact(nextConversation);
     return nextConversation;
   };
 
   const handleChangeContact = async (value) => {
+    setOpenChatError("");
+
     try {
       await resolveConversation(value);
       setShowContentMenuContact({
@@ -49,6 +49,7 @@ export default function AddressBook() {
       });
     } catch (err) {
       console.error(err);
+      setOpenChatError("Khong the mo cuoc tro chuyen nay.");
     }
   };
 
@@ -70,6 +71,11 @@ export default function AddressBook() {
       </div>
 
       <div className="fetch-menu-contact">
+        {openChatError ? (
+          <div style={{ color: "#b42318", padding: "12px 16px", fontSize: "14px" }}>
+            {openChatError}
+          </div>
+        ) : null}
         {showContentMenuContact.state ? (
           <ContentMenuContact
             key={`${showContentMenuContact?.title || "none"}-${showContentMenuContact?.count || "0"}`}

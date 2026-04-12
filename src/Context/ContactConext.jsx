@@ -70,18 +70,118 @@ const upsertConversationIntoLists = (conversationLists, conversation) => {
   };
 };
 
+const normalizeConversationType = (conversation) =>
+  String(conversation?.raw?.type || conversation?.type || "private").toLowerCase() ===
+  "group"
+    ? "group"
+    : "private";
+
+const resolveTrustedDisplayName = (conversation, normalizedType) => {
+  if (conversation?.trustedDisplayName) {
+    return conversation.trustedDisplayName;
+  }
+
+  const trustedSource = conversation?.raw || conversation || {};
+
+  if (normalizedType === "private") {
+    return (
+      trustedSource.peerDisplayName ||
+      conversation?.peerDisplayName ||
+      trustedSource.displayName ||
+      trustedSource.name ||
+      ""
+    );
+  }
+
+  return trustedSource.displayName || trustedSource.name || "";
+};
+
+const resolveTrustedAvatarUrl = (conversation, normalizedType) => {
+  if (conversation?.trustedAvatarUrl) {
+    return conversation.trustedAvatarUrl;
+  }
+
+  const trustedSource = conversation?.raw || conversation || {};
+
+  if (normalizedType === "private") {
+    return (
+      trustedSource.peerAvatarUrl ||
+      conversation?.peerAvatarUrl ||
+      trustedSource.avatarUrl ||
+      ""
+    );
+  }
+
+  return trustedSource.avatarUrl || "";
+};
+
+const mergeConversationPatch = (currentConversation, patch) => {
+  if (!currentConversation) {
+    return patch || null;
+  }
+
+  if (!patch) {
+    return currentConversation;
+  }
+
+  const nextRawPatch =
+    patch.raw && typeof patch.raw === "object" ? patch.raw : null;
+
+  return {
+    ...currentConversation,
+    ...patch,
+    peerUserId:
+      Object.prototype.hasOwnProperty.call(patch, "peerUserId")
+        ? patch.peerUserId
+        : currentConversation.peerUserId,
+    peerDisplayName:
+      Object.prototype.hasOwnProperty.call(patch, "peerDisplayName")
+        ? patch.peerDisplayName
+        : currentConversation.peerDisplayName,
+    peerAvatarUrl:
+      Object.prototype.hasOwnProperty.call(patch, "peerAvatarUrl")
+        ? patch.peerAvatarUrl
+        : currentConversation.peerAvatarUrl,
+    trustedDisplayName:
+      Object.prototype.hasOwnProperty.call(patch, "trustedDisplayName")
+        ? patch.trustedDisplayName
+        : currentConversation.trustedDisplayName,
+    trustedAvatarUrl:
+      Object.prototype.hasOwnProperty.call(patch, "trustedAvatarUrl")
+        ? patch.trustedAvatarUrl
+        : currentConversation.trustedAvatarUrl,
+    raw: nextRawPatch
+      ? {
+          ...(currentConversation.raw || {}),
+          ...nextRawPatch,
+        }
+      : currentConversation.raw || currentConversation,
+  };
+};
+
 const normalizeConversationInput = (conversation) => {
   if (!conversation) {
     return null;
   }
 
-  if (conversation.id && conversation.displayName !== undefined) {
+  if (conversation.id) {
+    const normalizedType = normalizeConversationType(conversation);
+    const trustedDisplayName = resolveTrustedDisplayName(conversation, normalizedType);
+    const trustedAvatarUrl = resolveTrustedAvatarUrl(conversation, normalizedType);
+    const customName =
+      typeof conversation.customName === "string" && conversation.customName.trim()
+        ? conversation.customName.trim()
+        : null;
+    const finalDisplayName = customName || trustedDisplayName;
+
     return {
       id: conversation.id || null,
-      title: conversation.title || conversation.displayName || conversation.name || "",
-      displayName:
-        conversation.displayName || conversation.title || conversation.name || "",
-      avatar: conversation.avatar || conversation.avatarUrl || "",
+      title: finalDisplayName,
+      displayName: finalDisplayName,
+      trustedDisplayName,
+      avatar: trustedAvatarUrl,
+      avatarUrl: trustedAvatarUrl,
+      trustedAvatarUrl,
       unreadCount: Number(conversation.unreadCount || 0),
       lastMessage: conversation.lastMessage || "",
       lastMessageTime: conversation.lastMessageTime || null,
@@ -89,13 +189,16 @@ const normalizeConversationInput = (conversation) => {
       archived: Boolean(conversation.archived),
       pinned: Boolean(conversation.pinned),
       notificationLevel: conversation.notificationLevel || "ALL",
-      customName: conversation.customName || null,
+      customName,
+      peerUserId: conversation.peerUserId || null,
+      peerDisplayName: conversation.peerDisplayName || null,
+      peerAvatarUrl: conversation.peerAvatarUrl || null,
       members: Array.isArray(conversation.members)
         ? conversation.members
         : Array.isArray(conversation.member)
         ? conversation.member
         : [],
-      type: conversation.type || "private",
+      type: normalizedType,
       raw: conversation.raw || conversation,
     };
   }
@@ -143,17 +246,12 @@ export const ContactProvider = ({ children }) => {
         return prevState;
       }
 
-      const nextConversationInput =
-        typeof updater === "function"
-          ? updater(currentConversation)
-          : {
-              ...currentConversation,
-              ...updater,
-              raw: {
-                ...(currentConversation.raw || {}),
-                ...(updater?.raw || {}),
-              },
-            };
+      const nextConversationPatch =
+        typeof updater === "function" ? updater(currentConversation) : updater;
+      const nextConversationInput = mergeConversationPatch(
+        currentConversation,
+        nextConversationPatch
+      );
 
       const nextConversation = normalizeConversationInput(nextConversationInput);
       if (!nextConversation?.id) {

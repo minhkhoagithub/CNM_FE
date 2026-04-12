@@ -3,14 +3,12 @@ import { ContactContext } from "../../Context/ContactConext";
 import MessageInfor from "./MessageInfor";
 import Contact from "./Contact";
 import ContainerMess from "./ContainerMess";
-import { UserContext } from "../../Context/UserContext";
-import { createConversationV1 } from "../../services/chat/conversationApi";
-import { mapConversation } from "../../mappers/conversationMapper";
+import { openOrCreatePrivateConversationV1 } from "../../services/chat/conversationApi";
 
 export default function Message({ showPageAddressBook }) {
   const { currentConversationNormalized, openConversation, clearSelectedConversation } =
     useContext(ContactContext);
-  const { userData } = useContext(UserContext);
+  const [openChatError, setOpenChatError] = React.useState("");
 
   const activeConversation = currentConversationNormalized;
 
@@ -18,27 +16,25 @@ export default function Message({ showPageAddressBook }) {
     const participantId = value?.userId || value?._id || null;
 
     if (!participantId) {
-      return null;
+      throw new Error("Missing participant user id");
     }
 
-    const response = await createConversationV1({
-      type: "PRIVATE",
-      participantIds: [participantId],
-    });
-
-    return openConversation(mapConversation(response));
+    return openConversation(await openOrCreatePrivateConversationV1(participantId));
   };
 
   const handleChangeContact = async (value) => {
+    setOpenChatError("");
+
     try {
       if (value?.id) {
         openConversation(value);
         return;
       }
 
-      await resolveConversation({ ...value, userId: value?.userId || userData?._id });
+      await resolveConversation({ ...value, userId: value?.userId || value?._id });
     } catch (err) {
       console.error(err);
+      setOpenChatError("Khong the mo cuoc tro chuyen nay.");
     }
   };
 
@@ -57,6 +53,11 @@ export default function Message({ showPageAddressBook }) {
           />
         </div>
         <div>
+          {openChatError ? (
+            <div style={{ color: "#b42318", padding: "12px 16px", fontSize: "14px" }}>
+              {openChatError}
+            </div>
+          ) : null}
           {activeConversation !== null ? <ContainerMess contactData={activeConversation} /> : ""}
         </div>
         <div>

@@ -62,11 +62,36 @@ export const mapMessage = (message) => {
   };
 };
 
+const getMessageSortValue = (value) => {
+  const timestamp = new Date(value || "").getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+};
+
+const compareMessageTimeline = (leftMessage, rightMessage) => {
+  const timeDiff =
+    getMessageSortValue(leftMessage?.createdAt) - getMessageSortValue(rightMessage?.createdAt);
+  if (timeDiff !== 0) {
+    return timeDiff;
+  }
+
+  const leftId = Number(leftMessage?.id);
+  const rightId = Number(rightMessage?.id);
+
+  if (!Number.isNaN(leftId) && !Number.isNaN(rightId)) {
+    return leftId - rightId;
+  }
+
+  return String(leftMessage?.id || "").localeCompare(String(rightMessage?.id || ""));
+};
+
+export const sortMessagesByTimeline = (messages) =>
+  normalizeMessageList(messages).slice().sort(compareMessageTimeline);
+
 export const mapMessagePage = (messagePage) => {
   const items = Array.isArray(messagePage?.items) ? messagePage.items : [];
 
   return {
-    items: items.map(mapMessage),
+    items: items.slice().reverse().map(mapMessage),
     nextCursor: messagePage?.nextCursor || null,
     hasMore: Boolean(messagePage?.hasMore),
     raw: messagePage,
@@ -79,7 +104,7 @@ export const upsertMessageItem = (messages, nextMessage) => {
   const normalizedMessages = normalizeMessageList(messages);
 
   if (!nextMessage?.id) {
-    return [...normalizedMessages, nextMessage];
+    return sortMessagesByTimeline([...normalizedMessages, nextMessage]);
   }
 
   const existingIndex = normalizedMessages.findIndex(
@@ -87,11 +112,13 @@ export const upsertMessageItem = (messages, nextMessage) => {
   );
 
   if (existingIndex === -1) {
-    return [...normalizedMessages, nextMessage];
+    return sortMessagesByTimeline([...normalizedMessages, nextMessage]);
   }
 
-  return normalizedMessages.map((message) =>
-    message.id === nextMessage.id ? { ...message, ...nextMessage } : message
+  return sortMessagesByTimeline(
+    normalizedMessages.map((message) =>
+      message.id === nextMessage.id ? { ...message, ...nextMessage } : message
+    )
   );
 };
 

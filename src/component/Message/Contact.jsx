@@ -28,7 +28,6 @@ import { mapConversation } from "../../mappers/conversationMapper";
 import "../../resource/style/AddressBook/menuContact.css";
 import {
   crudFriend,
-  getAllFriend,
   getUserByPhone,
   searchUsersV2,
   sendFriendRequestV2,
@@ -61,7 +60,10 @@ const getUnreadConversationCount = (conversation) =>
   Number(conversation?.unreadCount || 0);
 
 const getConversationDisplayName = (conversation) =>
-  conversation?.displayName || conversation?.title || "";
+  conversation?.displayName || conversation?.trustedDisplayName || conversation?.title || "";
+
+const getConversationAvatarUrl = (conversation) =>
+  conversation?.avatarUrl || conversation?.trustedAvatarUrl || conversation?.avatar || "";
 
 const getConversationPreview = (conversation) =>
   conversation?.lastMessage || `Gui loi chao den ${getConversationDisplayName(conversation)}`;
@@ -181,31 +183,6 @@ const getSearchItemId = (item) => item?.userId || item?._id || item?.id || null;
   }
 }, [userData?._id, userData?.userId]);
 
-
-  useEffect(() => {
-    const fetchFriendOptions = async () => {
-      if (!userData?._id) {
-        return;
-      }
-
-      try {
-        const response = await getAllFriend({ id: userData._id });
-        const nextFriends = Array.isArray(response?.data)
-          ? response.data.map((friend) => ({
-              userId: friend.userId || friend._id,
-              displayName: friend.username || friend.displayName || friend.name || friend.phone,
-              avatarUrl: friend.avatar || friend.avatarUrl || "",
-            }))
-          : [];
-
-        setFriendOptions(nextFriends.filter((friend) => friend.userId));
-      } catch (error) {
-        console.error("Failed to load friend options:", error);
-      }
-    };
-
-    fetchFriendOptions();
-  }, [userData?._id]);
 
   useEffect(() => {
     if (textSearch === "") {
@@ -769,7 +746,7 @@ const handleClearRecentSearch = () => {
                       {dataUserPhone.data !== null && (
                         <div className="wrap-result-phone flex">
                           <div className="flex" style={{ maxWidth: "200px" }}>
-                            <img src={dataUserPhone.data.avatar} alt="" />
+                            <img src={dataUserPhone.data.avatar || undefined} alt="" />
                             <div>
                               <p className="username ">
                                 {dataUserPhone.data.username}
@@ -894,7 +871,7 @@ const handleClearRecentSearch = () => {
                           return (
                             <div key={user.userId} className="wrap-result-phone flex">
                               <div className="flex" style={{ maxWidth: "220px" }}>
-                                <img src={user.avatar || user.avatarUrl} alt="" />
+                                <img src={user.avatar || user.avatarUrl || undefined} alt="" />
                                 <div>
                                   <p className="username">{user.displayName || user.username}</p>
                                   {user.username ? (
@@ -1037,7 +1014,7 @@ const handleClearRecentSearch = () => {
                                     />
                                   </div>
                                   <div className="contact-avatar-friend">
-                                    <img src={item.avatarUrl} alt="" />
+                                    <img src={item.avatarUrl || undefined} alt="" />
                                   </div>
                                   <div className="contact-overview-mess">
                                     <h3>{item.displayName}</h3>
@@ -1186,7 +1163,7 @@ const handleClearRecentSearch = () => {
                           onClick={() => handleChoiceContact(item)}
                         >
                           <div className="flex">
-                            <img src={item.avatarUrl} alt="" />
+                            <img src={item.avatarUrl || undefined} alt="" />
                             <p>{item.displayName}</p>
                           </div>
                         </li>
@@ -1221,7 +1198,10 @@ const handleClearRecentSearch = () => {
                             onClick={() => handleChoiceContact(item)}
                           >
                             <div className="flex">
-                              <img src={item.avatar || item.avatarUrl} alt="" />
+                              <img
+                                src={item.avatar || item.avatarUrl || undefined}
+                                alt=""
+                              />
                               <p>{item.displayName || item.username}</p>
                             </div>
                           </li>
@@ -1259,7 +1239,7 @@ const handleClearRecentSearch = () => {
                             <div className="flex">
                               <div className="contact-avatar-friend">
                                 <img
-                                  src={data?.avatar}
+                                  src={getConversationAvatarUrl(data) || undefined}
                                   alt=""
                                 />
                               </div>
@@ -1372,7 +1352,10 @@ const handleClearRecentSearch = () => {
                           >
                             <div className="flex">
                               <div className="contact-avatar-friend">
-                                <img src={data?.avatar} alt="" />
+                                <img
+                                  src={getConversationAvatarUrl(data) || undefined}
+                                  alt=""
+                                />
                               </div>
                               <div className="contact-overview-mess">
                                 <h3>

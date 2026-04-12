@@ -49,13 +49,25 @@ export const mapConversationMembers = (conversation) => {
 
 export const mapConversation = (conversation) => {
   const normalizedType = normalizeConversationType(conversation?.type);
-  const displayName = conversation?.displayName || conversation?.name || "";
+  const trustedDisplayName =
+    normalizedType === "private"
+      ? conversation?.peerDisplayName || conversation?.displayName || conversation?.name || ""
+      : conversation?.name || conversation?.displayName || "";
+  const trustedAvatarUrl =
+    normalizedType === "private"
+      ? conversation?.peerAvatarUrl || conversation?.avatarUrl || ""
+      : conversation?.avatarUrl || "";
+  const displayName = conversation?.customName || trustedDisplayName;
+  const avatarUrl = trustedAvatarUrl;
 
   return {
     id: conversation?.id || null,
     title: displayName,
     displayName,
-    avatar: conversation?.avatarUrl || "",
+    trustedDisplayName,
+    avatar: avatarUrl,
+    avatarUrl,
+    trustedAvatarUrl,
     unreadCount: Number(conversation?.unreadCount || 0),
     lastMessage: conversation?.lastMessage || "",
     lastMessageTime: conversation?.lastMessageTime || null,
@@ -64,6 +76,9 @@ export const mapConversation = (conversation) => {
     pinned: Boolean(conversation?.pinned),
     notificationLevel: conversation?.notificationLevel || "ALL",
     customName: conversation?.customName || null,
+    peerUserId: conversation?.peerUserId || null,
+    peerDisplayName: conversation?.peerDisplayName || null,
+    peerAvatarUrl: conversation?.peerAvatarUrl || null,
     members: mapConversationMembers(conversation),
     type: normalizedType,
     raw: conversation,

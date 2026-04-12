@@ -23,7 +23,6 @@ import {
   updateConversationNotificationLevelV1,
   updateConversationPinV1,
 } from "../../services/chat/conversationApi";
-import { getAllFriend } from "../../util/api";
 
 const NOTIFICATION_OPTIONS = [
   { value: "ALL", label: "Tat ca" },
@@ -56,10 +55,13 @@ function MessageInfor({ contactData }) {
   );
 
   const conversationId = activeConversation?.id || null;
-  const baseDisplayName =
-    activeConversation?.raw?.displayName || activeConversation?.displayName || "";
-  const effectiveDisplayName = activeConversation?.customName || baseDisplayName;
-  const avatarUrl = activeConversation?.avatar || "";
+  const effectiveDisplayName =
+    activeConversation?.displayName || activeConversation?.trustedDisplayName || "";
+  const avatarUrl =
+    activeConversation?.avatarUrl ||
+    activeConversation?.trustedAvatarUrl ||
+    activeConversation?.avatar ||
+    null;
   const isGroupConversation = activeConversation?.type === "group";
   const currentUserId = userData?.userId || userData?._id || null;
   const normalizedMembers = useMemo(() => {
@@ -114,31 +116,6 @@ function MessageInfor({ contactData }) {
     setNotificationLevelDraft(activeConversation?.notificationLevel || "ALL");
     setSettingsError("");
   }, [activeConversation?.customName, activeConversation?.notificationLevel, conversationId]);
-
-  useEffect(() => {
-    const fetchFriendOptions = async () => {
-      if (!userData?._id && !userData?.userId) {
-        return;
-      }
-
-      try {
-        const response = await getAllFriend({ id: userData.userId || userData._id });
-        const nextFriends = Array.isArray(response?.data)
-          ? response.data.map((friend) => ({
-              userId: friend.userId || friend._id,
-              displayName: friend.username || friend.displayName || friend.name || friend.phone,
-              avatarUrl: friend.avatar || friend.avatarUrl || "",
-              raw: friend,
-            }))
-          : [];
-        setFriendOptions(nextFriends.filter((friend) => friend.userId));
-      } catch (error) {
-        console.error("Failed to load friend options for group management:", error);
-      }
-    };
-
-    fetchFriendOptions();
-  }, [userData?._id, userData?.userId]);
 
   useEffect(() => {
     if (!selectedMemberId && addableFriendOptions.length > 0) {
@@ -220,16 +197,8 @@ function MessageInfor({ contactData }) {
 
     try {
       await updateConversationCustomNameV1(conversationId, nextCustomName || null);
-      updateConversationById(conversationId, (currentConversation) => {
-        const resolvedDisplayName =
-          nextCustomName || currentConversation?.raw?.displayName || baseDisplayName;
-
-        return {
-          ...currentConversation,
-          customName: nextCustomName || null,
-          title: resolvedDisplayName,
-          displayName: resolvedDisplayName,
-        };
+      updateConversationById(conversationId, {
+        customName: nextCustomName || null,
       });
     } catch (error) {
       console.error("Failed to update custom room name:", error);
@@ -470,7 +439,11 @@ function MessageInfor({ contactData }) {
       <div className="mess-infor-scrool-header">
         <div className="mess-infor-header-infor">
           <div className="mess-infor-wrap-avatar">
-            <img className="mess-infor-avatar-infor" src={avatarUrl} alt="" />
+            <img
+              className="mess-infor-avatar-infor"
+              src={avatarUrl || undefined}
+              alt=""
+            />
             <div className="mess-infor-nickname flex">
               <p>{effectiveDisplayName}</p>
               <CiEdit style={{ fontSize: "23px", cursor: "pointer" }} />
