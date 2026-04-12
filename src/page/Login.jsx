@@ -270,6 +270,15 @@ function LoginAccount({ handleChangeStateChat }) {
         >
           <p>Quên mật khẩu?</p>
         </div>
+        <div style={{ textAlign: 'center', marginTop: 10 }}>
+          <span>Bạn chưa có tài khoản? </span>
+          <span
+            style={{ color: '#0190f3', cursor: 'pointer', fontWeight: 600 }}
+            onClick={() => navigate('/auth/register')}
+          >
+            Đăng ký ngay
+          </span>
+        </div>
       </div>
     </>
   );

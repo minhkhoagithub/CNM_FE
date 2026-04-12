@@ -1,3 +1,25 @@
+// Update user cover image
+export const updateCoverImage = async (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await apiClient.patch("/users/profile/cover-image", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+  return response;
+};
+// Update user avatar
+export const updateAvatar = async (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await apiClient.patch("/users/profile/avatar", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+  return response;
+};
 // Update user profile
 export const updateUserProfile = async (profileData) => {
   const response = await apiClient.put("/users/profile", profileData);
@@ -59,6 +81,7 @@ export const userRegisterWithOtp = async ({
   firstName,
   lastName,
   dob,
+  gender,
   registerToken,
 }) => {
   const response = await apiClient.post("/auth/register", {
@@ -68,6 +91,7 @@ export const userRegisterWithOtp = async ({
     firstName,
     lastName,
     dob,
+    gender,
     registerToken,
   });
   return response;

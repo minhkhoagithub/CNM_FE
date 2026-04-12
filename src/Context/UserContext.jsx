@@ -20,6 +20,7 @@ export const UserProvider = ({ children }) => {
       userId: beUserData.userId || beUserData._id,
       avatar: beUserData.avatarUrl || beUserData.avatar,
       avatarUrl: beUserData.avatarUrl || beUserData.avatar,
+      coverUrl: beUserData.coverUrl || beUserData.cover_url || '',
       username: beUserData.username,
       displayName: beUserData.displayName,
       firstName: beUserData.firstName,

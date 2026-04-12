@@ -11,6 +11,8 @@ import { CiSearch } from "react-icons/ci";
 import { FiUser } from "react-icons/fi";
 import DeviceManager from "./DeviceManager";
 import axios from "axios";
+import { updateAvatar, updateCoverImage } from "../../util/api";
+
 
 export default function Setting({ handleShowSetting }) {
   const { userData, setUserData } = useContext(UserContext);
@@ -36,6 +38,21 @@ export default function Setting({ handleShowSetting }) {
     "https://res.zaloapp.com/pc/avt_group/12_school.jpg",
   ];
 
+    // Hàm cập nhật cover image sử dụng API mới
+  const handleUpdateCoverImage = async (file) => {
+    try {
+      if (!file) return;
+      const response = await updateCoverImage(file);
+      if (response.data && response.data.data) {
+        setUserData(response.data.data);
+      }
+      
+    } catch (err) {
+      console.error("Lỗi cập nhật ảnh cover:", err);
+      alert("Cập nhật ảnh cover thất bại!");
+    }
+  };
+
   const handleShowChoiceAvatar = (value) => {
     setShowChoiceAvatar(value);
   };
@@ -56,29 +73,19 @@ export default function Setting({ handleShowSetting }) {
       };
     });
   };
-  const handleUpdateAvatar = async () => {
+  // Hàm cập nhật avatar sử dụng API mới
+  const handleUpdateAvatar = async (file) => {
     try {
-      console.log(dataUpdate.avatar);
-      if (dataUpdate.avatar !== "") {
-        console.log("cek");
-        const url = "http://localhost:8080/user/updateavatarbyid";
-        const response = await axios.post(url, {
-          userId: userData._id,
-          url: dataUpdate.avatar,
-        });
-        console.log(response);
-        if (response.status === 200) {
-          handleShowSetting(false);
-          setUserData((prevState) => {
-            return {
-              ...prevState,
-              avatar: dataUpdate.avatar,
-            };
-          });
-        }
+      if (!file) return;
+      const response = await updateAvatar(file);
+      if (response.data && response.data.data) {
+        setUserData(response.data.data);
+        setShowChoiceAvatar(false);
+        handleShowSetting(false);
       }
     } catch (err) {
-      console.error(err);
+      console.error("Lỗi cập nhật avatar:", err);
+      alert("Cập nhật ảnh đại diện thất bại!");
     }
   };
 
@@ -119,8 +126,24 @@ export default function Setting({ handleShowSetting }) {
                 {!showChoiceAvatar ? (
                   <div>
                     <div className="account-infor">
-                      <div className="cover-img">
-                        <img src={coverimg} alt="" />
+                      <div className="cover-img" style={{ position: 'relative' }}>
+                        <img src={userData.coverUrl || coverimg} alt="cover" style={{ width: '100%', height: 180, objectFit: 'cover' }} />
+                        {/* Input file ẩn để chọn ảnh cover mới */}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          id="cover-upload-input"
+                          style={{ display: "none",  }}
+                          onChange={e => {
+                            if (e.target.files && e.target.files[0]) {
+                              handleUpdateCoverImage(e.target.files[0]);
+                            }
+                          }}
+                        />
+                        <CiCamera
+                          className="icon-camera-cover"
+                          onClick={() => document.getElementById("cover-upload-input").click()}
+                        />
                       </div>
 
                       <div className="avatar-img">
@@ -140,12 +163,27 @@ export default function Setting({ handleShowSetting }) {
                             cursor: "pointer",
                           }}
                         >
-                          <p className="username">{userData.displayName}</p>
+                          <div className="flex" style={{ flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+                            <p className="username" style={{ marginBottom: 4 }}>{userData.displayName}</p>
+                          </div>
                         </div>
                       </div>
+                      {/* Input file ẩn để chọn ảnh mới */}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        id="avatar-upload-input"
+                        style={{ display: "none" }}
+                        onChange={e => {
+                          if (e.target.files && e.target.files[0]) {
+                            handleUpdateAvatar(e.target.files[0]);
+                          }
+                        }}
+                      />
                       <CiCamera
                         className="icon-camera"
-                        onClick={() => handleShowChoiceAvatar(true)}
+                        style={{ cursor: "pointer" }}
+                        onClick={() => document.getElementById("avatar-upload-input").click()}
                       />
                     </div>
                     <div className="user-infor">
@@ -155,7 +193,7 @@ export default function Setting({ handleShowSetting }) {
                           <tbody>
                             <tr>
                               <td>Giới tính</td>
-                              <td>{userData.gender}</td>
+                              <td>{userData.gender === "male" ? "Nam" : userData.gender === "female" ? "Nữ" : "Khác"}</td>
                             </tr>
                             <tr>
                               <td>Ngày sinh</td>
