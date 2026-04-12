@@ -4,43 +4,30 @@ import MessageInfor from "../Message/MessageInfor";
 import ContainerMess from "../Message/ContainerMess";
 import MenuContact from "./MenuContact";
 import ContentMenuContact from "./ContentMenuContact";
-import { createConversationV1 } from "../../services/chat/conversationApi";
-import { mapConversation } from "../../mappers/conversationMapper";
 
 export default function AddressBook() {
-  const [dataContact, setDataContact] = useState(null);
+  const [openChatError, setOpenChatError] = useState("");
   const [showContentMenuContact, setShowContentMenuContact] = useState({
     state: false,
     data: null,
     title: null,
     count: null,
   });
-  const { openConversation } = useContext(ContactContext);
-
-  const resolveConversation = async (value) => {
-    if (value?.id) {
-      const nextConversation = openConversation(value);
-      setDataContact(nextConversation);
-      return nextConversation;
-    }
-
-    const participantId = value?.userId || value?._id || null;
-    if (!participantId) {
-      return null;
-    }
-
-    const response = await createConversationV1({
-      type: "PRIVATE",
-      participantIds: [participantId],
-    });
-    const nextConversation = openConversation(mapConversation(response));
-    setDataContact(nextConversation);
-    return nextConversation;
-  };
+  const {
+    currentConversationNormalized,
+    openConversation,
+    openPrivateConversationForUser,
+  } = useContext(ContactContext);
 
   const handleChangeContact = async (value) => {
+    setOpenChatError("");
+
     try {
-      await resolveConversation(value);
+      if (value?.id) {
+        openConversation(value);
+      } else {
+        await openPrivateConversationForUser(value);
+      }
       setShowContentMenuContact({
         state: false,
         data: null,
@@ -49,6 +36,7 @@ export default function AddressBook() {
       });
     } catch (err) {
       console.error(err);
+      setOpenChatError("Khong the mo cuoc tro chuyen nay.");
     }
   };
 
@@ -70,6 +58,11 @@ export default function AddressBook() {
       </div>
 
       <div className="fetch-menu-contact">
+        {openChatError ? (
+          <div style={{ color: "#b42318", padding: "12px 16px", fontSize: "14px" }}>
+            {openChatError}
+          </div>
+        ) : null}
         {showContentMenuContact.state ? (
           <ContentMenuContact
             key={`${showContentMenuContact?.title || "none"}-${showContentMenuContact?.count || "0"}`}
@@ -81,8 +74,8 @@ export default function AddressBook() {
         ) : null}
       </div>
 
-      <div>{dataContact ? <ContainerMess contactData={dataContact} /> : null}</div>
-      <div>{dataContact ? <MessageInfor contactData={dataContact} /> : null}</div>
+      <div>{currentConversationNormalized ? <ContainerMess /> : null}</div>
+      <div>{currentConversationNormalized ? <MessageInfor /> : null}</div>
     </div>
   );
 }

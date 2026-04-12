@@ -9,14 +9,22 @@ import {
   useMemo,
 } from "react";
 import { UserContext } from "./UserContext";
-import { getConversations } from "../services/chat/conversationApi";
+import {
+  getConversations,
+  openOrCreatePrivateConversationV1,
+} from "../services/chat/conversationApi";
 import chatRealtimeService from "../services/chat/chatRealtimeService";
-import { mapConversation, mapConversationList } from "../mappers/conversationMapper";
+import {
+  mapConversationList,
+  mergeConversationPatch,
+  normalizeConversationInput,
+} from "../mappers/conversationMapper";
 
 export const ContactContext = createContext(null);
 
 const ACTIVE_CONVERSATION_SCOPE = "active";
 const ARCHIVED_CONVERSATION_SCOPE = "archived";
+const isDevelopmentMode = Boolean(import.meta.env?.DEV);
 
 const compareConversations = (leftConversation, rightConversation) => {
   if (Boolean(leftConversation?.pinned) !== Boolean(rightConversation?.pinned)) {
@@ -70,37 +78,39 @@ const upsertConversationIntoLists = (conversationLists, conversation) => {
   };
 };
 
-const normalizeConversationInput = (conversation) => {
-  if (!conversation) {
-    return null;
+const getAllConversations = (conversationLists) => [
+  ...conversationLists[ACTIVE_CONVERSATION_SCOPE],
+  ...conversationLists[ARCHIVED_CONVERSATION_SCOPE],
+];
+
+const findConversationInLists = (conversationLists, conversationId) =>
+  getAllConversations(conversationLists).find(
+    (conversation) => conversation.id === conversationId
+  ) || null;
+
+const summarizeConversation = (conversation) =>
+  conversation
+    ? {
+        id: conversation.id,
+        type: conversation.type,
+        displayName: conversation.displayName,
+        trustedDisplayName: conversation.trustedDisplayName,
+        customName: conversation.customName,
+        peerUserId: conversation.peerUserId,
+        peerDisplayName: conversation.peerDisplayName,
+        trustedAvatarUrl: conversation.trustedAvatarUrl,
+        muted: conversation.muted,
+        pinned: conversation.pinned,
+        archived: conversation.archived,
+      }
+    : null;
+
+const logConversationState = (label, payload) => {
+  if (!isDevelopmentMode) {
+    return;
   }
 
-  if (conversation.id && conversation.displayName !== undefined) {
-    return {
-      id: conversation.id || null,
-      title: conversation.title || conversation.displayName || conversation.name || "",
-      displayName:
-        conversation.displayName || conversation.title || conversation.name || "",
-      avatar: conversation.avatar || conversation.avatarUrl || "",
-      unreadCount: Number(conversation.unreadCount || 0),
-      lastMessage: conversation.lastMessage || "",
-      lastMessageTime: conversation.lastMessageTime || null,
-      muted: Boolean(conversation.muted),
-      archived: Boolean(conversation.archived),
-      pinned: Boolean(conversation.pinned),
-      notificationLevel: conversation.notificationLevel || "ALL",
-      customName: conversation.customName || null,
-      members: Array.isArray(conversation.members)
-        ? conversation.members
-        : Array.isArray(conversation.member)
-        ? conversation.member
-        : [],
-      type: conversation.type || "private",
-      raw: conversation.raw || conversation,
-    };
-  }
-
-  return mapConversation(conversation);
+  console.debug(`[conversation-state] ${label}`, payload);
 };
 
 export const ContactProvider = ({ children }) => {
@@ -112,6 +122,31 @@ export const ContactProvider = ({ children }) => {
   const [selectedConversationId, setSelectedConversationId] = useState(null);
 
   const { userData } = useContext(UserContext);
+  const currentUserId = userData?.userId || userData?._id || null;
+
+  const normalizeConversationForState = useCallback(
+    (conversation, meta = {}) => {
+      const normalizedConversation = normalizeConversationInput(conversation, {
+        currentUserId,
+      });
+
+      if (normalizedConversation?.type === "private") {
+        logConversationState("normalize/private", {
+          source: meta.source || "unknown",
+          conversationId: normalizedConversation.id,
+          trustedDisplayName: normalizedConversation.trustedDisplayName,
+          trustedAvatarUrl: normalizedConversation.trustedAvatarUrl,
+          peerUserId: normalizedConversation.peerUserId,
+          peerDisplayName: normalizedConversation.peerDisplayName,
+          peerAvatarUrl: normalizedConversation.peerAvatarUrl,
+          customName: normalizedConversation.customName,
+        });
+      }
+
+      return normalizedConversation;
+    },
+    [currentUserId]
+  );
 
   const updateConversationScope = useCallback((scope, updater) => {
     setConversationLists((prevState) => ({
@@ -131,46 +166,64 @@ export const ContactProvider = ({ children }) => {
     }
 
     setConversationLists((prevState) => {
-      const allConversations = [
-        ...prevState[ACTIVE_CONVERSATION_SCOPE],
-        ...prevState[ARCHIVED_CONVERSATION_SCOPE],
-      ];
-      const currentConversation = allConversations.find(
-        (conversation) => conversation.id === conversationId
-      );
+      const currentConversation = findConversationInLists(prevState, conversationId);
 
       if (!currentConversation) {
         return prevState;
       }
 
-      const nextConversationInput =
-        typeof updater === "function"
-          ? updater(currentConversation)
-          : {
-              ...currentConversation,
-              ...updater,
-              raw: {
-                ...(currentConversation.raw || {}),
-                ...(updater?.raw || {}),
-              },
-            };
-
-      const nextConversation = normalizeConversationInput(nextConversationInput);
+      const nextConversationPatch =
+        typeof updater === "function" ? updater(currentConversation) : updater;
+      const nextConversationInput = mergeConversationPatch(
+        currentConversation,
+        nextConversationPatch
+      );
+      const nextConversation = normalizeConversationForState(nextConversationInput, {
+        source: "updateConversationById",
+      });
       if (!nextConversation?.id) {
         return prevState;
       }
 
+      logConversationState("write/updateConversationById", {
+        conversationId,
+        patch: nextConversationPatch,
+        before: summarizeConversation(currentConversation),
+        after: summarizeConversation(nextConversation),
+      });
+
       return upsertConversationIntoLists(prevState, nextConversation);
     });
-  }, []);
+  }, [normalizeConversationForState]);
 
-  const upsertNormalizedConversation = useCallback((conversation) => {
-    if (!conversation?.id) {
+  const upsertNormalizedConversation = useCallback((conversation, meta = {}) => {
+    const conversationId = conversation?.id || conversation?.raw?.id || null;
+    if (!conversationId) {
       return;
     }
 
-    setConversationLists((prevState) => upsertConversationIntoLists(prevState, conversation));
-  }, []);
+    setConversationLists((prevState) => {
+      const currentConversation = findConversationInLists(prevState, conversationId);
+      const nextConversationInput = currentConversation
+        ? mergeConversationPatch(currentConversation, conversation)
+        : conversation;
+      const nextConversation = normalizeConversationForState(nextConversationInput, {
+        source: meta.source || "upsertConversation",
+      });
+
+      if (!nextConversation?.id) {
+        return prevState;
+      }
+
+      logConversationState("write/upsertConversation", {
+        source: meta.source || "unknown",
+        before: summarizeConversation(currentConversation),
+        after: summarizeConversation(nextConversation),
+      });
+
+      return upsertConversationIntoLists(prevState, nextConversation);
+    });
+  }, [normalizeConversationForState]);
 
   const applyConversationStatusPayload = useCallback((payload) => {
     if (!payload?.conversationId || !payload?.status) {
@@ -178,6 +231,9 @@ export const ContactProvider = ({ children }) => {
     }
 
     if (payload.status === "DELETED") {
+      logConversationState("write/statusDeleted", {
+        conversationId: payload.conversationId,
+      });
       setConversationLists((prevState) =>
         removeConversationFromLists(prevState, payload.conversationId)
       );
@@ -188,22 +244,9 @@ export const ContactProvider = ({ children }) => {
     }
 
     if (payload.status === "SEEN") {
-      setConversationLists((prevState) => ({
-        [ACTIVE_CONVERSATION_SCOPE]: prevState[ACTIVE_CONVERSATION_SCOPE].map(
-          (conversation) =>
-            conversation.id === payload.conversationId
-              ? { ...conversation, unreadCount: 0 }
-              : conversation
-        ),
-        [ARCHIVED_CONVERSATION_SCOPE]: prevState[ARCHIVED_CONVERSATION_SCOPE].map(
-          (conversation) =>
-            conversation.id === payload.conversationId
-              ? { ...conversation, unreadCount: 0 }
-              : conversation
-        ),
-      }));
+      updateConversationById(payload.conversationId, { unreadCount: 0 });
     }
-  }, []);
+  }, [updateConversationById]);
 
   const handleConversationRealtimeEvent = useCallback((event) => {
     if (!event || event.type !== "CONVERSATION_UPDATED") {
@@ -215,7 +258,7 @@ export const ContactProvider = ({ children }) => {
       return;
     }
 
-    upsertNormalizedConversation(mapConversation(event.payload));
+    upsertNormalizedConversation(event.payload, { source: "realtime" });
   }, [applyConversationStatusPayload, upsertNormalizedConversation]);
 
   const fetchConversation = useCallback(
@@ -227,11 +270,15 @@ export const ContactProvider = ({ children }) => {
       const scope = archived ? ARCHIVED_CONVERSATION_SCOPE : ACTIVE_CONVERSATION_SCOPE;
 
       const conversations = await getConversations({ archived });
-      const normalizedItems = mapConversationList(conversations);
+      const normalizedItems = mapConversationList(conversations, { currentUserId });
+      logConversationState("write/fetchConversation", {
+        scope,
+        count: normalizedItems.length,
+      });
       updateConversationScope(scope, normalizedItems);
       return normalizedItems;
     },
-    [updateConversationScope, userData]
+    [currentUserId, updateConversationScope, userData]
   );
 
   const fetchArchivedConversations = useCallback(async () => {
@@ -288,27 +335,48 @@ export const ContactProvider = ({ children }) => {
   const archivedConversations = conversationLists[ARCHIVED_CONVERSATION_SCOPE];
 
   const currentConversationNormalized = useMemo(() => {
-    const allConversations = [...normalizedConversations, ...archivedConversations];
-    return (
-      allConversations.find((conversation) => conversation.id === selectedConversationId) ||
-      null
-    );
-  }, [archivedConversations, normalizedConversations, selectedConversationId]);
+    if (!selectedConversationId) {
+      return null;
+    }
+
+    return findConversationInLists(conversationLists, selectedConversationId);
+  }, [conversationLists, selectedConversationId]);
+
+  useEffect(() => {
+    logConversationState("selectedConversation/resolve", {
+      selectedConversationId,
+      resolvedConversation: summarizeConversation(currentConversationNormalized),
+    });
+  }, [currentConversationNormalized, selectedConversationId]);
 
   const openConversation = useCallback((conversation) => {
-    const normalizedConversation = normalizeConversationInput(conversation);
+    const normalizedConversation = normalizeConversationForState(conversation, {
+      source: "openConversation",
+    });
 
     if (!normalizedConversation?.id) {
       return null;
     }
 
-    setConversationLists((prevState) =>
-      upsertConversationIntoLists(prevState, normalizedConversation)
-    );
-
     setSelectedConversationId(normalizedConversation.id);
+    upsertNormalizedConversation(conversation, { source: "openConversation" });
     return normalizedConversation;
-  }, []);
+  }, [normalizeConversationForState, upsertNormalizedConversation]);
+
+  const openPrivateConversationForUser = useCallback(
+    async (targetUser) => {
+      const targetUserId =
+        targetUser?.userId || targetUser?._id || targetUser?.id || null;
+
+      if (!targetUserId) {
+        throw new Error("Participant user id is required");
+      }
+
+      const nextConversation = await openOrCreatePrivateConversationV1(targetUserId);
+      return openConversation(nextConversation);
+    },
+    [openConversation]
+  );
 
   const clearSelectedConversation = useCallback(() => {
     setSelectedConversationId(null);
@@ -319,6 +387,9 @@ export const ContactProvider = ({ children }) => {
       return;
     }
 
+    logConversationState("write/removeConversationById", {
+      conversationId,
+    });
     setConversationLists((prevState) =>
       removeConversationFromLists(prevState, conversationId)
     );
@@ -339,6 +410,7 @@ export const ContactProvider = ({ children }) => {
         currentConversationNormalized,
         selectedConversationId,
         openConversation,
+        openPrivateConversationForUser,
         clearSelectedConversation,
         updateConversationById,
         removeConversationById,

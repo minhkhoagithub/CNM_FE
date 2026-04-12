@@ -13,15 +13,76 @@ const mapReaction = (reaction) => ({
   count: Number(reaction?.count || 0),
 });
 
+export const RECALLED_MESSAGE_PLACEHOLDER = "Tin nhan da duoc thu hoi";
+
+const pickFirstText = (...values) => {
+  for (const value of values) {
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    const trimmedValue = value.trim();
+    if (trimmedValue) {
+      return trimmedValue;
+    }
+  }
+
+  return "";
+};
+
+const getAttachmentCount = (value) =>
+  Array.isArray(value?.attachments)
+    ? value.attachments.length
+    : Array.isArray(value?.files)
+    ? value.files.length
+    : Array.isArray(value?.attachmentSnapshots)
+    ? value.attachmentSnapshots.length
+    : 0;
+
+export const createReplyPreviewText = (value) => {
+  if (value?.deletedAt || value?.deleted) {
+    return RECALLED_MESSAGE_PLACEHOLDER;
+  }
+
+  const contentPreview = pickFirstText(
+    value?.contentPreview,
+    value?.content,
+    value?.text,
+    value?.message,
+    value?.body
+  );
+  if (contentPreview) {
+    return contentPreview;
+  }
+
+  const attachmentCount = getAttachmentCount(value);
+  if (attachmentCount > 0) {
+    return attachmentCount === 1
+      ? "Da gui 1 tep dinh kem"
+      : `Da gui ${attachmentCount} tep dinh kem`;
+  }
+
+  return "Tin nhan";
+};
+
 const mapReplyInfo = (replyTo) => {
   if (!replyTo) {
     return null;
   }
 
   return {
-    messageId: replyTo.messageId || null,
-    senderId: replyTo.senderId || null,
-    contentPreview: replyTo.contentPreview || "",
+    messageId: replyTo.messageId || replyTo.replyToMessageId || replyTo.id || null,
+    senderId: replyTo.senderId || replyTo.userId || null,
+    senderDisplayName:
+      pickFirstText(
+        replyTo.senderDisplayName,
+        replyTo.displayName,
+        replyTo.sender?.displayName,
+        replyTo.sender?.username,
+        replyTo.user?.displayName,
+        replyTo.user?.username
+      ) || null,
+    contentPreview: createReplyPreviewText(replyTo),
     type: replyTo.type || null,
   };
 };
@@ -34,39 +95,76 @@ export const isImageAttachment = (attachment) => {
 };
 
 export const mapMessage = (message) => {
-  const attachments = Array.isArray(message?.attachments)
-    ? message.attachments.map(mapAttachment)
-    : [];
   const deletedAt =
     message?.deletedAt ||
     (message?.deleted
       ? message?.updatedAt || message?.editedAt || message?.createdAt || null
       : null);
+  const isDeleted = Boolean(deletedAt);
+  const attachments =
+    !isDeleted && Array.isArray(message?.attachments)
+      ? message.attachments.map(mapAttachment)
+      : [];
 
   return {
     id: message?.id || null,
     conversationId: message?.conversationId || null,
     senderId: message?.senderId || null,
-    content: message?.content || "",
+    senderDisplayName:
+      pickFirstText(
+        message?.senderDisplayName,
+        message?.senderName,
+        message?.sender?.displayName,
+        message?.sender?.username
+      ) || null,
+    content: isDeleted ? RECALLED_MESSAGE_PLACEHOLDER : message?.content || "",
     attachments,
-    reactions: Array.isArray(message?.reactions)
-      ? message.reactions.map(mapReaction)
-      : [],
-    myReaction: message?.myReaction || null,
+    reactions:
+      !isDeleted && Array.isArray(message?.reactions)
+        ? message.reactions.map(mapReaction)
+        : [],
+    myReaction: isDeleted ? null : message?.myReaction || null,
     seen: Boolean(message?.seen),
     createdAt: message?.createdAt || null,
-    editedAt: message?.editedAt || null,
+    editedAt: isDeleted ? null : message?.editedAt || null,
     deletedAt,
-    replyTo: mapReplyInfo(message?.replyTo),
+    replyTo: isDeleted
+      ? null
+      : mapReplyInfo(message?.replyTo || message?.reply || message?.replySnapshot),
     raw: message,
   };
 };
+
+const getMessageSortValue = (value) => {
+  const timestamp = new Date(value || "").getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+};
+
+const compareMessageTimeline = (leftMessage, rightMessage) => {
+  const timeDiff =
+    getMessageSortValue(leftMessage?.createdAt) - getMessageSortValue(rightMessage?.createdAt);
+  if (timeDiff !== 0) {
+    return timeDiff;
+  }
+
+  const leftId = Number(leftMessage?.id);
+  const rightId = Number(rightMessage?.id);
+
+  if (!Number.isNaN(leftId) && !Number.isNaN(rightId)) {
+    return leftId - rightId;
+  }
+
+  return String(leftMessage?.id || "").localeCompare(String(rightMessage?.id || ""));
+};
+
+export const sortMessagesByTimeline = (messages) =>
+  normalizeMessageList(messages).slice().sort(compareMessageTimeline);
 
 export const mapMessagePage = (messagePage) => {
   const items = Array.isArray(messagePage?.items) ? messagePage.items : [];
 
   return {
-    items: items.map(mapMessage),
+    items: items.slice().reverse().map(mapMessage),
     nextCursor: messagePage?.nextCursor || null,
     hasMore: Boolean(messagePage?.hasMore),
     raw: messagePage,
@@ -79,7 +177,7 @@ export const upsertMessageItem = (messages, nextMessage) => {
   const normalizedMessages = normalizeMessageList(messages);
 
   if (!nextMessage?.id) {
-    return [...normalizedMessages, nextMessage];
+    return sortMessagesByTimeline([...normalizedMessages, nextMessage]);
   }
 
   const existingIndex = normalizedMessages.findIndex(
@@ -87,11 +185,13 @@ export const upsertMessageItem = (messages, nextMessage) => {
   );
 
   if (existingIndex === -1) {
-    return [...normalizedMessages, nextMessage];
+    return sortMessagesByTimeline([...normalizedMessages, nextMessage]);
   }
 
-  return normalizedMessages.map((message) =>
-    message.id === nextMessage.id ? { ...message, ...nextMessage } : message
+  return sortMessagesByTimeline(
+    normalizedMessages.map((message) =>
+      message.id === nextMessage.id ? { ...message, ...nextMessage } : message
+    )
   );
 };
 
@@ -101,7 +201,7 @@ export const markMessageAsDeleted = (messages, messageId, deletedAt) =>
       ? {
           ...message,
           deletedAt: deletedAt || message.deletedAt || new Date().toISOString(),
-          content: "Tin nhan da duoc thu hoi",
+          content: RECALLED_MESSAGE_PLACEHOLDER,
           attachments: [],
           reactions: [],
           myReaction: null,
@@ -128,6 +228,7 @@ export const updateMessageReactionSummary = (
       : message
   );
 
+// Remove-for-me is local-only visibility; do not convert it to a recalled placeholder.
 export const removeMessageItem = (messages, messageId) =>
   normalizeMessageList(messages).filter((message) => message.id !== messageId);
 

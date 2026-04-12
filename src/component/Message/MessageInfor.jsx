@@ -23,13 +23,28 @@ import {
   updateConversationNotificationLevelV1,
   updateConversationPinV1,
 } from "../../services/chat/conversationApi";
-import { getAllFriend } from "../../util/api";
 
 const NOTIFICATION_OPTIONS = [
   { value: "ALL", label: "Tat ca" },
   { value: "MENTIONS_ONLY", label: "Chi nhac toi" },
   { value: "NONE", label: "Tat" },
 ];
+const PRIVATE_CONVERSATION_LABEL = "Nguoi dung";
+const GROUP_CONVERSATION_LABEL = "Nhom";
+
+const renderAvatarPlaceholder = (className, size = 32) => (
+  <div
+    className={className}
+    aria-hidden="true"
+    style={{
+      width: size,
+      height: size,
+      borderRadius: "50%",
+      backgroundColor: "#e9eef5",
+      flexShrink: 0,
+    }}
+  />
+);
 
 function MessageInfor({ contactData }) {
   const [showTool, setShowTool] = useState([]);
@@ -45,21 +60,41 @@ function MessageInfor({ contactData }) {
   const { userData } = useContext(UserContext);
   const {
     currentConversationNormalized,
+    selectedConversationId,
     updateConversationById,
     removeConversationById,
     clearSelectedConversation,
   } = useContext(ContactContext);
 
   const activeConversation = useMemo(
-    () => currentConversationNormalized || contactData || null,
-    [contactData, currentConversationNormalized]
+    () => {
+      if (currentConversationNormalized?.id) {
+        return currentConversationNormalized;
+      }
+
+      if (
+        contactData?.id &&
+        (!selectedConversationId || String(contactData.id) === String(selectedConversationId))
+      ) {
+        return contactData;
+      }
+
+      return null;
+    },
+    [contactData, currentConversationNormalized, selectedConversationId]
   );
 
   const conversationId = activeConversation?.id || null;
-  const baseDisplayName =
-    activeConversation?.raw?.displayName || activeConversation?.displayName || "";
-  const effectiveDisplayName = activeConversation?.customName || baseDisplayName;
-  const avatarUrl = activeConversation?.avatar || "";
+  const effectiveDisplayName =
+    activeConversation?.displayName ||
+    activeConversation?.trustedDisplayName ||
+    (activeConversation?.type === "group"
+      ? GROUP_CONVERSATION_LABEL
+      : PRIVATE_CONVERSATION_LABEL);
+  const avatarUrl =
+    activeConversation?.avatarUrl ||
+    activeConversation?.trustedAvatarUrl ||
+    null;
   const isGroupConversation = activeConversation?.type === "group";
   const currentUserId = userData?.userId || userData?._id || null;
   const normalizedMembers = useMemo(() => {
@@ -116,31 +151,6 @@ function MessageInfor({ contactData }) {
   }, [activeConversation?.customName, activeConversation?.notificationLevel, conversationId]);
 
   useEffect(() => {
-    const fetchFriendOptions = async () => {
-      if (!userData?._id && !userData?.userId) {
-        return;
-      }
-
-      try {
-        const response = await getAllFriend({ id: userData.userId || userData._id });
-        const nextFriends = Array.isArray(response?.data)
-          ? response.data.map((friend) => ({
-              userId: friend.userId || friend._id,
-              displayName: friend.username || friend.displayName || friend.name || friend.phone,
-              avatarUrl: friend.avatar || friend.avatarUrl || "",
-              raw: friend,
-            }))
-          : [];
-        setFriendOptions(nextFriends.filter((friend) => friend.userId));
-      } catch (error) {
-        console.error("Failed to load friend options for group management:", error);
-      }
-    };
-
-    fetchFriendOptions();
-  }, [userData?._id, userData?.userId]);
-
-  useEffect(() => {
     if (!selectedMemberId && addableFriendOptions.length > 0) {
       setSelectedMemberId(addableFriendOptions[0].userId);
       return;
@@ -191,10 +201,9 @@ function MessageInfor({ contactData }) {
         await updateConversationNotificationLevelV1(conversationId, nextValue);
       }
 
-      updateConversationById(conversationId, (currentConversation) => ({
-        ...currentConversation,
+      updateConversationById(conversationId, {
         [key]: nextValue,
-      }));
+      });
     } catch (error) {
       console.error("Failed to update room preference:", error);
       setSettingsError("Khong the cap nhat tuy chon hoi thoai.");
@@ -220,16 +229,8 @@ function MessageInfor({ contactData }) {
 
     try {
       await updateConversationCustomNameV1(conversationId, nextCustomName || null);
-      updateConversationById(conversationId, (currentConversation) => {
-        const resolvedDisplayName =
-          nextCustomName || currentConversation?.raw?.displayName || baseDisplayName;
-
-        return {
-          ...currentConversation,
-          customName: nextCustomName || null,
-          title: resolvedDisplayName,
-          displayName: resolvedDisplayName,
-        };
+      updateConversationById(conversationId, {
+        customName: nextCustomName || null,
       });
     } catch (error) {
       console.error("Failed to update custom room name:", error);
@@ -470,7 +471,15 @@ function MessageInfor({ contactData }) {
       <div className="mess-infor-scrool-header">
         <div className="mess-infor-header-infor">
           <div className="mess-infor-wrap-avatar">
-            <img className="mess-infor-avatar-infor" src={avatarUrl} alt="" />
+            {avatarUrl ? (
+              <img
+                className="mess-infor-avatar-infor"
+                src={avatarUrl}
+                alt=""
+              />
+            ) : (
+              renderAvatarPlaceholder("mess-infor-avatar-infor", 86)
+            )}
             <div className="mess-infor-nickname flex">
               <p>{effectiveDisplayName}</p>
               <CiEdit style={{ fontSize: "23px", cursor: "pointer" }} />
@@ -640,16 +649,20 @@ function MessageInfor({ contactData }) {
                         return (
                           <div key={member.userId} className="mess-infor-member-row">
                             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                              <img
-                                src={member.avatarUrl || avatarUrl}
-                                alt=""
-                                style={{
-                                  width: 32,
-                                  height: 32,
-                                  borderRadius: "50%",
-                                  objectFit: "cover",
-                                }}
-                              />
+                              {member.avatarUrl ? (
+                                <img
+                                  src={member.avatarUrl}
+                                  alt=""
+                                  style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: "50%",
+                                    objectFit: "cover",
+                                  }}
+                                />
+                              ) : (
+                                renderAvatarPlaceholder("", 32)
+                              )}
                               <div>
                                 <p style={{ margin: 0, fontWeight: 500 }}>
                                   {member.displayName}

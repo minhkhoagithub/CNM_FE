@@ -1,4 +1,5 @@
 import chatHttpClient from "./chatHttpClient";
+import { mapConversation } from "../../mappers/conversationMapper";
 
 const unwrapResponseData = (response) => response.data?.data ?? response.data;
 
@@ -21,6 +22,19 @@ export const getCreatedConversations = async ({ archived = false } = {}) => {
 export const createConversationV1 = async (payload) => {
   const response = await chatHttpClient.post("/conversations", payload);
   return unwrapResponseData(response);
+};
+
+export const openOrCreatePrivateConversationV1 = async (participantUserId) => {
+  if (!participantUserId) {
+    throw new Error("Participant user id is required");
+  }
+
+  const conversation = await createConversationV1({
+    type: "PRIVATE",
+    participantIds: [participantUserId],
+  });
+
+  return mapConversation(conversation);
 };
 
 export const updateConversationMuteV1 = async (conversationId, muted) => {
