@@ -41,14 +41,34 @@ export const verifyRegisterOtp = async ({ email, phone, otpCode }) => {
   });
   return response;
 };
-export const userRegisterWithOtp = async ({ name, email, phone, password, avatar, otpCode }) => {
+// export const userRegisterWithOtp = async ({ name, email, phone, password, avatar, otpCode }) => {
+//   const response = await apiClient.post("/auth/register", {
+//     name,
+//     email,
+//     phone,
+//     password,
+//     avatar,
+//     registerToken: otpCode,
+//   });
+//   return response;
+// };
+export const userRegisterWithOtp = async ({
+  email,
+  phone,
+  password,
+  firstName,
+  lastName,
+  dob,
+  registerToken,
+}) => {
   const response = await apiClient.post("/auth/register", {
-    name,
     email,
     phone,
     password,
-    avatar,
-    registerToken: otpCode,
+    firstName,
+    lastName,
+    dob,
+    registerToken,
   });
   return response;
 };
@@ -127,6 +147,59 @@ export const getGroupReq = async ({ userId }) => {
   });
   return response;
 };
+// Friend ships
+const unwrapApiData = (response) => ({
+  ...response,
+  data: response.data?.data ?? null,
+  apiCode: response.data?.code ?? "",
+  apiMessage: response.data?.message ?? "",
+  apiErrors: response.data?.errors ?? null,
+  apiMeta: response.data?.meta ?? null,
+});
+
+export const searchUsersV2 = async ({ keyword }) => {
+  const response = await apiClient.get("/users/search", {
+    params: { q: keyword },
+  });
+  return unwrapApiData(response);
+};
+
+export const getFriendsV2 = async () => {
+  const response = await apiClient.get("/friends");
+  return unwrapApiData(response);
+};
+
+export const sendFriendRequestV2 = async ({ receiverId }) => {
+  const response = await apiClient.post("/friends/requests", { receiverId });
+  return unwrapApiData(response);
+};
+
+export const getIncomingFriendRequestsV2 = async () => {
+  const response = await apiClient.get("/friends/requests/incoming");
+  return unwrapApiData(response);
+};
+
+export const getOutgoingFriendRequestsV2 = async () => {
+  const response = await apiClient.get("/friends/requests/outgoing");
+  return unwrapApiData(response);
+};
+
+export const acceptFriendRequestV2 = async ({ requestId }) => {
+  const response = await apiClient.post(`/friends/requests/${requestId}/accept`);
+  return unwrapApiData(response);
+};
+
+export const rejectFriendRequestV2 = async ({ requestId }) => {
+  const response = await apiClient.post(`/friends/requests/${requestId}/reject`);
+  return unwrapApiData(response);
+};
+
+export const unfriendUserV2 = async ({ friendUserId }) => {
+  const response = await apiClient.delete(`/friends/${friendUserId}`);
+  return unwrapApiData(response);
+};
+// Done Friend ships
+
 // Forgot Password
 export const sendForgotPasswordOtp = async ({ identifier }) => {
   const response = await apiClient.post("/auth/forgot-password/send-otp", {

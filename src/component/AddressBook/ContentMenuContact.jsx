@@ -8,7 +8,14 @@ import {
 } from "./MenuContact";
 import { UserContext } from "../../Context/UserContext";
 import { TbMessageDots } from "react-icons/tb";
-import { crudFriend, getFriendReq } from "../../util/api";
+// import { crudFriend, getFriendReq } from "../../util/api";
+import {
+  getOutgoingFriendRequestsV2,
+  acceptFriendRequestV2,
+  rejectFriendRequestV2,
+  unfriendUserV2,
+} from "../../util/api";
+
 
 export const HUY_LOI_MOI_KET_BAN = "Thu hoi loi moi";
 export const KET_BAN = "Ket ban";
@@ -17,6 +24,15 @@ export const BAN_BE = "Ban be";
 export const XOA_BAN_BE = "Xoa ban be";
 export const BO_QUA = "Bo qua";
 
+// const defaultFlags = {
+//   XoaKetBan: false,
+//   ThuHoiLoiMoi: false,
+//   DongY: false,
+//   KetBan: false,
+//   BoQua: false,
+//   BanBe: false,
+//   XoaBanBe: false,
+// };
 const defaultFlags = {
   XoaKetBan: false,
   ThuHoiLoiMoi: false,
@@ -26,6 +42,17 @@ const defaultFlags = {
   BanBe: false,
   XoaBanBe: false,
 };
+
+const mapOutgoingRequestToUi = (item) => ({
+  _id: item.receiver?.userId,
+  userId: item.receiver?.userId,
+  username: item.receiver?.displayName || item.receiver?.username,
+  displayName: item.receiver?.displayName || item.receiver?.username,
+  avatar: item.receiver?.avatarUrl || "",
+  avatarUrl: item.receiver?.avatarUrl || "",
+  requestId: item.id,
+});
+
 
 const buildListData = (dataContentContac, title) => {
   const nextMap = new Map();
@@ -63,26 +90,58 @@ export default function ContentMenuContact({
 }) {
   const { userData } = useContext(UserContext);
   const [friendReq, setFriendReq] = useState([]);
+  // const [listData, setListData] = useState(() => buildListData(dataContentContac, title));
+  // const [resultSearch, setResultSearch] = useState({
+  //   state: false,
+  //   data: new Map([]),
+  // });
   const [listData, setListData] = useState(() => buildListData(dataContentContac, title));
-  const [resultSearch, setResultSearch] = useState({
+const [searchKeyword, setSearchKeyword] = useState("");
+const [resultSearch, setResultSearch] = useState({
+  state: false,
+  data: new Map([]),
+});
+
+useEffect(() => {
+  setListData(buildListData(dataContentContac, title));
+  setSearchKeyword("");
+  setResultSearch({
     state: false,
     data: new Map([]),
   });
+}, [dataContentContac, title]);
 
+
+
+  // useEffect(() => {
+  //   const fetch = async () => {
+  //     if (title === LoiMoiKetBan) {
+  //       const response = await getFriendReq({ id: userData._id });
+  //       if (response.status === 200 && Array.isArray(response.data)) {
+  //         setFriendReq(response.data);
+  //       } else {
+  //         setFriendReq([]);
+  //       }
+  //     }
+  //   };
+
+  //   fetch();
+  // }, [title, userData?._id]);
   useEffect(() => {
-    const fetch = async () => {
-      if (title === LoiMoiKetBan) {
-        const response = await getFriendReq({ id: userData._id });
-        if (response.status === 200 && Array.isArray(response.data)) {
-          setFriendReq(response.data);
-        } else {
-          setFriendReq([]);
-        }
+  const fetch = async () => {
+    if (title === LoiMoiKetBan) {
+      const response = await getOutgoingFriendRequestsV2();
+      if (response.status === 200 && Array.isArray(response.data)) {
+        setFriendReq(response.data.map(mapOutgoingRequestToUi));
+      } else {
+        setFriendReq([]);
       }
-    };
+    }
+  };
 
-    fetch();
-  }, [title, userData?._id]);
+  fetch();
+}, [title, userData?._id]);
+
 
   const updateListStateByAction = (friendId, action) => {
     setListData((prevState) => {
@@ -130,51 +189,110 @@ export default function ContentMenuContact({
     });
   };
 
+  // const handleCrudFriend = async (friend, e) => {
+  //   const action = e.target.textContent;
+  //   const data = {
+  //     userId: userData._id,
+  //     friendId: friend._id,
+  //     state: action,
+  //   };
+  //   const response = await crudFriend(data);
+
+  //   if (response.status === 200) {
+  //     if (action === HUY_LOI_MOI_KET_BAN && title === LoiMoiKetBan) {
+  //       setFriendReq((prevFriendReq) =>
+  //         prevFriendReq.filter((item) => item._id !== friend._id)
+  //       );
+  //     }
+
+  //     updateListStateByAction(friend._id, action);
+  //   }
+  // };
+
   const handleCrudFriend = async (friend, e) => {
-    const action = e.target.textContent;
-    const data = {
-      userId: userData._id,
-      friendId: friend._id,
-      state: action,
-    };
-    const response = await crudFriend(data);
+  const action = e.target.textContent;
 
+  if (action === DONG_Y) {
+    const response = await acceptFriendRequestV2({ requestId: friend.requestId });
     if (response.status === 200) {
-      if (action === HUY_LOI_MOI_KET_BAN && title === LoiMoiKetBan) {
-        setFriendReq((prevFriendReq) =>
-          prevFriendReq.filter((item) => item._id !== friend._id)
-        );
-      }
-
       updateListStateByAction(friend._id, action);
     }
-  };
+    return;
+  }
 
-  const handleSeachContact = (e) => {
-    const stringName = e.target.value;
-    if (stringName && stringName.trim() !== "") {
-      const stringPure = stringName.trim().toLowerCase();
-      const nextMap = new Map();
-
-      Array.from(listData).forEach(([key, item]) => {
-        const itemName = item.username || item.displayName || "";
-        if (itemName.trim().toLowerCase().startsWith(stringPure)) {
-          nextMap.set(key, item);
-        }
-      });
-
-      setResultSearch({
-        state: true,
-        data: nextMap,
-      });
-      return;
+  if (action === BO_QUA) {
+    const response = await rejectFriendRequestV2({ requestId: friend.requestId });
+    if (response.status === 200) {
+      updateListStateByAction(friend._id, action);
     }
+    return;
+  }
+
+  if (action === XOA_BAN_BE) {
+    const response = await unfriendUserV2({
+      friendUserId: friend.userId || friend._id,
+    });
+    if (response.status === 200) {
+      updateListStateByAction(friend._id, action);
+    }
+  }
+};
+
+
+  // const handleSeachContact = (e) => {
+  //   const stringName = e.target.value;
+  //   if (stringName && stringName.trim() !== "") {
+  //     const stringPure = stringName.trim().toLowerCase();
+  //     const nextMap = new Map();
+
+  //     Array.from(listData).forEach(([key, item]) => {
+  //       const itemName = item.username || item.displayName || "";
+  //       if (itemName.trim().toLowerCase().startsWith(stringPure)) {
+  //         nextMap.set(key, item);
+  //       }
+  //     });
+
+  //     setResultSearch({
+  //       state: true,
+  //       data: nextMap,
+  //     });
+  //     return;
+  //   }
+
+  //   setResultSearch({
+  //     state: false,
+  //     data: new Map([]),
+  //   });
+  // };
+  const handleSeachContact = (e) => {
+  const keyword = e.target.value;
+  setSearchKeyword(keyword);
+
+  if (keyword && keyword.trim() !== "") {
+    const normalizedKeyword = keyword.trim().toLowerCase();
+    const nextMap = new Map();
+
+    Array.from(listData).forEach(([key, item]) => {
+      const itemName = (item.username || item.displayName || "").trim().toLowerCase();
+
+      if (itemName.includes(normalizedKeyword)) {
+        nextMap.set(key, item);
+      }
+    });
 
     setResultSearch({
-      state: false,
-      data: new Map([]),
+      state: true,
+      data: nextMap,
     });
-  };
+    return;
+  }
+
+  setResultSearch({
+    state: false,
+    data: new Map([]),
+  });
+};
+
 
   return (
     <>
@@ -186,11 +304,22 @@ export default function ContentMenuContact({
           <div className="list-fetch-contact">
             <div className="total-fetch">{count}</div>
             <div className="content-fetch-contact">
-              {listData?.size > 0 ? (
+              {/* {listData?.size > 0 ? (
                 <div>
                   <input type="text" placeholder="Tim kiem" onChange={handleSeachContact} />
                 </div>
+              ) : null} */}
+              {(title === DanhSachBanBe ||title === LoiMoiKetBan) && listData?.size > 0 ? (
+                <div>
+                  <input
+                    type="text"
+                    placeholder="Tim ban be"
+                    value={searchKeyword}
+                    onChange={handleSeachContact}
+                  />
+                </div>
               ) : null}
+
               <ul
                 style={{
                   display: listData.size === 0 ? "flex" : undefined,
@@ -298,9 +427,12 @@ export default function ContentMenuContact({
                         </div>
                       </div>
                       <div>
-                        <button onClick={(e) => handleCrudFriend(item, e)}>
+                        {/* <button onClick={(e) => handleCrudFriend(item, e)}>
                           Thu hoi loi moi
-                        </button>
+                        </button> */}
+                        <div>
+                          <button disabled>Da gui loi moi</button>
+                        </div>
                       </div>
                     </li>
                   ))}

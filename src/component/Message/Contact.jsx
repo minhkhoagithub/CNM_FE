@@ -25,12 +25,37 @@ import {
   updateConversationPinV1,
 } from "../../services/chat/conversationApi";
 import { mapConversation } from "../../mappers/conversationMapper";
+import "../../resource/style/AddressBook/menuContact.css";
 import {
   crudFriend,
   getAllFriend,
-  getFriendByName,
   getUserByPhone,
+  searchUsersV2,
+  sendFriendRequestV2,
 } from "../../util/api";
+
+const mapSearchUserToUi = (item) => ({
+  _id: item.userId,
+  userId: item.userId,
+  displayName: item.displayName || item.username,
+  username: item.username || item.displayName,
+  avatarUrl: item.avatarUrl || "",
+  avatar: item.avatarUrl || "",
+  relationshipStatus: item.relationshipStatus || "NONE",
+});
+const getFriendActionMeta = (relationshipStatus) => {
+  switch (relationshipStatus) {
+    case "FRIEND":
+      return { label: "Ban be", disabled: true };
+    case "REQUEST_SENT":
+      return { label: "Da gui loi moi", disabled: true };
+    case "REQUEST_RECEIVED":
+      return { label: "Da nhan loi moi", disabled: true };
+    default:
+      return { label: "Ket ban", disabled: false };
+  }
+};
+
 
 const getUnreadConversationCount = (conversation) =>
   Number(conversation?.unreadCount || 0);
@@ -73,6 +98,14 @@ function Contact({
     unfriend: null,
     checkId: null,
   });
+  const [friendSearch, setFriendSearch] = useState({
+  keyword: "",
+  loading: false,
+  searched: false,
+  results: [],
+  error: "",
+});
+
   const [dataCreateGr, setDataCreateGr] = useState({
     username: null,
     listMember: [],
@@ -104,6 +137,11 @@ function Contact({
     updateConversationById,
   } = useContext(ContactContext);
   const { userData } = useContext(UserContext);
+  const getRecentSearchStorageKey = (userId) =>
+  `message-user-search:${userId || "guest"}`;
+
+const getSearchItemId = (item) => item?.userId || item?._id || item?.id || null;
+
   const searchTimeout = useRef(null);
   const displayedConversationList = showArchived ? archivedConversations : conversations;
   const displayedConversationListNotSeen = useMemo(
@@ -114,17 +152,35 @@ function Contact({
     [displayedConversationList]
   );
 
+  // useEffect(() => {
+  //   const local = localStorage.getItem("user-search");
+  //   if (local !== null) {
+  //     setDataSearch((prevState) => {
+  //       return {
+  //         ...prevState,
+  //         recent: JSON.parse(local),
+  //       };
+  //     });
+  //   }
+  // }, []);
   useEffect(() => {
-    const local = localStorage.getItem("user-search");
-    if (local !== null) {
-      setDataSearch((prevState) => {
-        return {
-          ...prevState,
-          recent: JSON.parse(local),
-        };
-      });
-    }
-  }, []);
+  try {
+    const userId = userData?._id || userData?.userId || "guest";
+    const storageKey = getRecentSearchStorageKey(userId);
+    const local = localStorage.getItem(storageKey);
+
+    setDataSearch((prevState) => ({
+      ...prevState,
+      recent: local ? JSON.parse(local) : [],
+    }));
+  } catch {
+    setDataSearch((prevState) => ({
+      ...prevState,
+      recent: [],
+    }));
+  }
+}, [userData?._id, userData?.userId]);
+
 
   useEffect(() => {
     const fetchFriendOptions = async () => {
@@ -164,41 +220,75 @@ function Contact({
     }
   }, [textSearch]);
 
-  const handleSearchDb = (value) => {
-    if (value !== "") {
-      if (searchTimeout.current) {
-        clearTimeout(searchTimeout.current);
-      }
-      searchTimeout.current = setTimeout(async () => {
-        const response = await getFriendByName({
-          friendName: value,
-          userId: userData._id,
-        });
-        if (response.status === 200) {
-          setDataSearch((prevState) => {
-            return {
-              ...prevState,
-              response: response.data,
-            };
-          });
-        } else {
-          setDataSearch((prevState) => {
-            return {
-              ...prevState,
-              response: [],
-            };
-          });
-        }
-        setIsSearch((prevState) => {
-          return {
-            ...prevState,
-            response: true,
-            recent: false,
-          };
-        });
-      }, 300);
+  // const handleSearchDb = (value) => {
+  //   if (value !== "") {
+  //     if (searchTimeout.current) {
+  //       clearTimeout(searchTimeout.current);
+  //     }
+  //     searchTimeout.current = setTimeout(async () => {
+  //       const response = await getFriendByName({
+  //         friendName: value,
+  //         userId: userData._id,
+  //       });
+  //       if (response.status === 200) {
+  //         setDataSearch((prevState) => {
+  //           return {
+  //             ...prevState,
+  //             response: response.data,
+  //           };
+  //         });
+  //       } else {
+  //         setDataSearch((prevState) => {
+  //           return {
+  //             ...prevState,
+  //             response: [],
+  //           };
+  //         });
+  //       }
+  //       setIsSearch((prevState) => {
+  //         return {
+  //           ...prevState,
+  //           response: true,
+  //           recent: false,
+  //         };
+  //       });
+  //     }, 300);
+  //   }
+  // };
+
+const handleSearchDb = (value) => {
+  if (value !== "") {
+    if (searchTimeout.current) {
+      clearTimeout(searchTimeout.current);
     }
-  };
+
+    searchTimeout.current = setTimeout(async () => {
+      const response = await searchUsersV2({ keyword: value });
+
+      const nextResults = Array.isArray(response.data)
+        ? response.data
+            .filter((item) => item.relationshipStatus === "FRIEND")
+            .map(mapSearchUserToUi)
+        : [];
+
+      setDataSearch((prevState) => {
+        return {
+          ...prevState,
+          response: nextResults,
+        };
+      });
+
+      setIsSearch((prevState) => {
+        return {
+          ...prevState,
+          response: true,
+          recent: false,
+        };
+      });
+    }, 300);
+  }
+};
+
 
   const handleChangeTextSearch = (e) => {
     let data = e.target.value;
@@ -275,47 +365,102 @@ function Contact({
     }
   };
 
-  const handleChoiceContact = (value) => {
-    storeLocal(value);
-    handleChangeContact({ ...value, userId: userData._id });
-    setIsSearch((prevState) => {
-      return {
-        ...prevState,
-        state: false,
-      };
-    });
-    setTextSearch("");
-  };
+  // const handleChoiceContact = (value) => {
+  //   storeLocal(value);
+  //   handleChangeContact({ ...value, userId: userData._id });
+  //   setIsSearch((prevState) => {
+  //     return {
+  //       ...prevState,
+  //       state: false,
+  //     };
+  //   });
+  //   setTextSearch("");
+  // };
 
-  const storeLocal = (value) => {
-    setDataSearch((prevState) => {
-      const filterRecent = prevState.recent.filter((x) => x._id !== value._id);
-      return {
-        response: prevState.response,
-        recent: [value, ...filterRecent],
-      };
-    });
-    localStorage.setItem("user-search", JSON.stringify(dataSearch.recent));
-  };
+  const handleChoiceContact = (value) => {
+  storeLocal(value);
+  console.log("Selected contact:", value);
+  handleChangeContact({
+    ...value,
+    userId: value?.userId || value?._id,
+  });
+  setIsSearch((prevState) => {
+    return {
+      ...prevState,
+      state: false,
+    };
+  });
+  setTextSearch("");
+};
+
+
+  // const storeLocal = (value) => {
+  //   setDataSearch((prevState) => {
+  //     const filterRecent = prevState.recent.filter((x) => x._id !== value._id);
+  //     return {
+  //       response: prevState.response,
+  //       recent: [value, ...filterRecent],
+  //     };
+  //   });
+  //   localStorage.setItem("user-search", JSON.stringify(dataSearch.recent));
+  // };
+
+const storeLocal = (value) => {
+  const userId = userData?._id || userData?.userId || "guest";
+  const storageKey = getRecentSearchStorageKey(userId);
+  const selectedId = getSearchItemId(value);
+
+  const nextRecent = [
+    value,
+    ...dataSearch.recent.filter((item) => getSearchItemId(item) !== selectedId),
+  ].slice(0, 10);
+
+  setDataSearch((prevState) => ({
+    ...prevState,
+    recent: nextRecent,
+  }));
+
+  localStorage.setItem(storageKey, JSON.stringify(nextRecent));
+};
+
+
+
+  // const handleShowAddFriend = (value) => {
+  //   setAddUser((prevState) => {
+  //     return {
+  //       ...prevState,
+  //       friend: value,
+  //     };
+  //   });
+
+  //   if (!value) {
+  //     setDataUserPhone({
+  //       username: "",
+  //       show: false,
+  //       data: null,
+  //       state: null,
+  //       cancel: null,
+  //     });
+  //   }
+  // };
 
   const handleShowAddFriend = (value) => {
-    setAddUser((prevState) => {
-      return {
-        ...prevState,
-        friend: value,
-      };
-    });
+  setAddUser((prevState) => ({
+    ...prevState,
+    friend: value,
+  }));
 
-    if (!value) {
-      setDataUserPhone({
-        username: "",
-        show: false,
-        data: null,
-        state: null,
-        cancel: null,
-      });
-    }
-  };
+  if (!value) {
+    setFriendSearch({
+      keyword: "",
+      loading: false,
+      searched: false,
+      results: [],
+      error: "",
+    });
+  }
+};
+
 
   const handleShowAddGroup = (value) => {
     setAddUser((prevState) => {
@@ -408,14 +553,22 @@ function Contact({
       };
     });
   };
-  const handleChangePhone = (e) => {
-    setDataUserPhone((prevState) => {
-      return {
-        ...prevState,
-        username: e.target.value,
-      };
-    });
-  };
+  // const handleChangePhone = (e) => {
+  //   setDataUserPhone((prevState) => {
+  //     return {
+  //       ...prevState,
+  //       username: e.target.value,
+  //     };
+  //   });
+  // };
+  const handleChangeSearchKeyword = (e) => {
+  setFriendSearch((prevState) => ({
+    ...prevState,
+    keyword: e.target.value,
+    error: "",
+  }));
+};
+
   const handleFindUserByPhone = async () => {
     if (dataUserPhone.username !== "") {
       const response = await getUserByPhone({
@@ -443,6 +596,54 @@ function Contact({
       }
     }
   };
+
+  const handleFindUsersForAddFriend = async () => {
+  const keyword = friendSearch.keyword.trim();
+
+  if (!keyword) {
+    setFriendSearch((prevState) => ({
+      ...prevState,
+      searched: true,
+      results: [],
+      error: "Vui long nhap ten, username, ho ten hoac so dien thoai",
+    }));
+    return;
+  }
+
+  setFriendSearch((prevState) => ({
+    ...prevState,
+    loading: true,
+    searched: false,
+    error: "",
+  }));
+
+  try {
+    const response = await searchUsersV2({ keyword });
+
+    const results = Array.isArray(response.data)
+      ? response.data.map(mapSearchUserToUi)
+      : [];
+
+    setFriendSearch((prevState) => ({
+      ...prevState,
+      loading: false,
+      searched: true,
+      results,
+      error: "",
+    }));
+  } catch (error) {
+    console.error("Failed to search users for add friend:", error);
+
+    setFriendSearch((prevState) => ({
+      ...prevState,
+      loading: false,
+      searched: true,
+      results: [],
+      error: "Khong the tim kiem luc nay",
+    }));
+  }
+};
+
   const handleCRUDFriend = async (friendId, state) => {
     const response = await crudFriend({
       userId: userData._id,
@@ -454,6 +655,42 @@ function Contact({
       fetchConversation();
     }
   };
+  const handleSendFriendRequestFromSearch = async (user) => {
+  if (!user?.userId || user.relationshipStatus !== "NONE") {
+    return;
+  }
+
+  try {
+    const response = await sendFriendRequestV2({ receiverId: user.userId });
+
+    if (response.status === 200) {
+      setFriendSearch((prevState) => ({
+        ...prevState,
+        results: prevState.results.map((item) =>
+          item.userId === user.userId
+            ? { ...item, relationshipStatus: "REQUEST_SENT" }
+            : item
+        ),
+      }));
+    }
+  } catch (error) {
+    console.error("Failed to send friend request:", error);
+  }
+};
+
+const handleClearRecentSearch = () => {
+  const userId = userData?._id || userData?.userId || "guest";
+  const storageKey = getRecentSearchStorageKey(userId);
+
+  setDataSearch((prevState) => ({
+    ...prevState,
+    recent: [],
+  }));
+
+  localStorage.removeItem(storageKey);
+};
+
+
   return (
     <>
       <div className="contact-container-contact">
@@ -496,7 +733,7 @@ function Contact({
                         onClick={() => handleShowAddFriend(false)}
                       />
                     </div>
-                    <div className="add-by-phone">
+                    {/* <div className="add-by-phone">
                       <div className="phone-friend flex">
                         <div className="img-phone flex">
                           <span></span>
@@ -611,7 +848,75 @@ function Contact({
                           Tìm kiếm
                         </button>
                       </div>
+                    </div> */}
+                    <div className="add-by-phone">
+                      <div className="phone-friend flex">
+                        <div className="input-number" style={{ width: "100%" }}>
+                          <input
+                            type="text"
+                            value={friendSearch.keyword}
+                            onChange={handleChangeSearchKeyword}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                handleFindUsersForAddFriend();
+                              }
+                            }}
+                            placeholder="Nhap ten, username hoac so dien thoai"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="btn-find-friend flex">
+                        <button onClick={() => handleShowAddFriend(false)}>Huy</button>
+                        <button
+                          style={{ backgroundColor: "#0068ff", color: "white" }}
+                          onClick={handleFindUsersForAddFriend}
+                          disabled={friendSearch.loading}
+                        >
+                          {friendSearch.loading ? "Dang tim..." : "Tim kiem"}
+                        </button>
+                      </div>
+
+                      <div className="recent-result">
+                        <p>Ket qua</p>
+                        {friendSearch.error ? <p>{friendSearch.error}</p> : null}
+                        {friendSearch.searched &&
+                        friendSearch.results.length === 0 &&
+                        !friendSearch.error ? (
+                          <p>Khong tim thay nguoi dung</p>
+                        ) : null}
+                      </div>
+
+                      <div className="friend-search-results">
+                        {friendSearch.results.map((user) => {
+                          const action = getFriendActionMeta(user.relationshipStatus);
+
+                          return (
+                            <div key={user.userId} className="wrap-result-phone flex">
+                              <div className="flex" style={{ maxWidth: "220px" }}>
+                                <img src={user.avatar || user.avatarUrl} alt="" />
+                                <div>
+                                  <p className="username">{user.displayName || user.username}</p>
+                                  {user.username ? (
+                                    <p className="friend-search-subtitle">@{user.username}</p>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              <div>
+                                <button
+                                  disabled={action.disabled}
+                                  onClick={() => handleSendFriendRequestFromSearch(user)}
+                                >
+                                  {action.label}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
+
                   </div>
                 </div>
               )}
@@ -846,15 +1151,38 @@ function Contact({
             <ul className="wrap-recent-search">
               {isSearch.recent && (
                 <div>
-                  <p style={{ margin: "10px 0 10px 20px", fontWeight: "500" }}>
-                    Tìm gần đây
-                  </p>
+                  <div
+                  style={{
+                    margin: "10px 20px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <p style={{ fontWeight: "500", margin: 0 }}>Tìm gần đây</p>
+                  {dataSearch.recent.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={handleClearRecentSearch}
+                      style={{
+                        border: "none",
+                        background: "transparent",
+                        color: "#0068ff",
+                        cursor: "pointer",
+                        fontWeight: "500",
+                      }}
+                    >
+                      Xóa tất cả
+                    </button>
+                  ) : null}
+                </div>
+
                   <div className="wrap-result-search">
                     {isSearch.recent &&
                       dataSearch.recent !== null &&
                       dataSearch.recent.map((item, index) => (
                         <li
-                          key={index}
+                          key={getSearchItemId(item) || index}
                           onClick={() => handleChoiceContact(item)}
                         >
                           <div className="flex">
@@ -870,7 +1198,7 @@ function Contact({
               {isSearch.response && (
                 <div>
                   <div className="wrap-result-search">
-                    {isSearch.response &&
+                    {/* {isSearch.response &&
                       dataSearch.response !== null &&
                       Array.isArray(dataSearch.response) &&
                       dataSearch.response.map((item, index) => (
@@ -883,7 +1211,22 @@ function Contact({
                             <p>{item.displayName}</p>
                           </div>
                         </li>
-                      ))}
+                      ))} */}
+                      {isSearch.response &&
+                        dataSearch.response !== null &&
+                        Array.isArray(dataSearch.response) &&
+                        dataSearch.response.map((item, index) => (
+                          <li
+                            key={item.userId || item._id || index}
+                            onClick={() => handleChoiceContact(item)}
+                          >
+                            <div className="flex">
+                              <img src={item.avatar || item.avatarUrl} alt="" />
+                              <p>{item.displayName || item.username}</p>
+                            </div>
+                          </li>
+                        ))}
+
                   </div>
                 </div>
               )}
