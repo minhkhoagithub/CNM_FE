@@ -16,7 +16,7 @@ import { HiOutlineUserGroup } from "react-icons/hi2";
 import { CiSearch } from "react-icons/ci";
 import { IoVideocamOutline, IoCameraOutline, IoCallOutline } from "react-icons/io5";
 import { AiOutlineLike, AiOutlinePicture, AiOutlineSend } from "react-icons/ai";
-import { IoMdClose, IoMdAttach } from "react-icons/io";
+import { IoMdClose, IoMdAttach,IoMdMore  } from "react-icons/io";
 import { TbBackground } from "react-icons/tb";
 import { MdOutlineContactMail } from "react-icons/md";
 import { RiCalendarTodoFill, RiEmojiStickerLine } from "react-icons/ri";
@@ -345,6 +345,7 @@ function ContainerMess({ contactData }) {
   const [forwardTargetConversationId, setForwardTargetConversationId] = useState("");
   const [isForwarding, setIsForwarding] = useState(false);
   const [forwardNotice, setForwardNotice] = useState("");
+  const [openMessageMenuId, setOpenMessageMenuId] = useState(null);
   const forwardNoticeTimeoutRef = useRef(null);
   const { userData } = useContext(UserContext);
   const {
@@ -457,6 +458,17 @@ function ContainerMess({ contactData }) {
     },
     [currentUserDisplayName, currentUserId, memberNameMap]
   );
+  const handleCloseMessageMenu = useCallback(() => {
+    setOpenMessageMenuId(null);
+  }, []);
+
+  const handleToggleMessageMenu = useCallback((messageId) => {
+    setOpenMessageMenuId((currentValue) =>
+      String(currentValue) === String(messageId) ? null : messageId
+    );
+  }, []);
+
+
   const buildReplyTarget = useCallback(
     (message) => ({
       id: message?.id || null,
@@ -857,6 +869,20 @@ function ContainerMess({ contactData }) {
       typingUsers,
     });
   }, [backendConversationId, typingUsers]);
+  useEffect(() => {
+    const handleDocumentClick = (event) => {
+      if (!event.target.closest(".message-actions-menu")) {
+        setOpenMessageMenuId(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleDocumentClick);
+
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentClick);
+    };
+  }, []);
+
 
   useEffect(() => {
     return () => {
@@ -894,6 +920,7 @@ function ContainerMess({ contactData }) {
   useEffect(() => {
     setTypingUsers([]);
     setReplyingToMessage(null);
+    setOpenMessageMenuId(null);
     clearForwardState();
     typingStateRef.current = false;
     if (typingDebounceTimeoutRef.current) {
@@ -1570,18 +1597,36 @@ function ContainerMess({ contactData }) {
                         >
                           {item.myReaction === "LIKE" ? "Bo like" : "Like"}
                         </button>
-                        {REACTION_OPTIONS.map((reactionType) => (
+
+                        <div className="message-reaction-picker">
                           <button
-                            className={`message-reaction-btn ${
-                              item.myReaction === reactionType ? "active-reaction" : ""
+                            className={`message-reaction-trigger ${
+                              item.myReaction && item.myReaction !== "LIKE"
+                                ? "active-reaction"
+                                : "subtle"
                             }`}
-                            key={reactionType}
                             type="button"
-                            onClick={() => handleQuickReaction(item, reactionType)}
+                            aria-label="Mo bang cam xuc"
                           >
-                            {REACTION_LABELS[reactionType]}
+                            <RiEmojiStickerLine />
                           </button>
-                        ))}
+
+                          <div className="message-reaction-popover">
+                            {REACTION_OPTIONS.map((reactionType) => (
+                              <button
+                                className={`message-reaction-btn ${
+                                  item.myReaction === reactionType ? "active-reaction" : ""
+                                }`}
+                                key={reactionType}
+                                type="button"
+                                onClick={() => handleQuickReaction(item, reactionType)}
+                              >
+                                {REACTION_LABELS[reactionType]}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
                         {canReply ? (
                           <button
                             className="message-action-btn subtle"
@@ -1591,60 +1636,96 @@ function ContainerMess({ contactData }) {
                             Tra loi
                           </button>
                         ) : null}
-                        <button
-                          className="message-action-btn subtle"
-                          type="button"
-                          onClick={() => handleOpenForwardPicker(item)}
-                        >
-                          Chuyen tiep
-                        </button>
-                        {canEdit ? (
+
+                        <div className="message-actions-menu">
                           <button
-                            className="message-action-btn subtle"
+                            className="message-action-menu-trigger"
                             type="button"
-                            onClick={() => handleStartEditing(item)}
+                            aria-label="Mo tac vu tin nhan"
+                            aria-expanded={String(openMessageMenuId) === String(item.id)}
+                            onClick={() => handleToggleMessageMenu(item.id)}
                           >
-                            Sua
+                            <IoMdMore />
                           </button>
-                        ) : null}
-                        {canDelete ? (
-                          <button
-                            className="message-action-btn danger-soft"
-                            type="button"
-                            onClick={() => handleDeleteMessage(item.id)}
-                          >
-                            Thu hoi
-                          </button>
-                        ) : null}
-                        <button
-                          className="message-action-btn subtle"
-                          type="button"
-                          onClick={() => handleHideMessage(item.id)}
-                        >
-                          An
-                        </button>
-                        <button
-                          className="message-action-btn subtle"
-                          type="button"
-                          onClick={() => handleRemoveMessageForMe(item.id)}
-                        >
-                          Xoa cho toi
-                        </button>
+
+                          {String(openMessageMenuId) === String(item.id) ? (
+                            <div className="message-actions-dropdown">
+                              <button
+                                className="message-action-menu-item"
+                                type="button"
+                                onClick={() => {
+                                  handleCloseMessageMenu();
+                                  handleOpenForwardPicker(item);
+                                }}
+                              >
+                                Chuyen tiep
+                              </button>
+
+                              {canEdit ? (
+                                <button
+                                  className="message-action-menu-item"
+                                  type="button"
+                                  onClick={() => {
+                                    handleCloseMessageMenu();
+                                    handleStartEditing(item);
+                                  }}
+                                >
+                                  Sua
+                                </button>
+                              ) : null}
+
+                              {canDelete ? (
+                                <button
+                                  className="message-action-menu-item danger"
+                                  type="button"
+                                  onClick={() => {
+                                    handleCloseMessageMenu();
+                                    handleDeleteMessage(item.id);
+                                  }}
+                                >
+                                  Thu hoi
+                                </button>
+                              ) : null}
+
+                              <button
+                                className="message-action-menu-item"
+                                type="button"
+                                onClick={() => {
+                                  handleCloseMessageMenu();
+                                  handleHideMessage(item.id);
+                                }}
+                              >
+                                An
+                              </button>
+
+                              <button
+                                className="message-action-menu-item"
+                                type="button"
+                                onClick={() => {
+                                  handleCloseMessageMenu();
+                                  handleRemoveMessageForMe(item.id);
+                                }}
+                              >
+                                Xoa cho toi
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+
                         {Array.isArray(item.reactions) && item.reactions.length > 0 ? (
                           <span className="message-reaction-summary">
                             {item.reactions
                               .filter((reaction) => Number(reaction.count || 0) > 0)
                               .map(
                                 (reaction) =>
-                                  `${REACTION_LABELS[reaction.type] || reaction.type} ${
-                                    reaction.count
-                                  }`
+                                  `${REACTION_LABELS[reaction.type] || reaction.type} ${reaction.count}`
                               )
                               .join(" ")}
                           </span>
                         ) : null}
                       </div>
                     )}
+
                     {index === normalizedMessages.length - 1 ? (
                       <div className="time-mess">
                         <p>

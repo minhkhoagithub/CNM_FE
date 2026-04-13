@@ -25,6 +25,7 @@ import {
   getIncomingFriendRequestsV2,
   sendFriendRequestV2,
   unfriendUserV2,
+  getBlockedUsersV2,
 } from "../../util/api/index.jsx";
 
 import { createConversationV1 } from "../../services/chat/conversationApi";
@@ -34,6 +35,7 @@ export const LoiMoiKetBan = "Loi moi ket ban";
 export const LoiMoiVaoNhom = "Loi moi vao nhom";
 export const DanhSachBanBe = "Danh sach ban be";
 export const DanhSachNhom = "Danh sach nhom";
+export const DanhSachChan = "Danh sach chan";
 
 // const mapSearchUserToUi = (item) => ({
 //   _id: item.userId,
@@ -74,6 +76,19 @@ const mapIncomingRequestToUi = (item) => ({
   avatarUrl: item.sender?.avatarUrl || "",
   requestId: item.id,
 });
+
+const mapBlockedUserToUi = (item) => ({
+  _id: item.blockedUser?.userId,
+  userId: item.blockedUser?.userId,
+  username: item.blockedUser?.displayName || item.blockedUser?.username,
+  displayName: item.blockedUser?.displayName || item.blockedUser?.username,
+  avatar: item.blockedUser?.avatarUrl || "",
+  avatarUrl: item.blockedUser?.avatarUrl || "",
+  blockId: item.id,
+  reason: item.reason || "",
+  blockedAt: item.createdAt,
+});
+
 
 function MenuContact({ handleChangeContact, handleSetContentMenuContact }) {
   // const initialRecentSearch = (() => {
@@ -139,6 +154,7 @@ useEffect(() => {
     { title: DanhSachNhom, icon: <HiOutlineUserGroup /> },
     { title: LoiMoiKetBan, icon: <HiOutlineUserPlus /> },
     { title: LoiMoiVaoNhom, icon: <HiOutlineUserGroup /> },
+    { title: DanhSachChan, icon: <HiOutlineUsers />},
   ];
   const [textSearch, setTextSearch] = useState("");
   const [isSearch, setIsSearch] = useState({
@@ -882,6 +898,20 @@ const handleSendFriendRequestFromSearch = async (user) => {
         count: `Loi moi vao nhom (${response.data?.length || 0})`,
       });
     }
+  }
+  if (title === DanhSachChan) {
+    const response = await getBlockedUsersV2();
+    const blockedUsers = Array.isArray(response.data)
+      ? response.data.map(mapBlockedUserToUi)
+      : [];
+
+    handleSetContentMenuContact({
+      state: true,
+      data: blockedUsers,
+      title: DanhSachChan,
+      count: `Da chan (${blockedUsers.length})`,
+    });
+    return;
   }
 };
 

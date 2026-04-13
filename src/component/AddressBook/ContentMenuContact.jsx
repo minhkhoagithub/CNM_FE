@@ -5,6 +5,7 @@ import {
   LoiMoiVaoNhom,
   DanhSachBanBe,
   DanhSachNhom,
+  DanhSachChan,
 } from "./MenuContact";
 import { UserContext } from "../../Context/UserContext";
 import { TbMessageDots } from "react-icons/tb";
@@ -14,6 +15,8 @@ import {
   acceptFriendRequestV2,
   rejectFriendRequestV2,
   unfriendUserV2,
+  blockUserV2,
+  unblockUserV2,
 } from "../../util/api";
 
 
@@ -23,6 +26,9 @@ export const DONG_Y = "Dong y";
 export const BAN_BE = "Ban be";
 export const XOA_BAN_BE = "Xoa ban be";
 export const BO_QUA = "Bo qua";
+export const CHAN = "Chan";
+export const BO_CHAN = "Bo chan";
+
 
 // const defaultFlags = {
 //   XoaKetBan: false,
@@ -41,6 +47,8 @@ const defaultFlags = {
   BoQua: false,
   BanBe: false,
   XoaBanBe: false,
+  Chan: false,
+  BoChan: false,
 };
 
 const mapOutgoingRequestToUi = (item) => ({
@@ -65,6 +73,7 @@ const buildListData = (dataContentContac, title) => {
           ...defaultFlags,
           XoaBanBe: true,
           BanBe: true,
+          Chan: true,
         });
       });
     } else if (title === LoiMoiKetBan) {
@@ -76,9 +85,17 @@ const buildListData = (dataContentContac, title) => {
           BoQua: true,
         });
       });
+    } else if (title === DanhSachChan) {
+        dataContentContac.forEach((item) => {
+          nextMap.set(item._id, {
+            ...item,
+            ...defaultFlags,
+            BoChan: true,
+          });
+        }
+      );
     }
   }
-
   return nextMap;
 };
 
@@ -184,7 +201,15 @@ useEffect(() => {
           ThuHoiLoiMoi: true,
         });
       }
+      if (action === CHAN) {
+        nextState.delete(friendId);
+        return nextState;
+      }
 
+      if (action === BO_CHAN) {
+        nextState.delete(friendId);
+        return nextState;
+      }
       return nextState;
     });
   };
@@ -236,6 +261,27 @@ useEffect(() => {
       updateListStateByAction(friend._id, action);
     }
   }
+  if (action === CHAN) {
+    const response = await blockUserV2({
+      blockedUserId: friend.userId || friend._id,
+      reason: "",
+    });
+    if (response.status === 200) {
+      updateListStateByAction(friend._id, action);
+    }
+    return;
+  }
+
+  if (action === BO_CHAN) {
+    const response = await unblockUserV2({
+      blockedUserId: friend.userId || friend._id,
+    });
+    if (response.status === 200) {
+      updateListStateByAction(friend._id, action);
+    }
+    return;
+  }
+
 };
 
 
@@ -350,7 +396,7 @@ useEffect(() => {
                           />
                           <p>{item.username || item.displayName}</p>
                         </div>
-                        <div className="btn-state-contact" style={{ display: "none" }}>
+                        <div className="btn-state-contact" >
                           {item.BanBe ? (
                             <button
                               style={{ backgroundColor: "rgb(220 224 227)", color: "black" }}
@@ -382,6 +428,23 @@ useEffect(() => {
                           {item.ThuHoiLoiMoi ? (
                             <button onClick={(e) => handleCrudFriend(item, e, key)}>
                               {HUY_LOI_MOI_KET_BAN}
+                            </button>
+                          ) : null}
+                          {item.Chan ? (
+                            <button
+                              style={{ backgroundColor: "#fff1d6", color: "#92400e" }}
+                              onClick={(e) => handleCrudFriend(item, e, key)}
+                            >
+                              {CHAN}
+                            </button>
+                          ) : null}
+
+                          {item.BoChan ? (
+                            <button
+                              style={{ backgroundColor: "#eaedf0", color: "black" }}
+                              onClick={(e) => handleCrudFriend(item, e, key)}
+                            >
+                              {BO_CHAN}
                             </button>
                           ) : null}
                         </div>

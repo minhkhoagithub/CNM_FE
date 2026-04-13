@@ -222,6 +222,25 @@ export const unfriendUserV2 = async ({ friendUserId }) => {
   const response = await apiClient.delete(`/friends/${friendUserId}`);
   return unwrapApiData(response);
 };
+
+export const blockUserV2 = async ({ blockedUserId, reason = "" }) => {
+  const response = await apiClient.post("/users/blocks", {
+    blockedUserId,
+    reason,
+  });
+  return unwrapApiData(response);
+};
+
+export const getBlockedUsersV2 = async () => {
+  const response = await apiClient.get("/users/blocks");
+  return unwrapApiData(response);
+};
+
+export const unblockUserV2 = async ({ blockedUserId }) => {
+  const response = await apiClient.delete(`/users/blocks/${blockedUserId}`);
+  return unwrapApiData(response);
+};
+
 // Done Friend ships
 
 // Forgot Password
