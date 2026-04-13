@@ -116,6 +116,18 @@ class WebSocketService {
           });
           this.subscriptions.push(devicesSubscription);
 
+          const deviceLoginRequestTopic = `/topic/auth/${userId}/device-login-request`;
+          const deviceLoginRequestSubscription = client.subscribe(deviceLoginRequestTopic, (message) => {
+            try {
+              const event = JSON.parse(message.body);
+              console.log("[WebSocket] Device login approval request:", event);
+              this.emitEvent("device-login-request", event);
+            } catch (error) {
+              console.error("[WebSocket] Error parsing device-login-request message:", error);
+            }
+          });
+          this.subscriptions.push(deviceLoginRequestSubscription);
+
           const authErrorSubscription = client.subscribe("/topic/auth/error", (message) => {
             try {
               const error = JSON.parse(message.body);
