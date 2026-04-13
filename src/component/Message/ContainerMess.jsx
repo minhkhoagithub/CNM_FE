@@ -45,7 +45,9 @@ import {
   mapMessagePage,
   markMessageAsDeleted,
   normalizeMessageList,
+  persistRecalledMessageSnapshot,
   removeMessageItem,
+  removePersistedRecalledMessage,
   updateMessageReactionSummary,
   upsertMessageItem,
 } from "../../mappers/messageMapper";
@@ -205,6 +207,7 @@ function ContainerMess({ contactData }) {
   const inputMessage = useRef(null);
   const fileInputRef = useRef(null);
   const selectedAttachmentsRef = useRef([]);
+  const messagesRef = useRef([]);
   const typingStateRef = useRef(false);
   const typingDebounceTimeoutRef = useRef(null);
   const typingIdleTimeoutRef = useRef(null);
@@ -335,7 +338,7 @@ function ContainerMess({ contactData }) {
       }
 
       typingStateRef.current = isTyping;
-      console.log("[TYPING SEND]", {
+      console.log("[WEB TYPING SEND]", {
         conversationId: backendConversationId,
         isTyping,
         timestamp: Date.now(),
@@ -362,9 +365,13 @@ function ContainerMess({ contactData }) {
       clearTimeout(typingDebounceTimeoutRef.current);
     }
 
-    typingDebounceTimeoutRef.current = setTimeout(() => {
-      pushTypingState(shouldSendTyping);
-    }, TYPING_DEBOUNCE_MS);
+    if (shouldSendTyping && !typingStateRef.current) {
+      void pushTypingState(true);
+    } else {
+      typingDebounceTimeoutRef.current = setTimeout(() => {
+        pushTypingState(shouldSendTyping);
+      }, TYPING_DEBOUNCE_MS);
+    }
 
     if (typingIdleTimeoutRef.current) {
       clearTimeout(typingIdleTimeoutRef.current);
@@ -423,18 +430,42 @@ function ContainerMess({ contactData }) {
   }, []);
 
   const markMessageDeleted = useCallback((messageId, deletedAt) => {
+    const targetMessage =
+      messagesRef.current.find((message) => String(message.id) === String(messageId)) || null;
+
+    if (targetMessage && backendConversationId && currentUserId) {
+      persistRecalledMessageSnapshot({
+        conversationId: backendConversationId,
+        currentUserId,
+        message: targetMessage,
+        deletedAt,
+      });
+    }
+
     setMessages((prevMessages) => markMessageAsDeleted(prevMessages, messageId, deletedAt));
-  }, []);
+  }, [backendConversationId, currentUserId]);
 
   const removeMessageById = useCallback((messageId) => {
+    if (backendConversationId && currentUserId) {
+      removePersistedRecalledMessage({
+        conversationId: backendConversationId,
+        currentUserId,
+        messageId,
+      });
+    }
+
     setMessages((prevMessages) => removeMessageItem(prevMessages, messageId));
-  }, []);
+  }, [backendConversationId, currentUserId]);
 
   const syncMessageReactionSummary = useCallback((messageId, reactions, myReaction) => {
     setMessages((prevMessages) =>
       updateMessageReactionSummary(prevMessages, messageId, reactions, myReaction)
     );
   }, []);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ block: "end" });
@@ -447,6 +478,13 @@ function ContainerMess({ contactData }) {
   useEffect(() => {
     setActiveIconSend(Boolean(draftText || selectedAttachments.length > 0));
   }, [draftText, selectedAttachments.length]);
+
+  useEffect(() => {
+    console.log("[WEB TYPING STATE]", {
+      conversationId: backendConversationId,
+      typingUsers,
+    });
+  }, [backendConversationId, typingUsers]);
 
   useEffect(() => {
     return () => {
@@ -507,7 +545,10 @@ function ContainerMess({ contactData }) {
         const response = await getConversationMessages(backendConversationId, {
           size: 50,
         });
-        const page = mapMessagePage(response);
+        const page = mapMessagePage(response, {
+          conversationId: backendConversationId,
+          currentUserId,
+        });
         setMessages(page.items);
         await markConversationSeen(backendConversationId);
         updateConversationById(backendConversationId, { unreadCount: 0 });
@@ -518,7 +559,7 @@ function ContainerMess({ contactData }) {
     };
 
     fetchMessages();
-  }, [backendConversationId, updateConversationById]);
+  }, [backendConversationId, currentUserId, updateConversationById]);
 
   useEffect(() => {
     if (!backendConversationId) {
@@ -541,6 +582,16 @@ function ContainerMess({ contactData }) {
           }
 
           if (event.type === "MESSAGE_DELETED") {
+            console.log("[WEB RECALL REALTIME]", {
+              conversationId: backendConversationId,
+              messageId: event.payload?.messageId || event.payload?.id || null,
+              deletedAt: event.payload?.deletedAt || null,
+              foundInState: messagesRef.current.some(
+                (message) =>
+                  String(message.id) ===
+                  String(event.payload?.messageId || event.payload?.id || "")
+              ),
+            });
             markMessageDeleted(
               event.payload?.messageId || event.payload?.id,
               event.payload?.deletedAt
@@ -583,9 +634,12 @@ function ContainerMess({ contactData }) {
     const subscriptionKey = `chat:conversation:${backendConversationId}:typing`;
     chatRealtimeService
       .subscribe(subscriptionKey, `/topic/typing/${backendConversationId}`, (event) => {
-        console.log("[TYPING RECEIVE RAW]", event);
-
         const typingEvent = normalizeTypingPayload(event);
+        console.log("[WEB TYPING RECEIVE]", {
+          conversationId: backendConversationId,
+          raw: event,
+          normalized: typingEvent,
+        });
         if (!typingEvent) {
           return;
         }
@@ -601,11 +655,6 @@ function ContainerMess({ contactData }) {
           return;
         }
 
-        console.log("[TYPING PARSED]", {
-          senderId: typingEvent.senderId,
-          isTyping: typingEvent.isTyping,
-        });
-
         const typingUserId = String(typingEvent.senderId);
         const resolvedDisplayName = resolveUserDisplayName(
           typingUserId,
@@ -616,9 +665,10 @@ function ContainerMess({ contactData }) {
           clearTimeout(currentTimeout);
         }
 
-        console.log("[TYPING STATE UPDATE]", {
+        console.log("[WEB TYPING STATE]", {
           senderId: typingUserId,
           isTyping: typingEvent.isTyping,
+          displayName: resolvedDisplayName,
         });
 
         if (typingEvent.isTyping) {
@@ -636,7 +686,11 @@ function ContainerMess({ contactData }) {
           });
 
           const timeoutId = setTimeout(() => {
-            console.log("[TYPING CLEAR]", typingUserId);
+            console.log("[WEB TYPING STATE]", {
+              senderId: typingUserId,
+              isTyping: false,
+              reason: "timeout",
+            });
             setTypingUsers((prevState) =>
               prevState.filter((item) => String(item.userId) !== typingUserId)
             );
@@ -836,6 +890,11 @@ function ContainerMess({ contactData }) {
   const handleDeleteMessage = async (messageId) => {
     try {
       await deleteMessageV1(messageId);
+      console.log("[WEB RECALL LOCAL]", {
+        action: "unsend",
+        conversationId: backendConversationId,
+        messageId,
+      });
       markMessageDeleted(messageId, new Date().toISOString());
     } catch (error) {
       console.error("Failed to delete message:", error);
@@ -926,9 +985,10 @@ function ContainerMess({ contactData }) {
     : activeConversation?.lastActive && activeConversation.lastActive !== "Active"
     ? activeConversation.lastActive
     : "Dang hoat dong";
-  console.log("[TYPING RENDER]", {
+  console.log("[WEB TYPING RENDER]", {
     typingUsers,
     currentConversationId: backendConversationId,
+    typingStatusText,
   });
   // Keep status UI intentionally minimal for now; live message-status topic wiring can come later.
   const lastOwnMessageId = useMemo(() => {
