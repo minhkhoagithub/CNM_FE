@@ -15,6 +15,69 @@ const mapReaction = (reaction) => ({
 
 export const RECALLED_MESSAGE_PLACEHOLDER = "Tin nhan da duoc thu hoi";
 
+const getStorage = () =>
+  typeof window !== "undefined" && window.localStorage ? window.localStorage : null;
+
+const buildRecallStorageKey = (conversationId, currentUserId) =>
+  conversationId && currentUserId
+    ? `web:recalled-messages:${currentUserId}:${conversationId}`
+    : null;
+
+const readPersistedRecalledMessages = ({ conversationId, currentUserId }) => {
+  const storageKey = buildRecallStorageKey(conversationId, currentUserId);
+  const storage = getStorage();
+
+  if (!storageKey || !storage) {
+    return [];
+  }
+
+  try {
+    const raw = storage.getItem(storageKey);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.log("[WEB RECALL MAP]", "Failed to read persisted recalled messages", {
+      conversationId,
+      currentUserId,
+      error,
+    });
+    return [];
+  }
+};
+
+const writePersistedRecalledMessages = ({
+  conversationId,
+  currentUserId,
+  items,
+}) => {
+  const storageKey = buildRecallStorageKey(conversationId, currentUserId);
+  const storage = getStorage();
+
+  if (!storageKey || !storage) {
+    return;
+  }
+
+  try {
+    if (!items.length) {
+      storage.removeItem(storageKey);
+      return;
+    }
+
+    storage.setItem(storageKey, JSON.stringify(items));
+  } catch (error) {
+    console.log("[WEB RECALL MAP]", "Failed to persist recalled messages", {
+      conversationId,
+      currentUserId,
+      count: items.length,
+      error,
+    });
+  }
+};
+
 const pickFirstText = (...values) => {
   for (const value of values) {
     if (typeof value !== "string") {
@@ -34,10 +97,10 @@ const getAttachmentCount = (value) =>
   Array.isArray(value?.attachments)
     ? value.attachments.length
     : Array.isArray(value?.files)
-    ? value.files.length
-    : Array.isArray(value?.attachmentSnapshots)
-    ? value.attachmentSnapshots.length
-    : 0;
+      ? value.files.length
+      : Array.isArray(value?.attachmentSnapshots)
+        ? value.attachmentSnapshots.length
+        : 0;
 
 export const createReplyPreviewText = (value) => {
   if (value?.deletedAt || value?.deleted) {
@@ -94,17 +157,28 @@ export const isImageAttachment = (attachment) => {
   return contentType.startsWith("image/") || attachmentType === "IMAGE";
 };
 
+const resolveDeletedAt = (message) =>
+  message?.deletedAt ||
+  (message?.deleted
+    ? message?.updatedAt || message?.editedAt || message?.createdAt || null
+    : null);
+
 export const mapMessage = (message) => {
-  const deletedAt =
-    message?.deletedAt ||
-    (message?.deleted
-      ? message?.updatedAt || message?.editedAt || message?.createdAt || null
-      : null);
+  const deletedAt = resolveDeletedAt(message);
   const isDeleted = Boolean(deletedAt);
   const attachments =
     !isDeleted && Array.isArray(message?.attachments)
       ? message.attachments.map(mapAttachment)
       : [];
+
+  if (isDeleted) {
+    console.log("[WEB RECALL MAP]", {
+      source: "backend-message",
+      messageId: message?.id ?? null,
+      conversationId: message?.conversationId ?? null,
+      deletedAt,
+    });
+  }
 
   return {
     id: message?.id || null,
@@ -131,7 +205,22 @@ export const mapMessage = (message) => {
     replyTo: isDeleted
       ? null
       : mapReplyInfo(message?.replyTo || message?.reply || message?.replySnapshot),
-    raw: message,
+    raw: {
+      ...message,
+      deletedAt,
+      deleted: isDeleted,
+      attachments,
+      reactions:
+        !isDeleted && Array.isArray(message?.reactions)
+          ? message.reactions
+          : [],
+      replyTo: isDeleted
+        ? null
+        : message?.replyTo || message?.reply || message?.replySnapshot || null,
+      content: isDeleted ? null : message?.content || "",
+      editedAt: isDeleted ? null : message?.editedAt || null,
+      myReaction: isDeleted ? null : message?.myReaction || null,
+    },
   };
 };
 
@@ -160,11 +249,129 @@ const compareMessageTimeline = (leftMessage, rightMessage) => {
 export const sortMessagesByTimeline = (messages) =>
   normalizeMessageList(messages).slice().sort(compareMessageTimeline);
 
-export const mapMessagePage = (messagePage) => {
+const buildRecalledMessage = (message, deletedAt) => ({
+  ...message,
+  content: RECALLED_MESSAGE_PLACEHOLDER,
+  attachments: [],
+  reactions: [],
+  myReaction: null,
+  editedAt: null,
+  deletedAt: deletedAt || message?.deletedAt || new Date().toISOString(),
+  replyTo: null,
+  raw: {
+    ...(message?.raw || {}),
+    id: message?.id || message?.raw?.id || null,
+    conversationId:
+      message?.conversationId || message?.raw?.conversationId || null,
+    senderId: message?.senderId || message?.raw?.senderId || null,
+    content: null,
+    deletedAt: deletedAt || message?.deletedAt || new Date().toISOString(),
+    deleted: true,
+    replyTo: null,
+    attachments: [],
+    reactions: [],
+    myReaction: null,
+    editedAt: null,
+  },
+});
+
+export const persistRecalledMessageSnapshot = ({
+  conversationId,
+  currentUserId,
+  message,
+  deletedAt,
+}) => {
+  if (!conversationId || !currentUserId || !message?.id) {
+    return;
+  }
+
+  const currentItems = readPersistedRecalledMessages({
+    conversationId,
+    currentUserId,
+  });
+  const nextMessage = buildRecalledMessage(message, deletedAt);
+  const nextItems = [
+    ...currentItems.filter((item) => String(item.id) !== String(nextMessage.id)),
+    nextMessage,
+  ].sort(compareMessageTimeline);
+
+  writePersistedRecalledMessages({
+    conversationId,
+    currentUserId,
+    items: nextItems,
+  });
+};
+
+export const removePersistedRecalledMessage = ({
+  conversationId,
+  currentUserId,
+  messageId,
+}) => {
+  if (!conversationId || !currentUserId || !messageId) {
+    return;
+  }
+
+  const currentItems = readPersistedRecalledMessages({
+    conversationId,
+    currentUserId,
+  });
+
+  writePersistedRecalledMessages({
+    conversationId,
+    currentUserId,
+    items: currentItems.filter((item) => String(item.id) !== String(messageId)),
+  });
+};
+
+export const mergePersistedRecalledMessages = ({
+  conversationId,
+  currentUserId,
+  messages,
+}) => {
+  const normalizedMessages = normalizeMessageList(messages);
+  const persistedItems = readPersistedRecalledMessages({
+    conversationId,
+    currentUserId,
+  });
+
+  if (!persistedItems.length) {
+    return normalizedMessages;
+  }
+
+  const nextMessages = new Map(
+    normalizedMessages.map((message) => [String(message.id), message])
+  );
+
+  persistedItems.forEach((persistedItem) => {
+    const existingMessage = nextMessages.get(String(persistedItem.id));
+    nextMessages.set(
+      String(persistedItem.id),
+      existingMessage
+        ? buildRecalledMessage(existingMessage, persistedItem.deletedAt)
+        : buildRecalledMessage(persistedItem, persistedItem.deletedAt)
+    );
+  });
+
+  console.log("[WEB RECALL MAP]", {
+    conversationId,
+    backendCount: normalizedMessages.length,
+    persistedCount: persistedItems.length,
+    mergedCount: nextMessages.size,
+  });
+
+  return sortMessagesByTimeline([...nextMessages.values()]);
+};
+
+export const mapMessagePage = (messagePage, options = {}) => {
   const items = Array.isArray(messagePage?.items) ? messagePage.items : [];
+  const mappedItems = items.slice().reverse().map(mapMessage);
 
   return {
-    items: items.slice().reverse().map(mapMessage),
+    items: mergePersistedRecalledMessages({
+      conversationId: options.conversationId || null,
+      currentUserId: options.currentUserId || null,
+      messages: mappedItems,
+    }),
     nextCursor: messagePage?.nextCursor || null,
     hasMore: Boolean(messagePage?.hasMore),
     raw: messagePage,
@@ -197,17 +404,8 @@ export const upsertMessageItem = (messages, nextMessage) => {
 
 export const markMessageAsDeleted = (messages, messageId, deletedAt) =>
   normalizeMessageList(messages).map((message) =>
-    message.id === messageId
-      ? {
-          ...message,
-          deletedAt: deletedAt || message.deletedAt || new Date().toISOString(),
-          content: RECALLED_MESSAGE_PLACEHOLDER,
-          attachments: [],
-          reactions: [],
-          myReaction: null,
-          editedAt: null,
-          replyTo: null,
-        }
+    String(message.id) === String(messageId)
+      ? buildRecalledMessage(message, deletedAt)
       : message
   );
 
@@ -230,7 +428,7 @@ export const updateMessageReactionSummary = (
 
 // Remove-for-me is local-only visibility; do not convert it to a recalled placeholder.
 export const removeMessageItem = (messages, messageId) =>
-  normalizeMessageList(messages).filter((message) => message.id !== messageId);
+  normalizeMessageList(messages).filter((message) => String(message.id) !== String(messageId));
 
 export const createAttachmentPreviewText = (messageText, attachments) => {
   if (messageText) {
