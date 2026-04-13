@@ -263,7 +263,7 @@ export const ContactProvider = ({ children }) => {
 
   const fetchConversation = useCallback(
     async ({ archived = false } = {}) => {
-      if (!userData) {
+      if (!currentUserId) {
         return [];
       }
 
@@ -278,7 +278,7 @@ export const ContactProvider = ({ children }) => {
       updateConversationScope(scope, normalizedItems);
       return normalizedItems;
     },
-    [currentUserId, updateConversationScope, userData]
+    [currentUserId, updateConversationScope]
   );
 
   const fetchArchivedConversations = useCallback(async () => {
@@ -286,12 +286,20 @@ export const ContactProvider = ({ children }) => {
   }, [fetchConversation]);
 
   useEffect(() => {
+    if (!currentUserId) {
+      return;
+    }
+
     Promise.resolve().then(() => {
       fetchConversation();
     });
-  }, [fetchConversation]);
+  }, [currentUserId, fetchConversation]);
 
   useEffect(() => {
+    if (!currentUserId) {
+      return undefined;
+    }
+
     if (fetchContact.current) {
       clearTimeout(fetchContact.current);
     }
@@ -305,7 +313,7 @@ export const ContactProvider = ({ children }) => {
         clearTimeout(fetchContact.current);
       }
     };
-  }, [fetchConversation]);
+  }, [currentUserId, fetchConversation]);
 
   useEffect(() => {
     const currentUserId = userData?.userId || userData?._id;

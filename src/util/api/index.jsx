@@ -38,12 +38,10 @@ export const userLogin = async ({ username, password, deviceId, platform, device
   });
   return response;
 };
-export const userRegister = async ({ phone, name, password, avatar }) => {
+export const userRegister = async ({ username, password }) => {
   const response = await apiClient.post("/auth/register", {
-    phone,
-    name,
+    username,
     password,
-    avatar,
   });
   return response;
 };

@@ -1,6 +1,7 @@
 import { setChatUserId } from "../../services/chat/chatSession";
 
 const LOGIN_ROUTE = "/auth/login";
+const AUTH_ROUTE_PREFIX = "/auth/";
 
 let refreshPromise = null;
 let authFailureHandled = false;
@@ -62,7 +63,10 @@ export const handleWebAuthFailure = () => {
   authFailureHandled = true;
   clearWebSessionStorage();
 
-  if (window.location.pathname !== LOGIN_ROUTE) {
+  const { pathname } = window.location;
+  const isAuthRoute = pathname.startsWith(AUTH_ROUTE_PREFIX);
+
+  if (!isAuthRoute && pathname !== LOGIN_ROUTE) {
     window.location.replace(LOGIN_ROUTE);
   }
 };

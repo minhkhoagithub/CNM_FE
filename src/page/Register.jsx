@@ -28,8 +28,8 @@ export default function Register() {
     password: "",
     confirmPassword: "",
     dob: "",
-      gender: "male", // default value
-    });
+    gender: "male", // default value
+  });
 
   // Bước 1: Gửi OTP
   const handleSendOtp = async () => {
@@ -37,7 +37,7 @@ export default function Register() {
     try {
       setError("");
       setLoading(true);
-      
+
       await sendRegisterOtp({ email: emailOtpData.email });
       setEmailOtpData({ ...emailOtpData, otpSent: true });
       setStep(2);
@@ -81,18 +81,18 @@ export default function Register() {
       return setError("Giới tính không được để trống");
     // Kiểm tra mật khẩu có ít nhất 1 ký tự hoa
     if (!/[A-Z]/.test(password))
-        return setError("Mật khẩu phải có ít nhất 1 ký tự viết hoa");
+      return setError("Mật khẩu phải có ít nhất 1 ký tự viết hoa");
     // Kiểm tra số điện thoại: 10 số, bắt đầu bằng 0
     if (!/^0\d{9}$/.test(phone))
-        return setError("Số điện thoại phải gồm 10 số và bắt đầu bằng số 0");
+      return setError("Số điện thoại phải gồm 10 số và bắt đầu bằng số 0");
     // Kiểm tra ngày sinh đủ 13 tuổi
     const dobDate = new Date(dob);
     const now = new Date();
     const age = now.getFullYear() - dobDate.getFullYear() - (now.getMonth() < dobDate.getMonth() || (now.getMonth() === dobDate.getMonth() && now.getDate() < dobDate.getDate()) ? 1 : 0);
     if (isNaN(dobDate.getTime()) || age < 13)
-        return setError("Bạn phải đủ 13 tuổi trở lên");
+      return setError("Bạn phải đủ 13 tuổi trở lên");
     if (password !== confirmPassword)
-        return setError("Mật khẩu không khớp");
+      return setError("Mật khẩu không khớp");
     // ...existing code...
     try {
       setError("");
@@ -105,8 +105,8 @@ export default function Register() {
         dob,
         firstName,
         lastName,
-          gender,
-          });
+        gender,
+      });
       alert("Đăng ký thành công!");
       navigate("/auth/login");
     } catch (err) {
@@ -148,7 +148,7 @@ export default function Register() {
                 type="email"
                 placeholder="Nhập email"
                 value={emailOtpData.email}
-                onChange={(e) => setEmailOtpData({...emailOtpData, email: e.target.value})}
+                onChange={(e) => setEmailOtpData({ ...emailOtpData, email: e.target.value })}
               />
             </div>
             <button className={`full-btn btn-login${loading ? ' login-disable' : ''}`} onClick={handleSendOtp} disabled={loading}>Tiếp tục</button>
@@ -165,7 +165,7 @@ export default function Register() {
                 placeholder="Nhập OTP 6 số"
                 maxLength="6"
                 value={emailOtpData.otpCode}
-                onChange={(e) => setEmailOtpData({...emailOtpData, otpCode: e.target.value})}
+                onChange={(e) => setEmailOtpData({ ...emailOtpData, otpCode: e.target.value })}
               />
             </div>
             <button className={`full-btn btn-login${loading ? ' login-disable' : ''}`} onClick={handleVerifyOtp} disabled={loading}>Xác thực</button>
@@ -177,20 +177,20 @@ export default function Register() {
           <div className="register-step-3">
             <div className="flex align-center mb-20">
               <HiOutlineUser className="icon-login" />
-              <input className="input-login" placeholder="Họ" onChange={(e) => setRegisterData({...registerData, firstName: e.target.value})} />
-              <input className="input-login" placeholder="Tên" onChange={(e) => setRegisterData({...registerData, lastName: e.target.value})} />
+              <input className="input-login" placeholder="Họ" onChange={(e) => setRegisterData({ ...registerData, firstName: e.target.value })} />
+              <input className="input-login" placeholder="Tên" onChange={(e) => setRegisterData({ ...registerData, lastName: e.target.value })} />
             </div>
             <div className="flex align-center mb-20">
               <IoIosPhonePortrait className="icon-login" />
-              <input className="input-login" placeholder="Số điện thoại" onChange={(e) => setRegisterData({...registerData, phone: e.target.value})} />
+              <input className="input-login" placeholder="Số điện thoại" onChange={(e) => setRegisterData({ ...registerData, phone: e.target.value })} />
             </div>
             <div className="flex align-center mb-20">
               <CiCalendarDate className="icon-login" />
-              <input className="input-login" type="date" onChange={(e) => setRegisterData({...registerData, dob: e.target.value})} />
+              <input className="input-login" type="date" onChange={(e) => setRegisterData({ ...registerData, dob: e.target.value })} />
             </div>
             <div className="flex align-center mb-20">
-              <span className="icon-login" style={{width: 20}}></span>
-              <select className="input-login" value={registerData.gender} onChange={e => setRegisterData({...registerData, gender: e.target.value})}>
+              <span className="icon-login" style={{ width: 20 }}></span>
+              <select className="input-login" value={registerData.gender} onChange={e => setRegisterData({ ...registerData, gender: e.target.value })}>
                 <option value="male">Nam</option>
                 <option value="female">Nữ</option>
                 <option value="other">Khác</option>
@@ -198,11 +198,11 @@ export default function Register() {
             </div>
             <div className="flex align-center mb-20">
               <CiLock className="icon-login" />
-              <input className="input-login" type="password" placeholder="Mật khẩu" onChange={(e) => setRegisterData({...registerData, password: e.target.value})} />
+              <input className="input-login" type="password" placeholder="Mật khẩu" onChange={(e) => setRegisterData({ ...registerData, password: e.target.value })} />
             </div>
             <div className="flex align-center mb-20">
               <CiLock className="icon-login" />
-              <input className="input-login" type="password" placeholder="Xác nhận mật khẩu" onChange={(e) => setRegisterData({...registerData, confirmPassword: e.target.value})} />
+              <input className="input-login" type="password" placeholder="Xác nhận mật khẩu" onChange={(e) => setRegisterData({ ...registerData, confirmPassword: e.target.value })} />
             </div>
             <button className={`full-btn btn-login${loading ? ' login-disable' : ''}`} onClick={handleRegister} disabled={loading}>Hoàn tất đăng ký</button>
           </div>

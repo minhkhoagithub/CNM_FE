@@ -183,6 +183,7 @@ function LoginAccount({ handleChangeStateChat }) {
       if (response.status === 200) {
         // Lưu isLogin vào localStorage
         localStorage.setItem("isLogin", "true");
+        localStorage.setItem("userProfile", JSON.stringify(response.data.data || {}));
         
         // Pass data từ response.data.data, context sẽ transform
         setUserData(response.data.data);
