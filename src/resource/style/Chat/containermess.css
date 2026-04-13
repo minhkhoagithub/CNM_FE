@@ -526,3 +526,127 @@
   color: #5d7188;
   background-color: #f3f7fb;
 }
+.composer-feedback-success {
+  font-size: 13px;
+  margin: 6px 12px 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: #0f6c2a;
+  background-color: #edf9f0;
+}
+.message-action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.forward-picker-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(18, 25, 34, 0.38);
+  z-index: 1200;
+}
+.forward-picker-card {
+  width: min(520px, 100%);
+  max-height: min(75vh, 760px);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 12px;
+  padding: 16px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #dbe2ea;
+  border-radius: 20px;
+  box-shadow: 0 24px 64px rgba(28, 42, 58, 0.24);
+}
+.forward-picker-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.forward-picker-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #1f2a37;
+}
+.forward-picker-subtitle {
+  margin: 6px 0 0;
+  color: #5d7188;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.forward-picker-body {
+  min-height: 0;
+  overflow: auto;
+}
+.forward-target-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.forward-target-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #d6dbe1;
+  border-radius: 14px;
+  background: #f9fbff;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.forward-target-row:hover {
+  background: #eef5ff;
+}
+.forward-target-row.selected {
+  border-color: #0a84ff;
+  background: #eef6ff;
+  box-shadow: 0 0 0 1px rgba(10, 132, 255, 0.12);
+}
+.forward-target-avatar-image {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.forward-target-meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.forward-target-meta strong,
+.forward-target-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.forward-target-meta strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1f2a37;
+}
+.forward-target-meta span {
+  font-size: 12px;
+  color: #5d7188;
+}
+.forward-picker-empty {
+  margin: 0;
+  padding: 16px;
+  border-radius: 12px;
+  background: #f3f7fb;
+  color: #5d7188;
+}
+.forward-picker-actions {
+  justify-content: flex-end;
+  gap: 8px;
+}

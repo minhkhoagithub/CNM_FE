@@ -952,7 +952,11 @@ export default function Icon({ handleGetIcon }) {
     <>
       <ul className="wraper-list-icon flex">
         {listIcon.map((item, index) => (
-          <li key={index} onClick={() => handleGetIcon(item)}>
+          <li
+            key={index}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => handleGetIcon(item)}
+          >
             {item}
           </li>
         ))}

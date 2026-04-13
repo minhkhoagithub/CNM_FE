@@ -83,6 +83,18 @@ const REACTION_LABELS = {
   HAHA: "😂",
 };
 
+const getConversationDisplayName = (conversation) =>
+  conversation?.displayName ||
+  conversation?.trustedDisplayName ||
+  conversation?.peerDisplayName ||
+  (conversation?.type === "group" ? GROUP_CONVERSATION_LABEL : PRIVATE_CONVERSATION_LABEL);
+
+const getConversationAvatarUrl = (conversation) =>
+  conversation?.avatarUrl || conversation?.trustedAvatarUrl || conversation?.peerAvatarUrl || "";
+
+const isReusableForwardAttachment = (attachment) =>
+  Boolean(attachment?.url && (attachment?.storageKey || attachment?.id));
+
 const formatTime = (value) => {
   if (!value) {
     return "";
@@ -146,6 +158,105 @@ const truncateText = (value, maxLength = 90) => {
     : normalizedValue;
 };
 
+const buildForwardMessageSummary = (message) => {
+  const content = truncateText(message?.content || "", 90);
+  const attachmentCount = Array.isArray(message?.attachments)
+    ? message.attachments.length
+    : 0;
+
+  if (content && attachmentCount) {
+    return `${content} · ${attachmentCount} tep dinh kem`;
+  }
+
+  if (content) {
+    return content;
+  }
+
+  if (attachmentCount === 1) {
+    return "1 tep dinh kem";
+  }
+
+  if (attachmentCount > 1) {
+    return `${attachmentCount} tep dinh kem`;
+  }
+
+  return "";
+};
+
+const buildForwardDraft = (message) => {
+  const attachments = Array.isArray(message?.attachments)
+    ? message.attachments.map((attachment) => ({ ...attachment }))
+    : [];
+  const content = String(message?.content || "").trim();
+  const deletedAt = message?.deletedAt || null;
+  const hasAttachments = attachments.length > 0;
+  const attachmentsAreReusable =
+    !hasAttachments || attachments.every(isReusableForwardAttachment);
+  const hasUsableContent = Boolean(content);
+
+  if (deletedAt) {
+    return {
+      canForward: false,
+      reason: "Tin nhan da thu hoi khong the chuyen tiep.",
+      id: message?.id || null,
+      content,
+      attachments,
+      deletedAt,
+      type: message?.type || null,
+      previewText: buildForwardMessageSummary(message),
+      hasUsableContent,
+      hasAttachments,
+      attachmentsAreReusable,
+    };
+  }
+
+  if (!hasUsableContent && !hasAttachments) {
+    return {
+      canForward: false,
+      reason: "Tin nhan nay khong co noi dung de chuyen tiep.",
+      id: message?.id || null,
+      content,
+      attachments,
+      deletedAt,
+      type: message?.type || null,
+      previewText: buildForwardMessageSummary(message),
+      hasUsableContent,
+      hasAttachments,
+      attachmentsAreReusable,
+    };
+  }
+
+  if (hasAttachments && !attachmentsAreReusable) {
+    return {
+      canForward: false,
+      reason: "Tep dinh kem nay khong the chuyen tiep an toan.",
+      id: message?.id || null,
+      content,
+      attachments,
+      deletedAt,
+      type: message?.type || null,
+      previewText: buildForwardMessageSummary(message),
+      hasUsableContent,
+      hasAttachments,
+      attachmentsAreReusable,
+    };
+  }
+
+  return {
+    canForward: true,
+    reason: "",
+    id: message?.id || null,
+    content,
+    attachments,
+    deletedAt,
+    type: message?.type || (hasAttachments ? "ATTACHMENT" : "TEXT"),
+    previewText: buildForwardMessageSummary(message),
+    hasUsableContent,
+    hasAttachments,
+    attachmentsAreReusable,
+  };
+};
+
 const buildReplyPreview = (message) =>
   truncateText(createReplyPreviewText(message), 90) || "Tin nhan";
 
@@ -201,10 +312,13 @@ const resolveTypingStatusText = (typingUsers, conversationType) => {
   return "Nhieu nguoi dang go tin nhan...";
 };
 
+const EMOJI_PATTERN = /[\p{Extended_Pictographic}\uFE0F\u200D]/u;
+
 
 function ContainerMess({ contactData }) {
   const scrollRef = useRef(null);
   const inputMessage = useRef(null);
+  const composerSelectionRef = useRef(null);
   const fileInputRef = useRef(null);
   const selectedAttachmentsRef = useRef([]);
   const messagesRef = useRef([]);
@@ -226,8 +340,16 @@ function ContainerMess({ contactData }) {
   const [editingText, setEditingText] = useState("");
   const [typingUsers, setTypingUsers] = useState([]);
   const [replyingToMessage, setReplyingToMessage] = useState(null);
+  const [forwardingMessage, setForwardingMessage] = useState(null);
+  const [isForwardPickerOpen, setIsForwardPickerOpen] = useState(false);
+  const [forwardTargetConversationId, setForwardTargetConversationId] = useState("");
+  const [isForwarding, setIsForwarding] = useState(false);
+  const [forwardNotice, setForwardNotice] = useState("");
+  const forwardNoticeTimeoutRef = useRef(null);
   const { userData } = useContext(UserContext);
   const {
+    conversations,
+    archivedConversations,
     selectedConversationId,
     currentConversationNormalized,
     updateConversationById,
@@ -261,6 +383,32 @@ function ContainerMess({ contactData }) {
     activeConversation?.avatarUrl ||
     activeConversation?.trustedAvatarUrl ||
     null;
+
+  const availableForwardConversations = useMemo(() => {
+    const mergedConversations = [
+      ...(Array.isArray(conversations) ? conversations : []),
+      ...(Array.isArray(archivedConversations) ? archivedConversations : []),
+    ];
+    const seenConversationIds = new Set();
+
+    return mergedConversations.filter((conversation) => {
+      if (!conversation?.id) {
+        return false;
+      }
+
+      if (String(conversation.id) === String(backendConversationId)) {
+        return false;
+      }
+
+      const normalizedId = String(conversation.id);
+      if (seenConversationIds.has(normalizedId)) {
+        return false;
+      }
+
+      seenConversationIds.add(normalizedId);
+      return true;
+    });
+  }, [archivedConversations, backendConversationId, conversations]);
   const currentUserAvatar = userData?.avatarUrl || userData?.avatar || null;
   const conversationMembers = useMemo(
     () =>
@@ -327,6 +475,133 @@ function ContainerMess({ contactData }) {
     [resolveUserDisplayName]
   );
 
+  const clearForwardState = useCallback(() => {
+    setForwardingMessage(null);
+    setIsForwardPickerOpen(false);
+    setForwardTargetConversationId("");
+  }, []);
+
+  const handleOpenForwardPicker = useCallback(
+    (message) => {
+      const forwardDraft = buildForwardDraft(message);
+
+      console.log("[WEB FORWARD SELECT]", {
+        conversationId: backendConversationId,
+        messageId: forwardDraft.id,
+        type: forwardDraft.type,
+        deletedAt: forwardDraft.deletedAt,
+        attachmentsCount: forwardDraft.attachments.length,
+        canForward: forwardDraft.canForward,
+      });
+
+      if (!forwardDraft.canForward) {
+        console.log("[WEB FORWARD ERROR]", {
+          conversationId: backendConversationId,
+          messageId: forwardDraft.id,
+          reason: forwardDraft.reason,
+        });
+        setActionError(forwardDraft.reason);
+        return;
+      }
+
+      setActionError("");
+      setForwardNotice("");
+      setForwardingMessage(forwardDraft);
+      setForwardTargetConversationId("");
+      setIsForwardPickerOpen(true);
+    },
+    [backendConversationId]
+  );
+
+  const handleCloseForwardPicker = useCallback(() => {
+    clearForwardState();
+  }, [clearForwardState]);
+
+  const forwardingMessageId = forwardingMessage?.id || null;
+
+  const handlePickForwardTarget = useCallback(
+    (conversation) => {
+      if (!conversation?.id) {
+        return;
+      }
+
+      setForwardTargetConversationId(conversation.id);
+
+      console.log("[WEB FORWARD PICK TARGET]", {
+        messageId: forwardingMessageId,
+        targetConversationId: conversation.id,
+        targetConversationName: getConversationDisplayName(conversation),
+      });
+    },
+    [forwardingMessageId]
+  );
+
+  const handleConfirmForward = useCallback(async () => {
+    if (!forwardingMessage?.canForward) {
+      setActionError("Tin nhan nay khong the chuyen tiep.");
+      return;
+    }
+
+    const targetConversation = availableForwardConversations.find(
+      (conversation) => String(conversation.id) === String(forwardTargetConversationId)
+    );
+
+    if (!targetConversation) {
+      setActionError("Vui long chon cuoc tro chuyen de chuyen tiep.");
+      return;
+    }
+
+    setActionError("");
+    setIsForwarding(true);
+
+    const forwardPayload = {
+      conversationId: targetConversation.id,
+      ...(forwardingMessage.content ? { content: forwardingMessage.content } : {}),
+      ...(forwardingMessage.attachments.length
+        ? { attachments: forwardingMessage.attachments }
+        : {}),
+    };
+
+    console.log("[WEB FORWARD SEND]", {
+      sourceConversationId: backendConversationId,
+      targetConversationId: targetConversation.id,
+      messageId: forwardingMessage.id,
+      contentLength: forwardingMessage.content.length,
+      attachmentsCount: forwardingMessage.attachments.length,
+      type: forwardingMessage.type,
+    });
+
+    try {
+      const response = await sendMessageV1(forwardPayload);
+
+      updateConversationById(targetConversation.id, {
+        lastMessage: createAttachmentPreviewText(
+          forwardingMessage.content,
+          forwardingMessage.attachments
+        ),
+        lastMessageTime: response?.createdAt || new Date().toISOString(),
+        unreadCount: 0,
+      });
+
+      clearForwardState();
+      setForwardNotice(
+        `Da chuyen tiep toi ${getConversationDisplayName(targetConversation)}.`
+      );
+    } catch (error) {
+      console.error("[WEB FORWARD ERROR]", error);
+      setActionError("Khong the chuyen tiep tin nhan nay.");
+    } finally {
+      setIsForwarding(false);
+    }
+  }, [
+    availableForwardConversations,
+    backendConversationId,
+    clearForwardState,
+    forwardingMessage,
+    forwardTargetConversationId,
+    updateConversationById,
+  ]);
+
   const pushTypingState = useCallback(
     async (isTyping) => {
       if (!backendConversationId) {
@@ -351,8 +626,54 @@ function ContainerMess({ contactData }) {
     [backendConversationId]
   );
 
+  const captureComposerSelection = useCallback(() => {
+    const composer = inputMessage.current;
+    const selection = window.getSelection?.();
+
+    if (!composer || !selection || selection.rangeCount === 0) {
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    if (!composer.contains(range.commonAncestorContainer)) {
+      return;
+    }
+
+    composerSelectionRef.current = range.cloneRange();
+  }, []);
+
+  const restoreComposerSelection = useCallback(() => {
+    const composer = inputMessage.current;
+    const selection = window.getSelection?.();
+
+    if (!composer || !selection) {
+      return null;
+    }
+
+    let range = composerSelectionRef.current;
+    if (
+      !range ||
+      !composer.contains(range.commonAncestorContainer) ||
+      range.startContainer == null
+    ) {
+      if (selection.rangeCount > 0 && composer.contains(selection.anchorNode)) {
+        range = selection.getRangeAt(0).cloneRange();
+      } else {
+        range = document.createRange();
+        range.selectNodeContents(composer);
+        range.collapse(false);
+      }
+    }
+
+    selection.removeAllRanges();
+    selection.addRange(range);
+    composerSelectionRef.current = range.cloneRange();
+    return range;
+  }, []);
+
   const syncComposerState = useCallback(() => {
-    const currentText = inputMessage.current?.textContent?.trim() || "";
+    const currentComposerValue = inputMessage.current?.textContent || "";
+    const currentText = currentComposerValue.trim();
     setDraftText(currentText);
 
     if (!backendConversationId) {
@@ -384,10 +705,61 @@ function ContainerMess({ contactData }) {
     }
   }, [backendConversationId, pushTypingState]);
 
+  const insertEmojiIntoComposer = useCallback(
+    (emoji) => {
+      const composer = inputMessage.current;
+      if (!composer || !emoji) {
+        return;
+      }
+
+      const range = restoreComposerSelection();
+      if (!range) {
+        return;
+      }
+
+      composer.focus();
+      range.deleteContents();
+
+      const textNode = document.createTextNode(emoji);
+      range.insertNode(textNode);
+      range.setStartAfter(textNode);
+      range.collapse(true);
+
+      const selection = window.getSelection?.();
+      if (selection) {
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+
+      composerSelectionRef.current = range.cloneRange();
+
+      console.log("[WEB EMOJI INSERT]", {
+        conversationId: backendConversationId,
+        emoji,
+        composerText: composer.textContent || "",
+      });
+
+      syncComposerState();
+
+      console.log("[WEB EMOJI SYNC]", {
+        conversationId: backendConversationId,
+        composerText: composer.textContent || "",
+        draftText: composer.textContent?.trim() || "",
+      });
+
+      requestAnimationFrame(() => {
+        composer.focus();
+      });
+    },
+    [backendConversationId, restoreComposerSelection, syncComposerState]
+  );
+
   const resetComposer = useCallback(() => {
     if (inputMessage.current) {
       inputMessage.current.textContent = "";
     }
+
+    composerSelectionRef.current = null;
 
     selectedAttachments.forEach((attachment) => {
       if (attachment.previewUrl) {
@@ -502,6 +874,10 @@ function ContainerMess({ contactData }) {
         clearTimeout(typingIdleTimeoutRef.current);
       }
 
+      if (forwardNoticeTimeoutRef.current) {
+        clearTimeout(forwardNoticeTimeoutRef.current);
+      }
+
       remoteTypingTimeoutsRef.current.forEach((timeoutId) => {
         clearTimeout(timeoutId);
       });
@@ -518,6 +894,7 @@ function ContainerMess({ contactData }) {
   useEffect(() => {
     setTypingUsers([]);
     setReplyingToMessage(null);
+    clearForwardState();
     typingStateRef.current = false;
     if (typingDebounceTimeoutRef.current) {
       clearTimeout(typingDebounceTimeoutRef.current);
@@ -529,7 +906,27 @@ function ContainerMess({ contactData }) {
       clearTimeout(timeoutId);
     });
     remoteTypingTimeoutsRef.current.clear();
-  }, [backendConversationId]);
+  }, [backendConversationId, clearForwardState]);
+
+  useEffect(() => {
+    if (!forwardNotice) {
+      return undefined;
+    }
+
+    if (forwardNoticeTimeoutRef.current) {
+      clearTimeout(forwardNoticeTimeoutRef.current);
+    }
+
+    forwardNoticeTimeoutRef.current = setTimeout(() => {
+      setForwardNotice("");
+    }, 2200);
+
+    return () => {
+      if (forwardNoticeTimeoutRef.current) {
+        clearTimeout(forwardNoticeTimeoutRef.current);
+      }
+    };
+  }, [forwardNotice]);
 
   useEffect(() => {
     const fetchMessages = async () => {
@@ -751,13 +1148,7 @@ function ContainerMess({ contactData }) {
   };
 
   const handleGetIcon = (value) => {
-    if (!inputMessage.current) {
-      return;
-    }
-
-    inputMessage.current.textContent += value;
-    inputMessage.current.focus();
-    syncComposerState();
+    insertEmojiIntoComposer(value);
   };
 
   const handleFilePickerOpen = () => {
@@ -790,7 +1181,9 @@ function ContainerMess({ contactData }) {
 
   const handleSendMess = async (event, flag = false) => {
     event?.preventDefault?.();
-    const messageText = flag ? "👍" : inputMessage.current?.textContent?.trim() || "";
+    const rawComposerText = flag ? "👍" : inputMessage.current?.textContent || "";
+    const messageText = rawComposerText.trim();
+    const containsEmoji = EMOJI_PATTERN.test(rawComposerText);
 
     if (!messageText && selectedAttachments.length === 0) {
       return;
@@ -805,6 +1198,16 @@ function ContainerMess({ contactData }) {
     }
 
     setIsSending(true);
+
+    if (containsEmoji) {
+      console.log("[WEB EMOJI SEND]", {
+        conversationId: backendConversationId,
+        rawComposerText,
+        messageText,
+        attachmentsCount: selectedAttachments.length,
+        replyingToMessageId: replyingToMessage?.id || null,
+      });
+    }
 
     try {
       const uploadedAttachments = selectedAttachments.length
@@ -1188,6 +1591,13 @@ function ContainerMess({ contactData }) {
                             Tra loi
                           </button>
                         ) : null}
+                        <button
+                          className="message-action-btn subtle"
+                          type="button"
+                          onClick={() => handleOpenForwardPicker(item)}
+                        >
+                          Chuyen tiep
+                        </button>
                         {canEdit ? (
                           <button
                             className="message-action-btn subtle"
@@ -1257,6 +1667,7 @@ function ContainerMess({ contactData }) {
               <RiEmojiStickerLine
                 className="icon-header"
                 name="tableIcon"
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={handleChangeMenuControl}
               />
               {menuControl.tableIcon ? (
@@ -1354,6 +1765,10 @@ function ContainerMess({ contactData }) {
                 className="contentEditable"
                 ref={inputMessage}
                 onInput={syncComposerState}
+                onFocus={captureComposerSelection}
+                onKeyUp={captureComposerSelection}
+                onMouseUp={captureComposerSelection}
+                onSelect={captureComposerSelection}
                 onKeyDown={handleButtonSendMess}
               />
             </div>
@@ -1371,7 +1786,85 @@ function ContainerMess({ contactData }) {
             </div>
           </div>
         </form>
+        {isForwardPickerOpen ? (
+          <div className="forward-picker-overlay" onClick={handleCloseForwardPicker}>
+            <div className="forward-picker-card" onClick={(event) => event.stopPropagation()}>
+              <div className="forward-picker-header">
+                <div>
+                  <h3 className="forward-picker-title">Chuyen tiep tin nhan</h3>
+                  <p className="forward-picker-subtitle">
+                    {forwardingMessage?.previewText || "Chon cuoc tro chuyen de gui lai."}
+                  </p>
+                </div>
+                <button
+                  className="message-action-btn subtle"
+                  type="button"
+                  onClick={handleCloseForwardPicker}
+                  aria-label="Dong chuyen tiep"
+                >
+                  <IoMdClose />
+                </button>
+              </div>
+              <div className="forward-picker-body">
+                {availableForwardConversations.length > 0 ? (
+                  <ul className="forward-target-list">
+                    {availableForwardConversations.map((conversation) => {
+                      const conversationName = getConversationDisplayName(conversation);
+                      const conversationAvatar = getConversationAvatarUrl(conversation);
+                      const isSelected =
+                        String(conversation.id) === String(forwardTargetConversationId);
+
+                      return (
+                        <li key={conversation.id}>
+                          <button
+                            className={`forward-target-row ${isSelected ? "selected" : ""}`}
+                            type="button"
+                            onClick={() => handlePickForwardTarget(conversation)}
+                          >
+                            {renderAvatar(
+                              conversationAvatar,
+                              "forward-target-avatar-image",
+                              conversationName
+                            )}
+                            <span className="forward-target-meta">
+                              <strong>{conversationName}</strong>
+                              <span>
+                                {conversation.lastMessage || "Cuoc tro chuyen san co"}
+                              </span>
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="forward-picker-empty">
+                    Khong co cuoc tro chuyen nao de chuyen tiep.
+                  </p>
+                )}
+              </div>
+              <div className="flex forward-picker-actions">
+                <button
+                  className="message-action-btn subtle"
+                  type="button"
+                  onClick={handleCloseForwardPicker}
+                >
+                  Huy
+                </button>
+                <button
+                  className="message-action-btn primary"
+                  type="button"
+                  onClick={handleConfirmForward}
+                  disabled={!forwardTargetConversationId || isForwarding}
+                >
+                  {isForwarding ? "Dang gui..." : "Gui"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
         {isSending ? <p className="composer-feedback-hint">Dang gui tin nhan...</p> : null}
+        {forwardNotice ? <p className="composer-feedback-success">{forwardNotice}</p> : null}
         {actionError ? (
           <p className="composer-feedback-error">{actionError}</p>
         ) : null}
