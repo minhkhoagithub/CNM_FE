@@ -117,6 +117,10 @@ export const getCurrentUser = async () => {
   const response = await apiClient.get("/users/profile");
   return response.data;
 };
+export const updateFcmToken = async (token) => {
+  const response = await apiClient.post("/users/me/fcm-token", { token });
+  return response.data;
+};
 export const userLogout = async () => {
   const response = await apiClient.post("/auth/logout", {});
   return response;
