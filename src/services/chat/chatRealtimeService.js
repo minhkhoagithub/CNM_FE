@@ -31,6 +31,11 @@ class ChatRealtimeService {
     this.client = null;
     this.connectPromise = null;
     this.subscriptions = new Map();
+
+    // Setup page unload listener to clean up session
+    if (typeof window !== "undefined") {
+      window.addEventListener("beforeunload", () => this.disconnect());
+    }
   }
 
   async connect() {

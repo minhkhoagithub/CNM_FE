@@ -1400,6 +1400,20 @@ function ContainerMess({ contactData }) {
     return ownMessages.length ? ownMessages[ownMessages.length - 1].id : null;
   }, [currentUserId, normalizedMessages]);
 
+  const handleStartCall = useCallback((type) => {
+    if (!activeConversation) return;
+
+    if (activeConversation.type === "group" || !activeConversation.peerUserId) {
+      alert("Chức năng gọi nhóm chưa được hỗ trợ.");
+      return;
+    }
+
+    const event = new CustomEvent('start-call-request', { 
+      detail: { type, calleeId: activeConversation.peerUserId, peerId: currentUserId } 
+    });
+    window.dispatchEvent(event);
+  }, [activeConversation, currentUserId]);
+
   return (
     <div className="container-containermess" onClick={handleSeenMess}>
       <div className="top-container flex">
@@ -1433,8 +1447,8 @@ function ContainerMess({ contactData }) {
         <div className="group-choice flex">
           <HiOutlineUserGroup className="icon-header" />
           <CiSearch className="icon-header" />
-          <IoCallOutline className="icon-header" />
-          <IoVideocamOutline className="icon-header" />
+          <IoCallOutline className="icon-header" onClick={() => handleStartCall("VOICE")} />
+          <IoVideocamOutline className="icon-header" onClick={() => handleStartCall("VIDEO")} />
         </div>
       </div>
       <div className="infor-container" style={{ backgroundColor: theme }}>

@@ -11,79 +11,178 @@ class WebSocketService {
     this.client = null;
     this.isConnected = false;
     this.listeners = {}; // Store event listeners
+
+    // Reconnection state
+    this._userId = null;
+    this._reconnectTimer = null;
+    this._reconnectDelay = 2000;       // Start at 2s
+    this._maxReconnectDelay = 30000;   // Max 30s
+    this._shouldReconnect = false;     // Only reconnect if we intentionally connected
   }
 
-  connect() {
+  connect(userId) {
+    // If already connected or connecting, don't start a new connection
+    if (this.isConnected && this._userId === userId) {
+      console.log('[WebSocket] Đã kết nối, bỏ qua kết nối mới');
+      return Promise.resolve(this.client);
+    }
+
+    // Save userId for reconnection
+    this._userId = userId;
+    this._shouldReconnect = true;
+
+    // Clear any pending reconnect timer
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+
+    // Setup page unload listener to clean up session
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', () => this.disconnect());
+    }
+
+    return this._doConnect();
+  }
+
+  _doConnect() {
     return new Promise((resolve, reject) => {
       try {
         console.log('[WebSocket] Đang kết nối đến /auth/ws...');
         
-        // Lazy load and create socket
         const socket = new SockJS('http://localhost:8080/auth/ws');
         this.client = Stomp.over(socket);
 
+        // Tắt debug spam từ STOMP (heartbeat frames)
+        this.client.debug = () => {};
+
         this.client.connect({}, (frame) => {
-          console.log('[WebSocket] Kết nối thành công đến /auth/ws');
-          console.log('[WebSocket] Frame:', frame);
+          console.log('[WebSocket] ✅ Kết nối thành công đến /auth/ws');
           this.isConnected = true;
-          this.setupSubscriptions();
+          this._reconnectDelay = 2000; // Reset delay on success
+
+          if (this._userId) {
+            this._setupSubscriptions(this._userId);
+          } else {
+            console.warn('[WebSocket] ⚠️ Không có userId, không thể subscribe topics');
+          }
+
           resolve(this.client);
         }, (error) => {
-          console.error('[WebSocket] Lỗi khi kết nối:', error);
+          console.error('[WebSocket] ❌ Lỗi khi kết nối:', error);
           this.isConnected = false;
+          this._scheduleReconnect();
           reject(error);
         });
       } catch (error) {
-        console.error('[WebSocket] Lỗi tạo WebSocket:', error);
+        console.error('[WebSocket] ❌ Lỗi tạo WebSocket:', error);
         this.isConnected = false;
+        this._scheduleReconnect();
         reject(error);
       }
     });
   }
 
-  setupSubscriptions() {
-    // Subscribe to device logout notifications
-    if (this.client && this.isConnected) {
-      const userId = this.getUserIdFromToken();
-      if (userId) {
+  _scheduleReconnect() {
+    if (!this._shouldReconnect) {
+      return; // User disconnected intentionally, don't reconnect
+    }
+
+    if (this._reconnectTimer) {
+      return; // Already scheduled
+    }
+
+    console.log(`[WebSocket] 🔄 Sẽ thử kết nối lại sau ${this._reconnectDelay / 1000}s...`);
+
+    this._reconnectTimer = setTimeout(() => {
+      this._reconnectTimer = null;
+      console.log('[WebSocket] 🔄 Đang thử kết nối lại...');
+
+      this._doConnect().then(() => {
+        console.log('[WebSocket] ✅ Kết nối lại thành công!');
+      }).catch(() => {
+        // Increase delay with exponential backoff
+        this._reconnectDelay = Math.min(this._reconnectDelay * 2, this._maxReconnectDelay);
+      });
+    }, this._reconnectDelay);
+  }
+
+  _setupSubscriptions(userId) {
+    if (!this.client || !this.isConnected || !userId) {
+      return;
+    }
+
+    try {
+      // 1. Subscribe to device logout notifications
+      const deviceLogoutTopic = `/topic/auth/${userId}/device-logout`;
+      this.client.subscribe(deviceLogoutTopic, (message) => {
         try {
-          const deviceLogoutTopic = `/topic/auth/${userId}/device-logout`;
-          this.client.subscribe(deviceLogoutTopic, (message) => {
-            try {
-              const event = JSON.parse(message.body);
-              console.log('[WebSocket] Device logout notification:', event);
-              this.emitEvent('device-logout', event);
-            } catch (e) {
-              console.error('[WebSocket] Error parsing device-logout message:', e);
-            }
-          });
-
-          // Subscribe to devices list updates
-          const devicesTopic = `/topic/auth/${userId}/devices`;
-          this.client.subscribe(devicesTopic, (message) => {
-            try {
-              const event = JSON.parse(message.body);
-              console.log('[WebSocket] Devices list update:', event);
-              this.emitEvent('devices-updated', event);
-            } catch (e) {
-              console.error('[WebSocket] Error parsing devices message:', e);
-            }
-          });
-
-          // Subscribe to error messages
-          this.client.subscribe('/topic/auth/error', (message) => {
-            try {
-              const error = JSON.parse(message.body);
-              console.error('[WebSocket] Error from server:', error);
-              this.emitEvent('auth-error', error);
-            } catch (e) {
-              console.error('[WebSocket] Error parsing error message:', e);
-            }
-          });
+          const event = JSON.parse(message.body);
+          console.log('[WebSocket] Device logout notification:', event);
+          this.emitEvent('device-logout', event);
         } catch (e) {
-          console.error('[WebSocket] Error setting up subscriptions:', e);
+          console.error('[WebSocket] Error parsing device-logout message:', e);
         }
-      }
+      });
+
+      // 2. Subscribe to devices list updates
+      const devicesTopic = `/topic/auth/${userId}/devices`;
+      this.client.subscribe(devicesTopic, (message) => {
+        try {
+          const event = JSON.parse(message.body);
+          console.log('[WebSocket] Devices list update:', event);
+          this.emitEvent('devices-updated', event);
+        } catch (e) {
+          console.error('[WebSocket] Error parsing devices message:', e);
+        }
+      });
+
+      // 3. Subscribe to error messages
+      this.client.subscribe('/topic/auth/error', (message) => {
+        try {
+          const error = JSON.parse(message.body);
+          console.error('[WebSocket] Error from server:', error);
+          this.emitEvent('auth-error', error);
+        } catch (e) {
+          console.error('[WebSocket] Error parsing error message:', e);
+        }
+      });
+
+      // 4. Subscribe to INCOMING_CALL & CALL_ACCEPTED
+      const callsTopic = `/topic/users/${userId}/calls`;
+      this.client.subscribe(callsTopic, (message) => {
+        try {
+          const event = JSON.parse(message.body);
+          console.log('[WebSocket] 📞 CALL EVENT:', event);
+          if (event.type === 'INCOMING_CALL') {
+            console.log('[WebSocket] 📞 Incoming call from:', event.payload?.callerName);
+            this.emitEvent('incoming-call', event.payload);
+          } else if (event.type === 'CALL_ACCEPTED') {
+            console.log('[WebSocket] ✅ Call accepted');
+            this.emitEvent('call-accepted', event.payload);
+          } else if (event.type === 'CALL_REJECTED') {
+            console.log('[WebSocket] ❌ Call rejected');
+            this.emitEvent('call-rejected', event.payload);
+          } else if (event.type === 'CALL_ENDED') {
+            console.log('[WebSocket] 👋 Call ended');
+            this.emitEvent('call-ended', event.payload);
+          } else if (event.type === 'CALL_STATUS_CHANGED') {
+            this.emitEvent('call-status', event.payload);
+          } else if (event.type === 'CALL_ACTION') {
+            this.emitEvent('call-action', event.payload);
+          }
+        } catch (e) {
+          console.error('[WebSocket] Error parsing calls message:', e);
+        }
+      });
+
+      console.log(`[WebSocket] ✅ Đã subscribe tất cả topics cho userId: ${userId}`);
+      console.log(`[WebSocket]    - ${deviceLogoutTopic}`);
+      console.log(`[WebSocket]    - ${devicesTopic}`);
+      console.log(`[WebSocket]    - ${callsTopic}`);
+
+    } catch (e) {
+      console.error('[WebSocket] ❌ Error setting up subscriptions:', e);
     }
   }
 
@@ -148,29 +247,14 @@ class WebSocketService {
     }
   }
 
-  getUserIdFromToken() {
-    try {
-      const token = localStorage.getItem('accessToken');
-      if (!token) {
-        console.warn('[WebSocket] No access token found');
-        return null;
-      }
-
-      const parts = token.split('.');
-      if (parts.length !== 3) {
-        console.warn('[WebSocket] Invalid token format');
-        return null;
-      }
-
-      const payload = JSON.parse(atob(parts[1]));
-      return payload.userId;
-    } catch (error) {
-      console.error('[WebSocket] Error extracting userId from token:', error);
-      return null;
-    }
-  }
-
   disconnect() {
+    this._shouldReconnect = false; // Prevent auto-reconnect
+
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+
     if (this.client && this.isConnected) {
       try {
         console.log('[WebSocket] Đang ngắt kết nối...');
@@ -187,6 +271,8 @@ class WebSocketService {
     } else {
       console.warn('[WebSocket] Không có kết nối để ngắt');
     }
+
+    this._userId = null;
   }
 
   isConnectionActive() {
