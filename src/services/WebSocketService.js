@@ -75,6 +75,7 @@ class WebSocketService {
         this.client = null;
         console.error("[WebSocket] Socket creation error:", error);
         this.isConnected = false;
+        this._scheduleReconnect();
         reject(error);
       }
     });
@@ -144,7 +145,66 @@ class WebSocketService {
         } catch (error) {
           console.error("[WebSocket] Error setting up subscriptions:", error);
         }
-      }
+      });
+
+      // 2. Subscribe to devices list updates
+      const devicesTopic = `/topic/auth/${userId}/devices`;
+      this.client.subscribe(devicesTopic, (message) => {
+        try {
+          const event = JSON.parse(message.body);
+          console.log('[WebSocket] Devices list update:', event);
+          this.emitEvent('devices-updated', event);
+        } catch (e) {
+          console.error('[WebSocket] Error parsing devices message:', e);
+        }
+      });
+
+      // 3. Subscribe to error messages
+      this.client.subscribe('/topic/auth/error', (message) => {
+        try {
+          const error = JSON.parse(message.body);
+          console.error('[WebSocket] Error from server:', error);
+          this.emitEvent('auth-error', error);
+        } catch (e) {
+          console.error('[WebSocket] Error parsing error message:', e);
+        }
+      });
+
+      // 4. Subscribe to INCOMING_CALL & CALL_ACCEPTED
+      const callsTopic = `/topic/users/${userId}/calls`;
+      this.client.subscribe(callsTopic, (message) => {
+        try {
+          const event = JSON.parse(message.body);
+          console.log('[WebSocket] 📞 CALL EVENT:', event);
+          if (event.type === 'INCOMING_CALL') {
+            console.log('[WebSocket] 📞 Incoming call from:', event.payload?.callerName);
+            this.emitEvent('incoming-call', event.payload);
+          } else if (event.type === 'CALL_ACCEPTED') {
+            console.log('[WebSocket] ✅ Call accepted');
+            this.emitEvent('call-accepted', event.payload);
+          } else if (event.type === 'CALL_REJECTED') {
+            console.log('[WebSocket] ❌ Call rejected');
+            this.emitEvent('call-rejected', event.payload);
+          } else if (event.type === 'CALL_ENDED') {
+            console.log('[WebSocket] 👋 Call ended');
+            this.emitEvent('call-ended', event.payload);
+          } else if (event.type === 'CALL_STATUS_CHANGED') {
+            this.emitEvent('call-status', event.payload);
+          } else if (event.type === 'CALL_ACTION') {
+            this.emitEvent('call-action', event.payload);
+          }
+        } catch (e) {
+          console.error('[WebSocket] Error parsing calls message:', e);
+        }
+      });
+
+      console.log(`[WebSocket] ✅ Đã subscribe tất cả topics cho userId: ${userId}`);
+      console.log(`[WebSocket]    - ${deviceLogoutTopic}`);
+      console.log(`[WebSocket]    - ${devicesTopic}`);
+      console.log(`[WebSocket]    - ${callsTopic}`);
+
+    } catch (e) {
+      console.error('[WebSocket] ❌ Error setting up subscriptions:', e);
     }
   }
 
@@ -235,7 +295,6 @@ class WebSocketService {
       );
       return null;
     }
-  }
 
   clearSubscriptions() {
     this.subscriptions.forEach((subscription) => {
@@ -273,6 +332,8 @@ class WebSocketService {
       this.client = null;
       console.warn("[WebSocket] No active connection to disconnect");
     }
+
+    this._userId = null;
   }
 
   isConnectionActive() {

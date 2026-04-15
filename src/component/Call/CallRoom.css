@@ -1,0 +1,358 @@
+/* ──────────────────────────────────────────
+   Professional Call Room – Minimalist & High Contrast
+   ────────────────────────────────────────── */
+.call-room {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: #000;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #fff;
+  overflow: hidden;
+}
+
+.call-room-main {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100vw;
+  height: calc(100vh - 120px);
+}
+
+/* VIDEO Section */
+.call-room-video-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #111;
+}
+
+.remote-video-wrap {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.call-room-remote-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* Quan trọng để không bị bóp hình */
+}
+
+/* Local Picture-in-Picture */
+.local-video-pip {
+  position: absolute;
+  top: 30px;
+  right: 30px;
+  width: 160px;
+  height: 90px; /* Backup cho aspect-ratio */
+  aspect-ratio: 16/9; /* Tỷ lệ vàng cho video */
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  background: #1e1e1e;
+}
+
+.call-room-local-placeholder {
+  width: 100%;
+  height: 100%;
+  background: #111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 50px;
+  color: rgba(255, 255, 255, 0.5);
+  transition: all 0.3s ease;
+}
+
+.call-room-local-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pip-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* ──────────────────────────────────────────
+   Ringing Modals – Outgoing & Incoming
+   ────────────────────────────────────────── */
+.call-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20000;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(20px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.ringing-card {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 30px;
+  text-align: center;
+}
+
+.call-modal-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+.call-modal-avatar-wrap {
+  position: relative;
+  width: 160px;
+  height: 160px;
+}
+
+.call-modal-avatar {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  z-index: 10;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  background: #1e1e1e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 80px;
+  color: rgba(255, 255, 255, 0.1);
+}
+
+.call-modal-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.call-modal-name {
+  font-size: 32px;
+  font-weight: 600;
+  margin: 0;
+  color: #fff;
+}
+
+.call-modal-status {
+  font-size: 16px;
+  color: rgba(46, 204, 113, 0.8);
+  margin: 0;
+  animation: breathe 2s infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.call-modal-actions {
+  display: flex;
+  gap: 40px;
+  margin-top: 20px;
+}
+
+.btn-circle {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s, background 0.2s;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+}
+
+.btn-circle:hover {
+  transform: scale(1.1);
+}
+
+.btn-danger {
+  background: #ff3b30;
+  color: #fff;
+}
+
+.btn-success {
+  background: #2ecc71;
+  color: #fff;
+}
+
+/* ── Custom Utilities ── */
+
+/* Placeholder for Remote Pause */
+.call-room-remote-placeholder {
+  width: 100vw;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #1c1c1c;
+  gap: 20px;
+}
+
+.call-room-placeholder-avatar {
+  font-size: 100px;
+  color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.05);
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.call-room-placeholder-text {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 16px;
+  font-weight: 400;
+}
+
+/* Timer Overlay */
+.call-room-timer-overlay {
+  position: absolute;
+  top: 30px;
+  left: 30px;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  font-family: monospace;
+  z-index: 50;
+}
+
+/* VOICE UI Center */
+.call-room-voice-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 25px;
+}
+
+.voice-avatar-wrap {
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.call-room-voice-avatar {
+  font-size: 70px;
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.call-room-voice-timer {
+  font-size: 32px;
+  font-weight: 300;
+  color: #fff;
+}
+
+.call-room-voice-status {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* PROFESSIONAL CONTROL BAR */
+.call-room-footer {
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent; /* Trong suốt hoàn toàn */
+  z-index: 200;
+  position: absolute; /* Đặt tuyệt đối để nổi lên trên video */
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+
+.call-controls-pill {
+  display: flex;
+  align-items: center;
+  gap: 25px;
+  padding: 12px 30px;
+  background: rgba(40, 40, 40, 0.8);
+  border-radius: 50px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.ctrl-btn {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.ctrl-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.ctrl-icon {
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ctrl-btn--muted, .ctrl-btn--off {
+  color: #ff3b30;
+  background: rgba(255, 59, 48, 0.15);
+}
+
+.ctrl-btn--end {
+  background: #ff3b30;
+}
+
+.ctrl-btn--end:hover {
+  background: #d63027;
+}
+
+.ctrl-btn--end .ctrl-icon {
+  font-size: 26px;
+}
