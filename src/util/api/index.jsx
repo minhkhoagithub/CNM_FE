@@ -38,12 +38,10 @@ export const userLogin = async ({ username, password, deviceId, platform, device
   });
   return response;
 };
-export const userRegister = async ({ phone, name, password, avatar }) => {
+export const userRegister = async ({ username, password }) => {
   const response = await apiClient.post("/auth/register", {
-    phone,
-    name,
+    username,
     password,
-    avatar,
   });
   return response;
 };
@@ -275,6 +273,18 @@ export const resetPassword = async ({ identifier, resetToken, newPassword, confi
  * Check current status of device login approval request
  * Gọi từ device mới để poll status
  */
+export const createDeviceLoginRequest = async ({
+  deviceId,
+  platform,
+  deviceName,
+}) => {
+  const response = await apiClient.post("/auth/device-login-request", {
+    deviceId,
+    platform,
+    deviceName,
+  });
+  return response;
+};
 export const checkDeviceLoginStatus = async (requestId) => {
   const response = await apiClient.get(`/auth/device-login-status/${requestId}`);
   return response;

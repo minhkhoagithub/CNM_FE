@@ -1,0 +1,4 @@
+interface:
+  display_name: "CNM_FE Context"
+  short_description: "Project context and auth flow for CNM_FE web"
+  default_prompt: "Use this skill when you need project context, auth flow, profile flow, cookie session handling, or route guard behavior for CNM_FE."

@@ -1,9 +1,11 @@
-import React, { useContext, useLayoutEffect, useState, useEffect } from "react";
-import { UserContext } from "../Context/UserContext";
+import React, { useCallback, useContext, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import Login from "./Login";
+import { UserContext } from "../Context/UserContext";
+import WebSocketService from "../services/WebSocketService";
+import { approveDeviceLogin, getCurrentUser, userLogout } from "../util/api";
 import Chat from "./Chat";
 import Loadding from "./Loadding";
+import Login from "./Login";
 import { userLogout, userLoginByToken, getCurrentUser } from "../util/api";
 import WebSocketService from "../services/WebSocketService";
 import CallRoom from "../component/Call/CallRoom";
@@ -15,6 +17,7 @@ export default function Zalo() {
   const [chat, setChat] = useState(false);
   const { userData, setUserData } = useContext(UserContext);
   const [isLoadding, setIsLoadding] = useState(true);
+  const { setUserData } = useContext(UserContext);
   const navigate = useNavigate();
 
   // Call states
@@ -28,12 +31,19 @@ export default function Zalo() {
     setChat(true);
   };
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     try {
       await userLogout();
     } catch (err) {
       console.error("Logout error:", err);
     }
+
+    try {
+      WebSocketService.disconnect();
+    } catch (error) {
+      console.error(error);
+    }
+
     localStorage.setItem("isLogin", "false");
     localStorage.removeItem("userProfile");
     localStorage.removeItem("deviceId");
@@ -54,16 +64,24 @@ export default function Zalo() {
             setUserData(response.data);
             WebSocketService.connect(response.data.userId);
             setChat(true);
+
+            WebSocketService.connect(currentUser.userId).catch((err) =>
+              console.error("WS Connect error", err),
+            );
           } else {
+            localStorage.setItem("isLogin", "false");
+            localStorage.removeItem("userProfile");
             setChat(false);
           }
         } else {
           setChat(false);
         }
-        setIsLoadding(false);
       } catch (err) {
         console.error("Fetch user profile error:", err);
+        localStorage.setItem("isLogin", "false");
+        localStorage.removeItem("userProfile");
         setChat(false);
+      } finally {
         setIsLoadding(false);
       }
     };
@@ -81,7 +99,43 @@ export default function Zalo() {
         WebSocketService.off("device-logout", handleRemoteLogout);
       };
     }
-  }, [chat]);
+
+    const handleRemoteLogout = (event) => {
+      console.log("[Zalo] Remote logout received:", event);
+      const currentDeviceId = localStorage.getItem("deviceId");
+
+      if (event && event.deviceId === currentDeviceId) {
+        void handleLogout();
+      } else {
+        console.log(
+          "[Zalo] Ignoring remote logout as deviceId does not match current device.",
+        );
+      }
+    };
+
+    const handleDeviceLoginRequest = async (event) => {
+      const shouldApprove = window.confirm(
+        `Thiet bi moi "${event?.deviceName || "Unknown device"}" (${event?.platform || "UNKNOWN"}) dang yeu cau dang nhap. Ban co muon cho phep khong?`,
+      );
+
+      try {
+        await approveDeviceLogin({
+          requestId: event.approvalId,
+          status: shouldApprove ? "APPROVED" : "REJECTED",
+        });
+      } catch (error) {
+        console.error("Approve device login error:", error);
+      }
+    };
+
+    WebSocketService.on("device-logout", handleRemoteLogout);
+    WebSocketService.on("device-login-request", handleDeviceLoginRequest);
+
+    return () => {
+      WebSocketService.off("device-logout", handleRemoteLogout);
+      WebSocketService.off("device-login-request", handleDeviceLoginRequest);
+    };
+  }, [chat, handleLogout]);
 
   // Call Event Listeners
   useEffect(() => {

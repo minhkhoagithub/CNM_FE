@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useState } from "react";
+import { createContext, useCallback, useMemo, useState } from "react";
 import { setChatUserId } from "../services/chat/chatSession";
 
 export const UserContext = createContext(null);
@@ -8,7 +8,7 @@ export const UserProvider = ({ children }) => {
   const [userData, setUserDataState] = useState(null);
 
   // Wrapper để transform user data từ BE sang format FE
-  const setUserData = (beUserData) => {
+  const setUserData = useCallback((beUserData) => {
     if (!beUserData) {
       setChatUserId(null);
       setUserDataState(null);
@@ -35,15 +35,18 @@ export const UserProvider = ({ children }) => {
 
     setChatUserId(transformedData.userId);
     setUserDataState(transformedData);
-  };
+  }, []);
+
+  const contextValue = useMemo(
+    () => ({
+      userData,
+      setUserData,
+    }),
+    [setUserData, userData],
+  );
 
   return (
-    <UserContext.Provider
-      value={{
-        userData,
-        setUserData,
-      }}
-    >
+    <UserContext.Provider value={contextValue}>
       {children}
     </UserContext.Provider>
   );

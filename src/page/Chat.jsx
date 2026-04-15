@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useContext, memo, useRef, useCallback } from "react";
 import { UserContext } from "../Context/UserContext";
 import { FiUser } from "react-icons/fi";
-import { MdDelete, MdRefresh } from "react-icons/md";
-import axios from "axios";
 import "../resource/style/Chat/chat.css";
 import Message from "../component/Message/Message";
 import AddressBook from "../component/AddressBook/AddressBook";
@@ -10,13 +8,13 @@ import ToDo from "../component/ToDo/ToDo";
 import Clod from "../component/Cloud/Cloud";
 import ToolBox from "../component/ToolBox/ToolBox";
 import Setting from "../component/Setting/Setting";
+import DeviceManager from "../component/Setting/DeviceManager";
 import mess from "../resource/svg/chat/chat.svg";
 import addressbook from "../resource/svg/chat/addressbook.svg";
 import todo from "../resource/svg/chat/todo.svg";
 import cloud from "../resource/svg/chat/cloud.svg";
 import toolbox from "../resource/svg/chat/toolbox.svg";
 import setting from "../resource/svg/chat/setting.svg";
-
 function Chat({ handleLogout }) {
   const { userData } = useContext(UserContext);
 
@@ -43,10 +41,7 @@ function Chat({ handleLogout }) {
     newPassword: "",
     confirmPassword: ""
   });
-  const [loginLocations, setLoginLocations] = useState([]);
-  const [loadingDevices, setLoadingDevices] = useState(false);
-  const [logoutingDeviceId, setLogoutingDeviceId] = useState(null);
-  const [deviceError, setDeviceError] = useState(null);
+  // Device management is handled by DeviceManager component
   const boxRef = useRef(null);
   const boxAvatar = useRef(null);
   const boxSettingRef = useRef(null);
@@ -77,121 +72,7 @@ function Chat({ handleLogout }) {
     };
   }, [boxRef, setIsShoeStartup, boxSettingRef, setShowSettingMenu]);
 
-  // Fetch devices from backend
-  const fetchDevices = useCallback(async () => {
-    try {
-      setLoadingDevices(true);
-      setDeviceError(null);
-      const response = await axios.get("http://localhost:8080/api/v1/auth/devices", {
-        withCredentials: true,
-      });
 
-      if (response.data.data) {
-        // Format data từ backend
-        const formattedLocations = response.data.data.map((device) => ({
-          id: device.id,
-          deviceId: device.deviceId,
-          device: device.deviceName,
-          platform: device.platform,
-          time: formatRelativeTime(device.lastSeenAt),
-          lastSeenAt: device.lastSeenAt,
-        }));
-        setLoginLocations(formattedLocations);
-      }
-    } catch (error) {
-      console.error("Error fetching devices:", error);
-      setDeviceError("Không thể tải danh sách thiết bị. Vui lòng thử lại.");
-    } finally {
-      setLoadingDevices(false);
-    }
-  }, []);
-
-  // Get device icon based on platform
-  const getDeviceIcon = (platform) => {
-    switch (platform) {
-      case "WEB":
-        return "🖥️";
-      case "ANDROID":
-        return "📱";
-      case "IOS":
-        return "🍎";
-      default:
-        return "💻";
-    }
-  };
-
-  // Format relative time (vd: "Hôm nay lúc 10:30", "Hôm qua lúc 15:45", "2 ngày trước")
-  const formatRelativeTime = (dateString) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffInMs = now - date;
-    const diffInHours = diffInMs / (1000 * 60 * 60);
-    const diffInDays = diffInHours / 24;
-
-    if (diffInDays < 1) {
-      // Hôm nay
-      return `Hôm nay lúc ${date.toLocaleTimeString("vi-VN", {
-        hour: "2-digit",
-        minute: "2-digit",
-      })}`;
-    } else if (diffInDays < 2) {
-      // Hôm qua
-      return `Hôm qua lúc ${date.toLocaleTimeString("vi-VN", {
-        hour: "2-digit",
-        minute: "2-digit",
-      })}`;
-    } else {
-      // Các ngày trước
-      const days = Math.floor(diffInDays);
-      return `${days} ngày trước`;
-    }
-  };
-
-  // Fetch devices when accountSubSection changes to loginLocations
-  useEffect(() => {
-    if (accountSubSection === "loginLocations") {
-      fetchDevices();
-    }
-  }, [accountSubSection, fetchDevices]);
-
-  const handleLogoutDevice = async (deviceId, platform, deviceName) => {
-    if (!window.confirm(`Bạn có chắc chắn muốn đăng xuất khỏi "${deviceName}" không?`)) {
-      return;
-    }
-
-    try {
-      setLogoutingDeviceId(deviceId);
-      setDeviceError(null);
-      
-      await axios.post(
-        "http://localhost:8080/api/v1/auth/logout-device",
-        {
-          deviceId: deviceId,
-          platform: platform,
-        },
-        {
-          withCredentials: true,
-        }
-      );
-
-      // Check if this is the current device
-      const currentDeviceId = localStorage.getItem("deviceId");
-      if (currentDeviceId === deviceId) {
-        // This is the current device - call the logout handler
-        console.log("Đăng xuất device hiện tại");
-        handleLogout();
-      } else {
-        // This is another device - just refresh the list
-        console.log(`Đã đăng xuất khỏi thiết bị: ${deviceName}`);
-        await fetchDevices();
-      }
-    } catch (error) {
-      console.error("Error logging out device:", error);
-      setDeviceError(error.response?.data?.message || "Lỗi khi đăng xuất khỏi thiết bị. Vui lòng thử lại.");
-    } finally {
-      setLogoutingDeviceId(null);
-    }
-  };
 
   const handleChangeMenuActive = (index) => {
     if (index == 0 || index == 1) {
@@ -357,15 +238,21 @@ function Chat({ handleLogout }) {
                 <div className="settings-sidebar">
                   <div 
                     className={`settings-tab ${activeSettingsTab === "system" ? "active" : ""}`}
-                    onClick={() => setActiveSettingsTab("system")}
+                    onClick={() => { setActiveSettingsTab("system"); setAccountSubSection(null); }}
                   >
                     Hệ thống
                   </div>
                   <div 
                     className={`settings-tab ${activeSettingsTab === "account" ? "active" : ""}`}
-                    onClick={() => setActiveSettingsTab("account")}
+                    onClick={() => { setActiveSettingsTab("account"); setAccountSubSection(null); }}
                   >
                     Tài khoản
+                  </div>
+                  <div 
+                    className={`settings-tab ${activeSettingsTab === "devices" ? "active" : ""}`}
+                    onClick={() => { setActiveSettingsTab("devices"); setAccountSubSection(null); }}
+                  >
+                    Thiết bị
                   </div>
                 </div>
                 <div className="settings-modal-content">
@@ -394,9 +281,6 @@ function Chat({ handleLogout }) {
                         <>
                           <div className="settings-option">
                             <p className="change-password-link" onClick={() => setAccountSubSection("changePassword")}>Đổi mật khẩu</p>
-                          </div>
-                          <div className="settings-option">
-                            <p className="view-login-locations-link" onClick={() => setAccountSubSection("loginLocations")}>Xem nơi đã đăng nhập</p>
                           </div>
                         </>
                       )}
@@ -440,88 +324,10 @@ function Chat({ handleLogout }) {
                           </div>
                         </div>
                       )}
-                      {accountSubSection === "loginLocations" && (
-                        <div className="account-subsection">
-                          <button className="btn-back" onClick={() => setAccountSubSection(null)}>← Quay lại</button>
-                          <h4>Nơi đã đăng nhập</h4>
-                          
-                          {deviceError && (
-                            <div className="device-error-message">
-                              {deviceError}
-                            </div>
-                          )}
-                          
-                          <div className="devices-refresh-btn">
-                            <button
-                              onClick={fetchDevices}
-                              disabled={loadingDevices}
-                              title="Làm mới danh sách"
-                              className="btn-refresh"
-                            >
-                              <MdRefresh size={16} />
-                              {loadingDevices ? "Đang tải..." : "Làm mới"}
-                            </button>
-                          </div>
-
-                          <div className="login-locations-list">
-                            {loadingDevices && loginLocations.length === 0 ? (
-                              <p style={{ textAlign: "center", padding: "20px", color: "#999" }}>Đang tải...</p>
-                            ) : loginLocations.length === 0 ? (
-                              <p style={{ textAlign: "center", padding: "20px", color: "#999" }}>Không có thiết bị nào</p>
-                            ) : (
-                              loginLocations.map((location) => (
-                                <div key={location.id} className="login-location-item">
-                                  <div className="device-icon-container">
-                                    {getDeviceIcon(location.platform)}
-                                  </div>
-                                  <div className="location-info">
-                                    <p className="device-name">{location.device}</p>
-                                    <p className="device-platform">{location.platform}</p>
-                                    <p className="login-time">{location.time}</p>
-                                  </div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <div>
-                                      {localStorage.getItem("deviceId") === location.deviceId ? (
-                                        <span style={{color: '#0068ff', fontWeight: 500, fontSize: 13}}>(Hiện tại)</span>
-                                      ) : (
-                                        <p className="login-time" style={{ display: 'inline' }}>{location.time}</p>
-                                      )}
-                                    </div>
-                                    {localStorage.getItem("deviceId") === location.deviceId ? (
-                                      <button
-                                        className="btn-logout-device"
-                                        disabled
-                                        style={{ opacity: 0.6, cursor: "not-allowed" }}
-                                        title="Không thể đăng xuất thiết bị hiện tại"
-                                      >
-                                        <MdDelete size={16} />
-                                        Đăng xuất
-                                      </button>
-                                    ) : (
-                                      <button
-                                        className="btn-logout-device"
-                                        onClick={() => handleLogoutDevice(location.deviceId, location.platform, location.device)}
-                                        disabled={logoutingDeviceId === location.deviceId}
-                                        title="Đăng xuất thiết bị này"
-                                      >
-                                        {logoutingDeviceId === location.deviceId ? (
-                                          <span>Đang xử lý...</span>
-                                        ) : (
-                                          <>
-                                            <MdDelete size={16} />
-                                            Đăng xuất
-                                          </>
-                                        )}
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                              ))
-                            )}
-                          </div>
-                        </div>
-                      )}
                     </>
+                  )}
+                  {activeSettingsTab === "devices" && (
+                    <DeviceManager handleLogout={handleLogout} />
                   )}
                 </div>
               </div>
