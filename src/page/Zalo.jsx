@@ -6,8 +6,6 @@ import { approveDeviceLogin, getCurrentUser, userLogout } from "../util/api";
 import Chat from "./Chat";
 import Loadding from "./Loadding";
 import Login from "./Login";
-import { userLogout, userLoginByToken, getCurrentUser } from "../util/api";
-import WebSocketService from "../services/WebSocketService";
 import CallRoom from "../component/Call/CallRoom";
 import IncomingCallModal from "../component/Call/IncomingCallModal";
 import OutgoingCallModal from "../component/Call/OutgoingCallModal";
@@ -17,7 +15,6 @@ export default function Zalo() {
   const [chat, setChat] = useState(false);
   const { userData, setUserData } = useContext(UserContext);
   const [isLoadding, setIsLoadding] = useState(true);
-  const { setUserData } = useContext(UserContext);
   const navigate = useNavigate();
 
   // Call states
@@ -49,9 +46,8 @@ export default function Zalo() {
     localStorage.removeItem("deviceId");
     setChat(false);
     setUserData(null);
-    WebSocketService.disconnect();
     navigate("/auth/login");
-  };
+  }, [navigate, setUserData]);
 
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -62,10 +58,10 @@ export default function Zalo() {
           if (response.data) {
             localStorage.setItem("userProfile", JSON.stringify(response.data));
             setUserData(response.data);
-            WebSocketService.connect(response.data.userId);
             setChat(true);
 
-            WebSocketService.connect(currentUser.userId).catch((err) =>
+            const userId = response.data.userId || response.data.id || response.data._id;
+            WebSocketService.connect(userId).catch((err) =>
               console.error("WS Connect error", err),
             );
           } else {
@@ -89,15 +85,8 @@ export default function Zalo() {
   }, [setUserData]);
 
   useEffect(() => {
-    if (userData) {
-      const handleRemoteLogout = (event) => {
-        console.log("[Zalo] Remote logout received:", event);
-        handleLogout();
-      };
-      WebSocketService.on("device-logout", handleRemoteLogout);
-      return () => {
-        WebSocketService.off("device-logout", handleRemoteLogout);
-      };
+    if (!userData) {
+      return undefined;
     }
 
     const handleRemoteLogout = (event) => {
@@ -135,7 +124,7 @@ export default function Zalo() {
       WebSocketService.off("device-logout", handleRemoteLogout);
       WebSocketService.off("device-login-request", handleDeviceLoginRequest);
     };
-  }, [chat, handleLogout]);
+  }, [userData, handleLogout]);
 
   // Call Event Listeners
   useEffect(() => {
