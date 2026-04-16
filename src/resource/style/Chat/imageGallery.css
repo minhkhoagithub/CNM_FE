@@ -1,0 +1,202 @@
+.conversation-gallery-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 16, 28, 0.76);
+  backdrop-filter: blur(10px);
+}
+
+.conversation-gallery-shell {
+  width: min(1120px, 100%);
+  max-height: calc(100vh - 48px);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid rgba(202, 214, 227, 0.22);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(19, 30, 45, 0.98) 0%, rgba(10, 18, 29, 0.96) 100%);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.34);
+}
+
+.conversation-gallery-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.conversation-gallery-heading {
+  min-width: 0;
+}
+
+.conversation-gallery-heading h3,
+.conversation-gallery-heading p {
+  margin: 0;
+}
+
+.conversation-gallery-heading h3 {
+  font-size: 24px;
+  font-weight: 700;
+  color: #f7fbff;
+}
+
+.conversation-gallery-heading p {
+  margin-top: 6px;
+  font-size: 14px;
+  color: rgba(216, 228, 242, 0.78);
+}
+
+.conversation-gallery-close,
+.conversation-gallery-nav {
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.conversation-gallery-close {
+  width: 44px;
+  height: 44px;
+  font-size: 24px;
+}
+
+.conversation-gallery-close:hover,
+.conversation-gallery-nav:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.conversation-gallery-stage {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 52px;
+  gap: 16px;
+  align-items: center;
+}
+
+.conversation-gallery-nav {
+  width: 52px;
+  height: 52px;
+  font-size: 28px;
+}
+
+.conversation-gallery-nav:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.conversation-gallery-main {
+  min-height: 0;
+  height: min(68vh, 720px);
+  position: relative;
+  overflow: hidden;
+  border-radius: 24px;
+  border: 1px solid rgba(196, 210, 223, 0.14);
+  background: radial-gradient(circle at top, rgba(42, 58, 77, 0.45) 0%, rgba(10, 18, 29, 0.95) 75%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.conversation-gallery-main img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.conversation-gallery-status {
+  padding: 18px 24px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(238, 245, 252, 0.86);
+  font-size: 15px;
+}
+
+.conversation-gallery-loading-chip,
+.conversation-gallery-image-meta {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+}
+
+.conversation-gallery-loading-chip {
+  top: 20px;
+  width: fit-content;
+  right: auto;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #eff6ff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.conversation-gallery-image-meta {
+  bottom: 20px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(9, 15, 24, 0.26) 0%, rgba(9, 15, 24, 0.7) 100%);
+  color: #f7fbff;
+  font-size: 14px;
+  backdrop-filter: blur(12px);
+}
+
+.conversation-gallery-inline-message {
+  margin: 0;
+  padding: 0 4px;
+  color: rgba(216, 228, 242, 0.8);
+  font-size: 13px;
+}
+
+.conversation-gallery-inline-message.error {
+  color: #ffd0d0;
+}
+
+.conversation-gallery-strip {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.conversation-gallery-strip::-webkit-scrollbar {
+  height: 8px;
+}
+
+.conversation-gallery-strip::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+}
+
+.conversation-gallery-thumb {
+  flex: 0 0 88px;
+  width: 88px;
+  height: 88px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+}
+
+.conversation-gallery-thumb.active {
+  border-color: #77b8ff;
+  box-shadow: 0 0 0 2px rgba(119, 184, 255, 0.24);
+}
+
+.conversation-gallery-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}

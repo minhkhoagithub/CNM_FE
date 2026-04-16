@@ -23,6 +23,7 @@ import {
   updateConversationNotificationLevelV1,
   updateConversationPinV1,
 } from "../../services/chat/conversationApi";
+import { fetchConversationSharedAttachments } from "./conversationMedia";
 
 const NOTIFICATION_OPTIONS = [
   { value: "ALL", label: "Tat ca" },
@@ -46,7 +47,48 @@ const renderAvatarPlaceholder = (className, size = 32) => (
   />
 );
 
-function MessageInfor({ contactData }) {
+const formatAttachmentFileSize = (value) => {
+  const nextValue = Number(value || 0);
+
+  if (!nextValue) {
+    return "";
+  }
+
+  if (nextValue < 1024) {
+    return `${nextValue} B`;
+  }
+
+  if (nextValue < 1024 * 1024) {
+    return `${(nextValue / 1024).toFixed(1)} KB`;
+  }
+
+  if (nextValue < 1024 * 1024 * 1024) {
+    return `${(nextValue / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return `${(nextValue / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+};
+
+const formatAttachmentCreatedAt = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toLocaleString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+};
+
+function MessageInfor({ contactData, onOpenConversationImageGallery }) {
   const [showTool, setShowTool] = useState([]);
   const [customNameDraft, setCustomNameDraft] = useState("");
   const [notificationLevelDraft, setNotificationLevelDraft] = useState("ALL");
@@ -56,6 +98,14 @@ function MessageInfor({ contactData }) {
   const [isSavingCustomName, setIsSavingCustomName] = useState(false);
   const [isUpdatingPreference, setIsUpdatingPreference] = useState(false);
   const [isUpdatingMembers, setIsUpdatingMembers] = useState(false);
+  const [sharedAttachmentState, setSharedAttachmentState] = useState({
+    loading: false,
+    error: "",
+    images: [],
+    files: [],
+    isPartial: false,
+    conversationId: null,
+  });
   const { theme } = useContext(ThemeContext);
   const { userData } = useContext(UserContext);
   const {
@@ -143,12 +193,26 @@ function MessageInfor({ contactData }) {
     () => ["Tuy chinh thong bao", "Tep da chia se", "Lien ket", "Bao mat"],
     []
   );
+  const optionBaseIndex = isGroupConversation ? 2 : 1;
+  const sharedFilesToolIndex = optionBaseIndex + listOption.indexOf("Tep da chia se");
+  const isSharedFilesPanelOpen = showTool.includes(sharedFilesToolIndex);
 
   useEffect(() => {
     setCustomNameDraft(activeConversation?.customName || "");
     setNotificationLevelDraft(activeConversation?.notificationLevel || "ALL");
     setSettingsError("");
   }, [activeConversation?.customName, activeConversation?.notificationLevel, conversationId]);
+
+  useEffect(() => {
+    setSharedAttachmentState({
+      loading: false,
+      error: "",
+      images: [],
+      files: [],
+      isPartial: false,
+      conversationId: conversationId || null,
+    });
+  }, [conversationId]);
 
   useEffect(() => {
     if (!selectedMemberId && addableFriendOptions.length > 0) {
@@ -165,6 +229,66 @@ function MessageInfor({ contactData }) {
       setSelectedMemberId(addableFriendOptions[0]?.userId || "");
     }
   }, [addableFriendOptions, selectedMemberId]);
+
+  useEffect(() => {
+    if (!conversationId || !isSharedFilesPanelOpen) {
+      return;
+    }
+
+    let shouldIgnore = false;
+
+    const loadSharedAttachments = async () => {
+      setSharedAttachmentState({
+        loading: true,
+        error: "",
+        images: [],
+        files: [],
+        isPartial: false,
+        conversationId,
+      });
+
+      try {
+        const { attachments, isPartial } = await fetchConversationSharedAttachments({
+          conversationId,
+          currentUserId,
+        });
+
+        if (shouldIgnore) {
+          return;
+        }
+
+        setSharedAttachmentState({
+          loading: false,
+          error: "",
+          images: attachments.filter((attachment) => attachment.isImage),
+          files: attachments.filter((attachment) => !attachment.isImage),
+          isPartial,
+          conversationId,
+        });
+      } catch (error) {
+        console.error("Failed to load shared attachments:", error);
+
+        if (shouldIgnore) {
+          return;
+        }
+
+        setSharedAttachmentState({
+          loading: false,
+          error: "Khong the tai tep da chia se trong hoi thoai nay.",
+          images: [],
+          files: [],
+          isPartial: false,
+          conversationId,
+        });
+      }
+    };
+
+    loadSharedAttachments();
+
+    return () => {
+      shouldIgnore = true;
+    };
+  }, [conversationId, currentUserId, isSharedFilesPanelOpen]);
 
   const handleShowTool = (index) => {
     setShowTool((prevState) => {
@@ -458,6 +582,111 @@ function MessageInfor({ contactData }) {
     } finally {
       setIsUpdatingMembers(false);
     }
+  };
+
+  const renderSharedAttachmentPanel = () => {
+    const totalSharedAttachments =
+      sharedAttachmentState.images.length + sharedAttachmentState.files.length;
+
+    return (
+      <div className="mess-infor-shared-panel">
+        <p className="mess-infor-section-note">
+          Tong hop tat ca anh va tep da duoc gui trong hoi thoai nay.
+        </p>
+
+        {sharedAttachmentState.loading ? (
+          <div className="mess-infor-shared-feedback">
+            Dang tai du lieu tep trong hoi thoai...
+          </div>
+        ) : null}
+
+        {!sharedAttachmentState.loading && sharedAttachmentState.error ? (
+          <div className="mess-infor-shared-feedback error">
+            {sharedAttachmentState.error}
+          </div>
+        ) : null}
+
+        {!sharedAttachmentState.loading && !sharedAttachmentState.error ? (
+          <div className="mess-infor-shared-summary">
+            <span>{totalSharedAttachments} muc</span>
+            {sharedAttachmentState.isPartial ? (
+              <span>Dang hien thi du lieu gan day</span>
+            ) : (
+              <span>{conversationId ? "Theo hoi thoai hien tai" : ""}</span>
+            )}
+          </div>
+        ) : null}
+
+        {!sharedAttachmentState.loading && !sharedAttachmentState.error ? (
+          <div className="mess-infor-shared-section">
+            <div className="mess-infor-shared-section-header">
+              <p>Anh</p>
+              <span>{sharedAttachmentState.images.length}</span>
+            </div>
+            {sharedAttachmentState.images.length ? (
+              <div className="mess-infor-shared-image-grid">
+                {sharedAttachmentState.images.map((attachment) => (
+                  <button
+                    key={attachment.id}
+                    type="button"
+                    className="mess-infor-shared-image-card"
+                    title={`${attachment.fileName}\n${formatAttachmentCreatedAt(attachment.createdAt)}`}
+                    onClick={() =>
+                      onOpenConversationImageGallery?.({
+                        id: attachment.id || attachment.url,
+                        url: attachment.url,
+                        fileName: attachment.fileName || "Anh trong hoi thoai",
+                      })
+                    }
+                  >
+                    <img src={attachment.url} alt={attachment.fileName} />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="mess-infor-shared-empty">Chua co anh duoc chia se.</div>
+            )}
+          </div>
+        ) : null}
+
+        {!sharedAttachmentState.loading && !sharedAttachmentState.error ? (
+          <div className="mess-infor-shared-section">
+            <div className="mess-infor-shared-section-header">
+              <p>Tep</p>
+              <span>{sharedAttachmentState.files.length}</span>
+            </div>
+            {sharedAttachmentState.files.length ? (
+              <div className="mess-infor-shared-file-list">
+                {sharedAttachmentState.files.map((attachment) => (
+                  <a
+                    key={attachment.id}
+                    className="mess-infor-shared-file-item"
+                    href={attachment.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <div className="mess-infor-shared-file-icon">FILE</div>
+                    <div className="mess-infor-shared-file-meta">
+                      <strong>{attachment.fileName}</strong>
+                      <span>
+                        {[
+                          formatAttachmentFileSize(attachment.fileSize),
+                          formatAttachmentCreatedAt(attachment.createdAt),
+                        ]
+                          .filter(Boolean)
+                          .join(" | ")}
+                      </span>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <div className="mess-infor-shared-empty">Chua co tep duoc chia se.</div>
+            )}
+          </div>
+        ) : null}
+      </div>
+    );
   };
 
   return (
@@ -815,14 +1044,20 @@ function MessageInfor({ contactData }) {
             ) : null}
             {listOption.map((data, index) => (
               <li key={data}>
+                {(() => {
+                  const toolIndex = index + optionBaseIndex;
+                  const isToolOpen = showTool.includes(toolIndex);
+
+                  return (
+                    <>
                 <div
-                  onClick={() => handleShowTool(index + (isGroupConversation ? 2 : 1))}
+                  onClick={() => handleShowTool(toolIndex)}
                   className="title-tool flex"
                 >
                   <p>{data}</p>
                   <div
                     className={`mess-infor-detial-tool ${
-                      showTool.includes(index + (isGroupConversation ? 2 : 1))
+                      isToolOpen
                         ? "mess-infor-tool-active"
                         : ""
                     }`}
@@ -832,15 +1067,22 @@ function MessageInfor({ contactData }) {
                 </div>
                 <div
                   className={
-                    showTool.includes(index + (isGroupConversation ? 2 : 1))
+                    isToolOpen
                       ? "li-tool-active"
                       : "li-tool-none"
                   }
                 >
-                  <div style={{ padding: "0 12px 12px", color: "#7589a3", fontSize: 14 }}>
-                    Tinh nang nay se duoc mo rong o giai doan sau.
-                  </div>
+                  {data === "Tep da chia se" ? (
+                    renderSharedAttachmentPanel()
+                  ) : (
+                    <div style={{ padding: "0 12px 12px", color: "#7589a3", fontSize: 14 }}>
+                      Tinh nang nay se duoc mo rong o giai doan sau.
+                    </div>
+                  )}
                 </div>
+                    </>
+                  );
+                })()}
               </li>
             ))}
           </ul>

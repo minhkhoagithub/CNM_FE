@@ -315,7 +315,7 @@ const resolveTypingStatusText = (typingUsers, conversationType) => {
 const EMOJI_PATTERN = /[\p{Extended_Pictographic}\uFE0F\u200D]/u;
 
 
-function ContainerMess({ contactData }) {
+function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   const scrollRef = useRef(null);
   const inputMessage = useRef(null);
   const composerSelectionRef = useRef(null);
@@ -1566,6 +1566,14 @@ function ContainerMess({ contactData }) {
                                 <img
                                   src={attachment.url}
                                   alt={attachment.fileName || ""}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    onOpenConversationImageGallery?.({
+                                      id: attachment.id || attachment.url,
+                                      url: attachment.url,
+                                      fileName: attachment.fileName || "",
+                                    });
+                                  }}
                                 />
                               </li>
                             ))}

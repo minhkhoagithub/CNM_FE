@@ -12,7 +12,6 @@ import "../../resource/style/Chat/contact.css";
 import { CiSearch } from "react-icons/ci";
 import { HiOutlineUserPlus } from "react-icons/hi2";
 import { HiOutlineUserGroup } from "react-icons/hi2";
-import { MdExpandMore } from "react-icons/md";
 import { IoIosMore } from "react-icons/io";
 import { IoMdClose } from "react-icons/io";
 import { IoTriangle } from "react-icons/io5";
@@ -1091,16 +1090,6 @@ const handleClearRecentSearch = () => {
               {!isSearch.state ? (
                 <div className="contact-right-filter">
                   <div className="contact- flex">
-                    <div
-                      className="contact-classification-filter flex"
-                      onClick={handleToggleArchivedView}
-                    >
-                      <p>Phân loại</p>
-                      <p style={{ fontSize: 12, marginRight: 4 }}>
-                        {showArchived ? "Luu tru" : "Mo luu tru"}
-                      </p>
-                      <MdExpandMore className="icon-filter" />
-                    </div>
                     <div className="contact-more-filter">
                       <IoIosMore className="icon-filter" />
                     </div>
@@ -1118,9 +1107,18 @@ const handleClearRecentSearch = () => {
           ) : null}
           {!isSearch.state ? (
             <div className="contact-list-status-row">
-              <span className={`contact-list-scope-chip ${showArchived ? "archived" : "active"}`}>
-                {showArchived ? "Dang xem luu tru" : "Dang xem hoi thoai"}
-              </span>
+              <button
+                type="button"
+                className={`contact-list-scope-chip ${showArchived ? "archived" : "active"}`}
+                onClick={handleToggleArchivedView}
+                title={
+                  showArchived
+                    ? "Chuyển sang danh sách hội thoại"
+                    : "Chuyển sang danh sách lưu trữ"
+                }
+              >
+                {showArchived ? "Xem hội thoại" : "Xem lưu trữ"}
+              </button>
               <span className="contact-list-scope-subtle">
                 {displayedConversationList.length}
                 {showArchived ? " muc" : " hoi thoai"}
@@ -1313,7 +1311,7 @@ const handleClearRecentSearch = () => {
                                       handleConversationSettingChange(event, data, "archive")
                                     }
                                   >
-                                    {data.archived ? "Bo luu tru" : "Luu tru"}
+                                    {data.archived ? "Mo hoi thoai" : "Luu tru"}
                                   </p>
                                   <p
                                     style={{ fontSize: 13 }}

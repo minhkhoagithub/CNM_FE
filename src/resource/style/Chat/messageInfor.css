@@ -241,6 +241,142 @@
   border-radius: 10px;
   background-color: #fff1f1;
 }
+.mess-infor-shared-panel {
+  padding: 0 12px 12px;
+  display: grid;
+  gap: 12px;
+}
+.mess-infor-shared-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #7589a3;
+  font-weight: 600;
+}
+.mess-infor-shared-feedback {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background-color: #f3f7fb;
+  color: #5d7188;
+  font-size: 13px;
+}
+.mess-infor-shared-feedback.error {
+  background-color: #fff1f1;
+  color: #c53737;
+}
+.mess-infor-shared-section {
+  display: grid;
+  gap: 10px;
+}
+.mess-infor-shared-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.mess-infor-shared-section-header p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1f2a37;
+}
+.mess-infor-shared-section-header span {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background-color: #eef3f7;
+  color: #5c6d80;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.mess-infor-shared-image-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.mess-infor-shared-image-card {
+  display: block;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid #e0e8ef;
+  background-color: #f5f8fc;
+  box-shadow: 0 10px 22px rgba(52, 70, 91, 0.08);
+  cursor: pointer;
+}
+.mess-infor-shared-image-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.2s ease;
+}
+.mess-infor-shared-image-card:hover img {
+  transform: scale(1.04);
+}
+.mess-infor-shared-file-list {
+  display: grid;
+  gap: 8px;
+}
+.mess-infor-shared-file-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e0e8ef;
+  border-radius: 12px;
+  background-color: #fcfdff;
+  color: inherit;
+  box-shadow: 0 8px 20px rgba(52, 70, 91, 0.05);
+}
+.mess-infor-shared-file-item:hover {
+  background-color: #f5f9ff;
+}
+.mess-infor-shared-file-icon {
+  min-width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #dcecff 0%, #eef4fb 100%);
+  color: #0a5bd3;
+  font-size: 11px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.mess-infor-shared-file-meta {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.mess-infor-shared-file-meta strong,
+.mess-infor-shared-file-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mess-infor-shared-file-meta strong {
+  font-size: 13px;
+  color: #1f2a37;
+}
+.mess-infor-shared-file-meta span {
+  font-size: 12px;
+  color: #7589a3;
+}
+.mess-infor-shared-empty {
+  padding: 12px;
+  border-radius: 12px;
+  background-color: #f7fafc;
+  color: #7589a3;
+  font-size: 13px;
+}
 .li-tool-active .btn-all-data {
   visibility: visible;
   opacity: 1;

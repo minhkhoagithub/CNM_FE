@@ -306,6 +306,13 @@
   font-weight: 700;
   padding: 5px 10px;
   border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.contact-list-scope-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(21, 105, 216, 0.12);
 }
 .contact-list-scope-chip.active {
   background-color: #e8f2ff;
