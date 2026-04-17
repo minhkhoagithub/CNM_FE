@@ -1,4 +1,4 @@
-import React, { memo, useContext, useEffect, useMemo, useState } from "react";
+import React, { memo, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import "../../resource/style/Chat/messageInfor.css";
 import { ThemeContext } from "../../Context/ThemeContext";
 import { ContactContext } from "../../Context/ContactConext";
@@ -8,7 +8,7 @@ import { GoPin } from "react-icons/go";
 import { HiOutlineArchiveBox } from "react-icons/hi2";
 import { CiEdit } from "react-icons/ci";
 import { IoTriangle } from "react-icons/io5";
-import { mapConversationMembers } from "../../mappers/conversationMapper";
+import { mapFriendOptions } from "../../mappers/friendOptionMapper";
 import {
   addConversationMemberV1,
   closeConversationV1,
@@ -18,20 +18,34 @@ import {
   removeConversationMemberV1,
   transferConversationOwnershipV1,
   updateConversationArchiveV1,
+  updateConversationAvatarV1,
   updateConversationCustomNameV1,
   updateConversationMuteV1,
   updateConversationNotificationLevelV1,
   updateConversationPinV1,
 } from "../../services/chat/conversationApi";
 import { fetchConversationSharedAttachments } from "./conversationMedia";
+import { getFriendsV2 } from "../../util/api";
 
 const NOTIFICATION_OPTIONS = [
   { value: "ALL", label: "Tat ca" },
-  { value: "MENTIONS_ONLY", label: "Chi nhac toi" },
+  { value: "MENTIONS_ONLY", label: "Chi khi co @username cua ban" },
   { value: "NONE", label: "Tat" },
 ];
+const NOTIFICATION_LEVEL_HINTS = {
+  ALL: "Nhan cap nhat cuoc tro chuyen nhu binh thuong.",
+  MENTIONS_ONLY:
+    "Trong nhom, muc nay uu tien tin nhan co token @username cua ban.",
+  NONE: "Khong uu tien cap nhat thong bao cho cuoc tro chuyen nay.",
+};
 const PRIVATE_CONVERSATION_LABEL = "Nguoi dung";
 const GROUP_CONVERSATION_LABEL = "Nhom";
+
+const getApiErrorMessage = (error, fallback) =>
+  error?.response?.data?.message ||
+  error?.response?.data?.error ||
+  error?.message ||
+  fallback;
 
 const renderAvatarPlaceholder = (className, size = 32) => (
   <div
@@ -91,11 +105,19 @@ const formatAttachmentCreatedAt = (value) => {
 function MessageInfor({ contactData, onOpenConversationImageGallery }) {
   const [showTool, setShowTool] = useState([]);
   const [customNameDraft, setCustomNameDraft] = useState("");
+  const [avatarUrlDraft, setAvatarUrlDraft] = useState("");
   const [notificationLevelDraft, setNotificationLevelDraft] = useState("ALL");
   const [friendOptions, setFriendOptions] = useState([]);
+  const [friendOptionsState, setFriendOptionsState] = useState({
+    loading: false,
+    loadedConversationId: null,
+    attemptedConversationId: null,
+    error: "",
+  });
   const [selectedMemberId, setSelectedMemberId] = useState("");
   const [settingsError, setSettingsError] = useState("");
   const [isSavingCustomName, setIsSavingCustomName] = useState(false);
+  const [isSavingAvatar, setIsSavingAvatar] = useState(false);
   const [isUpdatingPreference, setIsUpdatingPreference] = useState(false);
   const [isUpdatingMembers, setIsUpdatingMembers] = useState(false);
   const [sharedAttachmentState, setSharedAttachmentState] = useState({
@@ -111,9 +133,12 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
   const {
     currentConversationNormalized,
     selectedConversationId,
+    upsertConversation,
     updateConversationById,
     removeConversationById,
     clearSelectedConversation,
+    fetchConversation,
+    fetchArchivedConversations,
   } = useContext(ContactContext);
 
   const activeConversation = useMemo(
@@ -147,27 +172,10 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     null;
   const isGroupConversation = activeConversation?.type === "group";
   const currentUserId = userData?.userId || userData?._id || null;
-  const normalizedMembers = useMemo(() => {
-    const nextMembers = mapConversationMembers(
-      Array.isArray(activeConversation?.members) && activeConversation.members.length
-        ? { members: activeConversation.members }
-        : activeConversation?.raw || activeConversation
-    );
-
-    if (
-      currentUserId &&
-      !nextMembers.some((member) => String(member.userId) === String(currentUserId))
-    ) {
-      nextMembers.unshift({
-        userId: currentUserId,
-        displayName: userData?.displayName || userData?.username || "Ban",
-        avatarUrl: userData?.avatarUrl || userData?.avatar || "",
-        role: "MEMBER",
-      });
-    }
-
-    return nextMembers;
-  }, [activeConversation, currentUserId, userData]);
+  const normalizedMembers = useMemo(
+    () => (Array.isArray(activeConversation?.members) ? activeConversation.members : []),
+    [activeConversation?.members]
+  );
   const currentUserMember = useMemo(
     () =>
       normalizedMembers.find(
@@ -175,10 +183,83 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
       ) || null,
     [currentUserId, normalizedMembers]
   );
-  const currentUserRole = currentUserMember?.role || "MEMBER";
+  const currentUserRole = String(currentUserMember?.role || "MEMBER").toUpperCase();
+  const currentUserRoleSource = currentUserMember
+    ? "canonical-members"
+    : "fallback-default-member";
   const currentUserIsOwner = currentUserRole === "OWNER";
-  const ownerRoleKnown = normalizedMembers.some((member) => member.role === "OWNER");
-  const canCloseConversation = isGroupConversation && (currentUserIsOwner || !ownerRoleKnown);
+  const currentUserIsAdmin = currentUserRole === "ADMIN";
+  const currentUserCanManageMembers = currentUserIsOwner || currentUserIsAdmin;
+  const groupMemberCount = normalizedMembers.length;
+  useEffect(() => {
+    if (!isGroupConversation) {
+      return;
+    }
+
+    console.log("[WEB PHASE2 ROLE RESOLVE]", {
+      source: "message-info-role-state",
+      conversationId,
+      memberCount: normalizedMembers.length,
+      currentUserId,
+      currentUserRole,
+      currentUserRoleSource,
+      members: normalizedMembers.map((member) => ({
+        userId: member.userId,
+        username: member.username || "",
+        role: member.role || "MEMBER",
+      })),
+    });
+  }, [
+    conversationId,
+    currentUserId,
+    currentUserRole,
+    currentUserRoleSource,
+    isGroupConversation,
+    normalizedMembers,
+  ]);
+  const canAddMember = isGroupConversation && currentUserCanManageMembers;
+  const canUpdateGroupAvatar = isGroupConversation && currentUserCanManageMembers;
+  const canCloseConversation = isGroupConversation && currentUserIsOwner;
+  const canLeaveGroup =
+    isGroupConversation && (!currentUserIsOwner || groupMemberCount <= 1);
+  const canRemoveMember = (member) => {
+    if (!isGroupConversation || !currentUserCanManageMembers || !member?.userId) {
+      return false;
+    }
+
+    if (String(member.userId) === String(currentUserId)) {
+      return false;
+    }
+
+    const targetRole = String(member.role || "MEMBER").toUpperCase();
+    if (targetRole === "OWNER") {
+      return false;
+    }
+
+    if (currentUserIsOwner) {
+      return true;
+    }
+
+    return currentUserIsAdmin && targetRole === "MEMBER";
+  };
+  const canTransferOwnershipTo = (member) =>
+    isGroupConversation &&
+    currentUserIsOwner &&
+    member?.userId &&
+    String(member.userId) !== String(currentUserId) &&
+    String(member.role || "MEMBER").toUpperCase() !== "OWNER";
+  const canPromoteAdminFor = (member) =>
+    isGroupConversation &&
+    currentUserIsOwner &&
+    member?.userId &&
+    String(member.userId) !== String(currentUserId) &&
+    String(member.role || "MEMBER").toUpperCase() === "MEMBER";
+  const canDemoteAdminFor = (member) =>
+    isGroupConversation &&
+    currentUserIsOwner &&
+    member?.userId &&
+    String(member.userId) !== String(currentUserId) &&
+    String(member.role || "MEMBER").toUpperCase() === "ADMIN";
   const addableFriendOptions = useMemo(
     () =>
       friendOptions.filter(
@@ -194,14 +275,131 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     []
   );
   const optionBaseIndex = isGroupConversation ? 2 : 1;
+  const isMemberPanelOpen = isGroupConversation && showTool.includes(1);
   const sharedFilesToolIndex = optionBaseIndex + listOption.indexOf("Tep da chia se");
   const isSharedFilesPanelOpen = showTool.includes(sharedFilesToolIndex);
 
   useEffect(() => {
+    if (!isGroupConversation) {
+      return;
+    }
+
+    console.log("[WEB PHASE2 ROLE RESOLVE]", {
+      conversationId,
+      currentUserId,
+      currentUserRole,
+      currentUserRoleSource,
+      memberCount: groupMemberCount,
+      canAddMember,
+      canCloseConversation,
+      canLeaveGroup,
+    });
+  }, [
+    canAddMember,
+    canCloseConversation,
+    canLeaveGroup,
+    conversationId,
+    currentUserId,
+    currentUserRole,
+    currentUserRoleSource,
+    groupMemberCount,
+    isGroupConversation,
+  ]);
+
+  useEffect(() => {
     setCustomNameDraft(activeConversation?.customName || "");
+    setAvatarUrlDraft(activeConversation?.avatarUrl || activeConversation?.trustedAvatarUrl || "");
     setNotificationLevelDraft(activeConversation?.notificationLevel || "ALL");
     setSettingsError("");
-  }, [activeConversation?.customName, activeConversation?.notificationLevel, conversationId]);
+  }, [
+    activeConversation?.avatarUrl,
+    activeConversation?.customName,
+    activeConversation?.notificationLevel,
+    activeConversation?.trustedAvatarUrl,
+    conversationId,
+  ]);
+
+  const loadFriendOptionsForAddMember = useCallback(async () => {
+    if (!conversationId || !isGroupConversation) {
+      return;
+    }
+
+    if (!canAddMember) {
+      setSettingsError("Ban khong co quyen them thanh vien.");
+      return;
+    }
+
+    if (
+      friendOptionsState.loading ||
+      friendOptionsState.loadedConversationId === conversationId ||
+      friendOptionsState.attemptedConversationId === conversationId
+    ) {
+      return;
+    }
+
+    setFriendOptionsState({
+      loading: true,
+      loadedConversationId: null,
+      attemptedConversationId: conversationId,
+      error: "",
+    });
+
+    console.log("[WEB GROUP FRIEND OPTIONS ADD]", {
+      status: "loading",
+      conversationId,
+    });
+
+    try {
+      const response = await getFriendsV2();
+      const nextFriends = mapFriendOptions(response.data);
+
+      console.log("[WEB GROUP FRIEND OPTIONS ADD]", {
+        status: "loaded",
+        conversationId,
+        count: nextFriends.length,
+      });
+
+      setFriendOptions(nextFriends);
+      setFriendOptionsState({
+        loading: false,
+        loadedConversationId: conversationId,
+        attemptedConversationId: conversationId,
+        error: "",
+      });
+    } catch (error) {
+      console.error("[WEB GROUP FRIEND OPTIONS ADD]", error);
+      setFriendOptionsState({
+        loading: false,
+        loadedConversationId: null,
+        attemptedConversationId: conversationId,
+        error: "Khong the tai danh sach ban be.",
+      });
+    }
+  }, [
+    conversationId,
+    friendOptionsState.attemptedConversationId,
+    friendOptionsState.loadedConversationId,
+    friendOptionsState.loading,
+    isGroupConversation,
+  ]);
+
+  useEffect(() => {
+    if (!isGroupConversation) {
+      setFriendOptions([]);
+      setSelectedMemberId("");
+      setFriendOptionsState({
+        loading: false,
+        loadedConversationId: null,
+        attemptedConversationId: null,
+        error: "",
+      });
+      return;
+    }
+
+    if (isMemberPanelOpen) {
+      loadFriendOptionsForAddMember();
+    }
+  }, [isGroupConversation, isMemberPanelOpen, loadFriendOptionsForAddMember]);
 
   useEffect(() => {
     setSharedAttachmentState({
@@ -364,8 +562,100 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     }
   };
 
+  const handleSaveGroupAvatar = async () => {
+    if (!conversationId || !canUpdateGroupAvatar || isSavingAvatar) {
+      return;
+    }
+
+    const nextAvatarUrl = avatarUrlDraft.trim();
+    const currentAvatarUrl = String(avatarUrl || "").trim();
+
+    if (!nextAvatarUrl) {
+      setSettingsError("Vui long nhap URL anh nhom.");
+      return;
+    }
+
+    if (nextAvatarUrl === currentAvatarUrl) {
+      return;
+    }
+
+    setSettingsError("");
+    setIsSavingAvatar(true);
+
+    console.log("[WEB GROUP AVATAR UPDATE]", {
+      status: "submitting",
+      conversationId,
+      avatarUrlLength: nextAvatarUrl.length,
+    });
+
+    try {
+      const response = await updateConversationAvatarV1(conversationId, nextAvatarUrl);
+      upsertConversation(response, { source: "group-avatar-update" });
+      await refreshConversationsAfterGroupAction(response, "avatar-update");
+      console.log("[WEB GROUP AVATAR UPDATE]", {
+        status: "success",
+        conversationId,
+        avatarUrl: response?.avatarUrl || nextAvatarUrl,
+      });
+      console.log("[WEB GROUP METADATA SYNC]", {
+        source: "group-avatar-update",
+        conversationId,
+        avatarUrl: response?.avatarUrl || nextAvatarUrl,
+      });
+    } catch (error) {
+      console.error("[WEB GROUP AVATAR UPDATE]", {
+        status: "failed",
+        conversationId,
+        error,
+      });
+      setSettingsError(
+        getApiErrorMessage(error, "Khong the cap nhat anh dai dien nhom.")
+      );
+    } finally {
+      setIsSavingAvatar(false);
+    }
+  };
+
+  const refreshConversationsAfterGroupAction = async (response, action) => {
+    if (response?.id) {
+      upsertConversation(response, { source: `group-${action}` });
+    }
+
+    console.log("[WEB PHASE2 GROUP MEMBERS]", {
+      action,
+      conversationId,
+      responseHasMembers: Array.isArray(response?.members),
+      responseMemberCount: Array.isArray(response?.members)
+        ? response.members.length
+        : 0,
+    });
+
+    try {
+      await Promise.all([
+        fetchConversation?.(),
+        activeConversation?.archived ? fetchArchivedConversations?.() : null,
+      ].filter(Boolean));
+    } catch (error) {
+      console.error("[WEB PHASE2 GROUP MEMBERS]", {
+        action,
+        conversationId,
+        status: "refresh-failed",
+        error,
+      });
+    }
+  };
+
   const handleAddMember = async () => {
-    if (!conversationId || !selectedMemberId) {
+    if (isUpdatingMembers) {
+      return;
+    }
+
+    if (!conversationId || !isGroupConversation) {
+      return;
+    }
+
+    if (!selectedMemberId) {
+      setSettingsError("Vui long chon thanh vien can them.");
       return;
     }
 
@@ -373,194 +663,271 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
       (friend) => String(friend.userId) === String(selectedMemberId)
     );
     if (!selectedFriend) {
+      setSettingsError("Thanh vien nay khong hop le hoac da co trong nhom.");
       return;
     }
 
     setSettingsError("");
     setIsUpdatingMembers(true);
 
-    try {
-      await addConversationMemberV1(conversationId, selectedFriend.userId);
-      updateConversationById(conversationId, (currentConversation) => {
-        const currentMembers = Array.isArray(currentConversation?.members)
-          ? currentConversation.members
-          : [];
+    console.log("[WEB GROUP ACTION SUBMIT]", {
+      action: "add-member",
+      conversationId,
+      userId: selectedFriend.userId,
+      currentUserRole,
+    });
 
-        return {
-          ...currentConversation,
-          members: [...currentMembers, { ...selectedFriend, role: "MEMBER" }],
-          raw: {
-            ...(currentConversation?.raw || {}),
-            members: [...currentMembers, { ...selectedFriend, role: "MEMBER" }],
-          },
-        };
-      });
+    try {
+      const response = await addConversationMemberV1(conversationId, selectedFriend.userId);
+      await refreshConversationsAfterGroupAction(response, "add-member");
       setSelectedMemberId("");
     } catch (error) {
-      console.error("Failed to add member to conversation:", error);
-      setSettingsError("Khong the them thanh vien vao nhom.");
+      console.error("[WEB GROUP ACTION SUBMIT]", {
+        action: "add-member",
+        conversationId,
+        error,
+      });
+      setSettingsError(
+        getApiErrorMessage(error, "Khong the them thanh vien vao nhom.")
+      );
     } finally {
       setIsUpdatingMembers(false);
     }
   };
 
   const handleRemoveMember = async (memberUserId) => {
-    if (!conversationId || !memberUserId) {
+    if (isUpdatingMembers) {
+      return;
+    }
+
+    if (!conversationId || !memberUserId || !isGroupConversation) {
+      return;
+    }
+
+    const targetMember = normalizedMembers.find(
+      (member) => String(member.userId) === String(memberUserId)
+    );
+    if (!canRemoveMember(targetMember)) {
+      setSettingsError("Ban khong co quyen xoa thanh vien nay.");
       return;
     }
 
     setSettingsError("");
     setIsUpdatingMembers(true);
 
-    try {
-      await removeConversationMemberV1(conversationId, memberUserId);
-      updateConversationById(conversationId, (currentConversation) => {
-        const currentMembers = Array.isArray(currentConversation?.members)
-          ? currentConversation.members
-          : [];
-        const nextMembers = currentMembers.filter(
-          (member) => String(member.userId) !== String(memberUserId)
-        );
+    console.log("[WEB GROUP ACTION SUBMIT]", {
+      action: "remove-member",
+      conversationId,
+      targetUserId: memberUserId,
+      targetRole: targetMember?.role || "MEMBER",
+      currentUserRole,
+    });
 
-        return {
-          ...currentConversation,
-          members: nextMembers,
-          raw: {
-            ...(currentConversation?.raw || {}),
-            members: nextMembers,
-          },
-        };
-      });
+    try {
+      const response = await removeConversationMemberV1(conversationId, memberUserId);
+      await refreshConversationsAfterGroupAction(response, "remove-member");
     } catch (error) {
-      console.error("Failed to remove member from conversation:", error);
-      setSettingsError("Khong the xoa thanh vien khoi nhom.");
+      console.error("[WEB GROUP ACTION SUBMIT]", {
+        action: "remove-member",
+        conversationId,
+        targetUserId: memberUserId,
+        error,
+      });
+      setSettingsError(
+        getApiErrorMessage(error, "Khong the xoa thanh vien khoi nhom.")
+      );
     } finally {
       setIsUpdatingMembers(false);
     }
   };
 
-  const patchMemberRoles = (updater) => {
-    updateConversationById(conversationId, (currentConversation) => {
-      const currentMembers = Array.isArray(currentConversation?.members)
-        ? currentConversation.members
-        : [];
-      const nextMembers =
-        typeof updater === "function" ? updater(currentMembers) : currentMembers;
-
-      return {
-        ...currentConversation,
-        members: nextMembers,
-        raw: {
-          ...(currentConversation?.raw || {}),
-          members: nextMembers,
-        },
-      };
-    });
-  };
-
   const handleTransferOwnership = async (targetUserId) => {
-    if (!conversationId || !targetUserId) {
+    if (isUpdatingMembers) {
+      return;
+    }
+
+    if (!conversationId || !targetUserId || !isGroupConversation) {
+      return;
+    }
+
+    const targetMember = normalizedMembers.find(
+      (member) => String(member.userId) === String(targetUserId)
+    );
+    if (!canTransferOwnershipTo(targetMember)) {
+      setSettingsError("Ban khong co quyen chuyen chu nhom cho thanh vien nay.");
       return;
     }
 
     setSettingsError("");
     setIsUpdatingMembers(true);
 
+    console.log("[WEB GROUP ACTION SUBMIT]", {
+      action: "transfer-ownership",
+      conversationId,
+      targetUserId,
+      currentUserRole,
+    });
+
     try {
-      await transferConversationOwnershipV1(conversationId, targetUserId);
-      patchMemberRoles((members) =>
-        members.map((member) => {
-          if (String(member.userId) === String(targetUserId)) {
-            return { ...member, role: "OWNER" };
-          }
-
-          if (member.role === "OWNER") {
-            return { ...member, role: "ADMIN" };
-          }
-
-          return member;
-        })
-      );
+      const response = await transferConversationOwnershipV1(conversationId, targetUserId);
+      await refreshConversationsAfterGroupAction(response, "transfer-ownership");
     } catch (error) {
-      console.error("Failed to transfer ownership:", error);
-      setSettingsError("Khong the chuyen quyen truong nhom.");
+      console.error("[WEB GROUP ACTION SUBMIT]", {
+        action: "transfer-ownership",
+        conversationId,
+        targetUserId,
+        error,
+      });
+      setSettingsError(
+        getApiErrorMessage(error, "Khong the chuyen quyen truong nhom.")
+      );
     } finally {
       setIsUpdatingMembers(false);
     }
   };
 
   const handlePromoteAdmin = async (targetUserId) => {
-    if (!conversationId || !targetUserId) {
+    if (isUpdatingMembers) {
+      return;
+    }
+
+    if (!conversationId || !targetUserId || !isGroupConversation) {
+      return;
+    }
+
+    const targetMember = normalizedMembers.find(
+      (member) => String(member.userId) === String(targetUserId)
+    );
+    if (!canPromoteAdminFor(targetMember)) {
+      setSettingsError("Ban khong co quyen cap quyen admin cho thanh vien nay.");
       return;
     }
 
     setSettingsError("");
     setIsUpdatingMembers(true);
 
+    console.log("[WEB GROUP ACTION SUBMIT]", {
+      action: "promote-admin",
+      conversationId,
+      targetUserId,
+      currentUserRole,
+    });
+
     try {
-      await promoteConversationAdminV1(conversationId, targetUserId);
-      patchMemberRoles((members) =>
-        members.map((member) =>
-          String(member.userId) === String(targetUserId)
-            ? { ...member, role: "ADMIN" }
-            : member
-        )
-      );
+      const response = await promoteConversationAdminV1(conversationId, targetUserId);
+      await refreshConversationsAfterGroupAction(response, "promote-admin");
     } catch (error) {
-      console.error("Failed to promote admin:", error);
-      setSettingsError("Khong the cap nhat quyen quan tri.");
+      console.error("[WEB GROUP ACTION SUBMIT]", {
+        action: "promote-admin",
+        conversationId,
+        targetUserId,
+        error,
+      });
+      setSettingsError(
+        getApiErrorMessage(error, "Khong the cap nhat quyen quan tri.")
+      );
     } finally {
       setIsUpdatingMembers(false);
     }
   };
 
   const handleDemoteAdmin = async (targetUserId) => {
-    if (!conversationId || !targetUserId) {
+    if (isUpdatingMembers) {
+      return;
+    }
+
+    if (!conversationId || !targetUserId || !isGroupConversation) {
+      return;
+    }
+
+    const targetMember = normalizedMembers.find(
+      (member) => String(member.userId) === String(targetUserId)
+    );
+    if (!canDemoteAdminFor(targetMember)) {
+      setSettingsError("Ban khong co quyen thu hoi admin cua thanh vien nay.");
       return;
     }
 
     setSettingsError("");
     setIsUpdatingMembers(true);
 
+    console.log("[WEB GROUP ACTION SUBMIT]", {
+      action: "demote-admin",
+      conversationId,
+      targetUserId,
+      currentUserRole,
+    });
+
     try {
-      await demoteConversationAdminV1(conversationId, targetUserId);
-      patchMemberRoles((members) =>
-        members.map((member) =>
-          String(member.userId) === String(targetUserId)
-            ? { ...member, role: "MEMBER" }
-            : member
-        )
-      );
+      const response = await demoteConversationAdminV1(conversationId, targetUserId);
+      await refreshConversationsAfterGroupAction(response, "demote-admin");
     } catch (error) {
-      console.error("Failed to demote admin:", error);
-      setSettingsError("Khong the thu hoi quyen quan tri.");
+      console.error("[WEB GROUP ACTION SUBMIT]", {
+        action: "demote-admin",
+        conversationId,
+        targetUserId,
+        error,
+      });
+      setSettingsError(
+        getApiErrorMessage(error, "Khong the thu hoi quyen quan tri.")
+      );
     } finally {
       setIsUpdatingMembers(false);
     }
   };
 
   const handleLeaveConversation = async () => {
-    if (!conversationId) {
+    if (isUpdatingMembers) {
+      return;
+    }
+
+    if (!conversationId || !isGroupConversation) {
+      return;
+    }
+
+    if (!canLeaveGroup) {
+      setSettingsError("Chu nhom can chuyen quyen hoac dong nhom truoc khi roi.");
       return;
     }
 
     setSettingsError("");
     setIsUpdatingMembers(true);
 
+    console.log("[WEB GROUP ACTION SUBMIT]", {
+      action: "leave-group",
+      conversationId,
+      currentUserRole,
+    });
+
     try {
       await leaveConversationV1(conversationId);
       removeConversationById(conversationId);
       clearSelectedConversation();
     } catch (error) {
-      console.error("Failed to leave conversation:", error);
-      setSettingsError("Khong the roi nhom nay luc nay.");
+      console.error("[WEB GROUP ACTION SUBMIT]", {
+        action: "leave-group",
+        conversationId,
+        error,
+      });
+      setSettingsError(
+        getApiErrorMessage(error, "Khong the roi nhom nay luc nay.")
+      );
     } finally {
       setIsUpdatingMembers(false);
     }
   };
 
   const handleCloseConversation = async () => {
+    if (isUpdatingMembers) {
+      return;
+    }
+
     if (!conversationId || !isGroupConversation) {
+      return;
+    }
+
+    if (!canCloseConversation) {
+      setSettingsError("Chi chu nhom moi co the dong nhom.");
       return;
     }
 
@@ -572,13 +939,25 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     setSettingsError("");
     setIsUpdatingMembers(true);
 
+    console.log("[WEB GROUP ACTION SUBMIT]", {
+      action: "close-group",
+      conversationId,
+      currentUserRole,
+    });
+
     try {
       await closeConversationV1(conversationId);
       removeConversationById(conversationId);
       clearSelectedConversation();
     } catch (error) {
-      console.error("Failed to close conversation:", error);
-      setSettingsError("Khong the dong nhom nay luc nay.");
+      console.error("[WEB GROUP ACTION SUBMIT]", {
+        action: "close-group",
+        conversationId,
+        error,
+      });
+      setSettingsError(
+        getApiErrorMessage(error, "Khong the dong nhom nay luc nay.")
+      );
     } finally {
       setIsUpdatingMembers(false);
     }
@@ -727,6 +1106,59 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                 {activeConversation?.notificationLevel || "ALL"}
               </span>
             </div>
+            {canUpdateGroupAvatar ? (
+              <div
+                style={{
+                  display: "grid",
+                  gap: 8,
+                  width: "100%",
+                  marginTop: 12,
+                }}
+              >
+                <input
+                  type="text"
+                  value={avatarUrlDraft}
+                  onChange={(event) => setAvatarUrlDraft(event.target.value)}
+                  placeholder="URL anh dai dien nhom"
+                  style={{
+                    padding: "9px 10px",
+                    borderRadius: 8,
+                    border: "1px solid #d6dbe1",
+                    fontSize: 13,
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveGroupAvatar}
+                  disabled={
+                    isSavingAvatar ||
+                    !avatarUrlDraft.trim() ||
+                    avatarUrlDraft.trim() === String(avatarUrl || "").trim()
+                  }
+                  style={{
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "9px 10px",
+                    backgroundColor:
+                      isSavingAvatar ||
+                      !avatarUrlDraft.trim() ||
+                      avatarUrlDraft.trim() === String(avatarUrl || "").trim()
+                        ? "#9bbdf4"
+                        : "#0068ff",
+                    color: "white",
+                    fontWeight: 600,
+                    cursor:
+                      isSavingAvatar ||
+                      !avatarUrlDraft.trim() ||
+                      avatarUrlDraft.trim() === String(avatarUrl || "").trim()
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                >
+                  {isSavingAvatar ? "Dang cap nhat..." : "Cap nhat anh nhom"}
+                </button>
+              </div>
+            ) : null}
           </div>
           <div className="mess-infor-header-infor-tool flex">
             <div
@@ -840,6 +1272,10 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                         </option>
                       ))}
                     </select>
+                    <span style={{ fontSize: 12, color: "#7589a3", lineHeight: 1.4 }}>
+                      {NOTIFICATION_LEVEL_HINTS[notificationLevelDraft] ||
+                        NOTIFICATION_LEVEL_HINTS.ALL}
+                    </span>
                   </label>
                 </div>
               </div>
@@ -869,11 +1305,15 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                         const isCurrentUser =
                           String(member.userId) === String(currentUserId);
                         const canTransferOwnership =
-                          !isCurrentUser && (currentUserIsOwner || !ownerRoleKnown);
-                        const canPromoteToAdmin =
-                          !isCurrentUser && member.role !== "ADMIN" && member.role !== "OWNER";
-                        const canDemoteAdmin =
-                          !isCurrentUser && member.role === "ADMIN";
+                          canTransferOwnershipTo(member);
+                        const canPromoteToAdmin = canPromoteAdminFor(member);
+                        const canDemoteAdmin = canDemoteAdminFor(member);
+                        const canRemoveThisMember = canRemoveMember(member);
+                        const hasMemberActions =
+                          canTransferOwnership ||
+                          canPromoteToAdmin ||
+                          canDemoteAdmin ||
+                          canRemoveThisMember;
 
                         return (
                           <div key={member.userId} className="mess-infor-member-row">
@@ -901,7 +1341,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                                 </p>
                               </div>
                             </div>
-                            {!isCurrentUser ? (
+                            {!isCurrentUser && hasMemberActions ? (
                               <div className="mess-infor-member-actions">
                                 {canTransferOwnership ? (
                                   <button
@@ -951,32 +1391,49 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                                     Ha admin
                                   </button>
                                 ) : null}
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveMember(member.userId)}
-                                  disabled={isUpdatingMembers}
-                                  style={{
-                                    border: "none",
-                                    borderRadius: 8,
-                                    padding: "6px 10px",
-                                    backgroundColor: "#eaedf0",
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  Xoa
-                                </button>
+                                {canRemoveThisMember ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveMember(member.userId)}
+                                    disabled={isUpdatingMembers}
+                                    style={{
+                                      border: "none",
+                                      borderRadius: 8,
+                                      padding: "6px 10px",
+                                      backgroundColor: "#eaedf0",
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    Xoa
+                                  </button>
+                                ) : null}
                               </div>
                             ) : null}
                           </div>
                         );
                       })}
                     </div>
+                    {canAddMember ? (
                     <div className="mess-infor-add-member">
                       <span style={{ fontSize: 14, fontWeight: 500 }}>Them thanh vien</span>
+                      {friendOptionsState.loading ? (
+                        <p className="mess-infor-feedback-error">
+                          Dang tai danh sach ban be...
+                        </p>
+                      ) : null}
+                      {!friendOptionsState.loading && friendOptionsState.error ? (
+                        <p className="mess-infor-feedback-error">
+                          {friendOptionsState.error}
+                        </p>
+                      ) : null}
                       <select
                         value={selectedMemberId}
                         onChange={(event) => setSelectedMemberId(event.target.value)}
-                        disabled={!addableFriendOptions.length || isUpdatingMembers}
+                        disabled={
+                          friendOptionsState.loading ||
+                          !addableFriendOptions.length ||
+                          isUpdatingMembers
+                        }
                         style={{
                           padding: "10px 12px",
                           borderRadius: 8,
@@ -984,7 +1441,9 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                         }}
                       >
                         <option value="">
-                          {addableFriendOptions.length
+                          {friendOptionsState.loading
+                            ? "Dang tai danh sach ban be"
+                            : addableFriendOptions.length
                             ? "Chon ban de them"
                             : "Khong con ban nao de them"}
                         </option>
@@ -997,37 +1456,54 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                       <button
                         type="button"
                         onClick={handleAddMember}
-                        disabled={!selectedMemberId || isUpdatingMembers}
+                        disabled={
+                          !selectedMemberId ||
+                          isUpdatingMembers ||
+                          friendOptionsState.loading
+                        }
                         style={{
                           border: "none",
                           borderRadius: 8,
                           padding: "10px 12px",
-                          backgroundColor: "#0068ff",
+                          backgroundColor:
+                            !selectedMemberId ||
+                            isUpdatingMembers ||
+                            friendOptionsState.loading
+                              ? "#9bbdf4"
+                              : "#0068ff",
                           color: "white",
                           fontWeight: 600,
-                          cursor: "pointer",
+                          cursor:
+                            !selectedMemberId ||
+                            isUpdatingMembers ||
+                            friendOptionsState.loading
+                              ? "not-allowed"
+                              : "pointer",
                         }}
                       >
                         {isUpdatingMembers ? "Dang xu ly..." : "Them thanh vien"}
                       </button>
                     </div>
-                    <button
-                      className="mess-infor-danger-outline"
-                      type="button"
-                      onClick={handleLeaveConversation}
-                      disabled={isUpdatingMembers}
-                      style={{
-                        border: "1px solid #d84747",
-                        borderRadius: 8,
-                        padding: "10px 12px",
-                        backgroundColor: "white",
-                        color: "#d84747",
-                        fontWeight: 600,
-                        cursor: "pointer",
-                      }}
-                    >
-                      Roi nhom
-                    </button>
+                    ) : null}
+                    {canLeaveGroup ? (
+                      <button
+                        className="mess-infor-danger-outline"
+                        type="button"
+                        onClick={handleLeaveConversation}
+                        disabled={isUpdatingMembers}
+                        style={{
+                          border: "1px solid #d84747",
+                          borderRadius: 8,
+                          padding: "10px 12px",
+                          backgroundColor: "white",
+                          color: "#d84747",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Roi nhom
+                      </button>
+                    ) : null}
                     {canCloseConversation ? (
                       <button
                         className="mess-infor-danger-soft"

@@ -81,6 +81,13 @@ export const updateConversationCustomNameV1 = async (conversationId, customName)
   return unwrapResponseData(response);
 };
 
+export const updateConversationAvatarV1 = async (conversationId, avatarUrl) => {
+  const response = await chatHttpClient.patch(`/conversations/${conversationId}/avatar`, {
+    avatarUrl,
+  });
+  return unwrapResponseData(response);
+};
+
 export const addConversationMemberV1 = async (conversationId, userId) => {
   const response = await chatHttpClient.post(`/conversations/${conversationId}/members`, {
     userId,

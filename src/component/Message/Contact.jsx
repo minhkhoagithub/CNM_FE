@@ -5,6 +5,7 @@ import React, {
   useRef,
   memo,
   useMemo,
+  useCallback,
 } from "react";
 import { UserContext } from "../../Context/UserContext";
 import { ContactContext } from "../../Context/ContactConext";
@@ -19,6 +20,7 @@ import { BsFillCameraFill } from "react-icons/bs";
 import { RxDotFilled } from "react-icons/rx";
 import {
   createConversationV1,
+  updateConversationAvatarV1,
   updateConversationArchiveV1,
   updateConversationMuteV1,
   updateConversationPinV1,
@@ -28,9 +30,11 @@ import "../../resource/style/AddressBook/menuContact.css";
 import {
   crudFriend,
   getUserByPhone,
+  getFriendsV2,
   searchUsersV2,
   sendFriendRequestV2,
 } from "../../util/api";
+import { mapFriendOptions } from "../../mappers/friendOptionMapper";
 
 const mapSearchUserToUi = (item) => ({
   _id: item.userId,
@@ -73,6 +77,12 @@ const getConversationAvatarUrl = (conversation) =>
 const getConversationPreview = (conversation) =>
   conversation?.lastMessage || `Gui loi chao den ${getConversationDisplayName(conversation)}`;
 
+const getApiErrorMessage = (error, fallback) =>
+  error?.response?.data?.message ||
+  error?.response?.data?.error ||
+  error?.message ||
+  fallback;
+
 function Contact({
   handleChangeContact,
   showPageAddressBook,
@@ -114,12 +124,20 @@ function Contact({
 });
 
   const [dataCreateGr, setDataCreateGr] = useState({
-    username: null,
+    username: "",
     listMember: [],
     showAvt: false,
     avatar: null,
   });
   const [friendOptions, setFriendOptions] = useState([]);
+  const [friendOptionsState, setFriendOptionsState] = useState({
+    loading: false,
+    loaded: false,
+    attempted: false,
+    error: "",
+  });
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [createGroupError, setCreateGroupError] = useState("");
   const listAvatarGr = [
     "https://res.zaloapp.com/pc/avt_group/1_family.jpg",
     "https://res.zaloapp.com/pc/avt_group/2_family.jpg",
@@ -158,6 +176,71 @@ const getSearchItemId = (item) => item?.userId || item?._id || item?.id || null;
       ),
     [displayedConversationList]
   );
+  const loadFriendOptionsForCreateGroup = useCallback(async () => {
+    const currentUserId = userData?._id || userData?.userId;
+
+    if (!currentUserId) {
+      return;
+    }
+
+    if (
+      friendOptionsState.loading ||
+      friendOptionsState.loaded ||
+      friendOptionsState.attempted
+    ) {
+      return;
+    }
+
+    setFriendOptionsState({
+      loading: true,
+      loaded: false,
+      attempted: true,
+      error: "",
+    });
+
+    console.log("[WEB GROUP FRIEND OPTIONS CREATE]", {
+      status: "loading",
+      currentUserId,
+    });
+
+    try {
+      const response = await getFriendsV2();
+      const nextFriends = mapFriendOptions(response.data);
+
+      console.log("[WEB GROUP FRIEND OPTIONS CREATE]", {
+        status: "loaded",
+        count: nextFriends.length,
+      });
+
+      setFriendOptions(nextFriends);
+      setFriendOptionsState({
+        loading: false,
+        loaded: true,
+        attempted: true,
+        error: "",
+      });
+    } catch (error) {
+      console.error("[WEB GROUP FRIEND OPTIONS CREATE]", error);
+      setFriendOptionsState({
+        loading: false,
+        loaded: false,
+        attempted: true,
+        error: "Khong the tai danh sach ban be.",
+      });
+    }
+  }, [
+    friendOptionsState.loaded,
+    friendOptionsState.loading,
+    friendOptionsState.attempted,
+    userData?._id,
+    userData?.userId,
+  ]);
+
+  useEffect(() => {
+    if (addUser.group) {
+      loadFriendOptionsForCreateGroup();
+    }
+  }, [addUser.group, loadFriendOptionsForCreateGroup]);
 
   // useEffect(() => {
   //   const local = localStorage.getItem("user-search");
@@ -444,54 +527,216 @@ const storeLocal = (value) => {
 
 
   const handleShowAddGroup = (value) => {
+    if (value) {
+      setCreateGroupError("");
+      if (friendOptionsState.error) {
+        setFriendOptionsState((prevState) => ({
+          ...prevState,
+          attempted: false,
+          error: "",
+        }));
+      }
+    }
+
     setAddUser((prevState) => {
       return {
         ...prevState,
         group: value,
       };
     });
+
+    if (!value && !isCreatingGroup) {
+      setCreateGroupError("");
+    }
   };
 
   const handleAddMember = (value) => {
+    if (!value || isCreatingGroup) {
+      return;
+    }
+
     setDataCreateGr((prevState) => {
-      if (prevState.listMember.length < 0) {
+      const check = prevState.listMember.includes(value);
+      if (check) {
+        const filter = prevState.listMember.filter((item) => item !== value);
         return {
           ...prevState,
-          listMember: [value],
+          listMember: [...filter],
         };
-      } else {
-        const check = prevState.listMember.includes(value);
-        if (check) {
-          const filter = prevState.listMember.filter((item) => item !== value);
-          return {
-            ...prevState,
-            listMember: [...filter],
-          };
-        } else {
-          return {
-            ...prevState,
-            listMember: [value, ...prevState.listMember],
-          };
-        }
       }
+
+      return {
+        ...prevState,
+        listMember: [value, ...prevState.listMember],
+      };
     });
+    setCreateGroupError("");
   };
 
   const handleCreateGroup = async () => {
-    handleShowAddGroup(false);
+    if (isCreatingGroup) {
+      return;
+    }
 
-    const response = await createConversationV1({
-      type: "GROUP",
-      name: dataCreateGr.username,
-      participantIds: dataCreateGr.listMember,
+    const groupName = String(dataCreateGr.username || "").trim();
+    const participantIds = dataCreateGr.listMember.filter(Boolean);
+
+    if (!groupName) {
+      setCreateGroupError("Vui long nhap ten nhom.");
+      return;
+    }
+
+    if (participantIds.length < 1) {
+      setCreateGroupError("Vui long chon it nhat 1 thanh vien.");
+      return;
+    }
+
+    setCreateGroupError("");
+    setIsCreatingGroup(true);
+
+    console.log("[WEB GROUP CREATE SUBMIT]", {
+      groupNameLength: groupName.length,
+      participantCount: participantIds.length,
     });
-    upsertConversation(mapConversation(response));
-    setDataCreateGr({
-      username: null,
-      listMember: [],
-      showAvt: false,
-      avatar: null,
-    });
+
+    try {
+      const response = await createConversationV1({
+        type: "GROUP",
+        name: groupName,
+        participantIds,
+      });
+      const createdConversationId = response?.id;
+      const selectedAvatarUrl = String(dataCreateGr.avatar || "").trim();
+      const selectedMembers = friendOptions
+        .filter((friend) =>
+          participantIds.some(
+            (participantId) => String(participantId) === String(friend.userId)
+          )
+        )
+        .map((friend) => ({
+          userId: friend.userId,
+          username: friend.username || "",
+          displayName: friend.displayName || friend.username || String(friend.userId),
+          avatarUrl: friend.avatarUrl || friend.avatar || "",
+          role: "MEMBER",
+        }));
+      const currentUserId = userData?.userId || userData?._id || null;
+      const currentUserMember = currentUserId
+        ? {
+            userId: currentUserId,
+            username: userData?.username || "",
+            displayName: userData?.displayName || userData?.username || "Ban",
+            avatarUrl: userData?.avatarUrl || userData?.avatar || "",
+            role: "OWNER",
+          }
+        : null;
+      const nextMembers = [
+        ...(currentUserMember ? [currentUserMember] : []),
+        ...selectedMembers,
+      ];
+      const createdConversationPayload = Array.isArray(response?.members)
+        ? response
+        : {
+            ...response,
+            members: nextMembers,
+            raw: {
+              ...(response?.raw || response || {}),
+              members: nextMembers,
+            },
+          };
+      let nextConversation = mapConversation({
+        ...createdConversationPayload,
+      });
+
+      upsertConversation(nextConversation);
+      console.log("[WEB PHASE2 GROUP MEMBERS]", {
+        source: "create-group",
+        conversationId: nextConversation?.id,
+        usedBackendMembers: Array.isArray(response?.members),
+        memberCount: Array.isArray(nextConversation?.members)
+          ? nextConversation.members.length
+          : 0,
+      });
+      console.log("[WEB GROUP METADATA SYNC]", {
+        source: "create-group",
+        conversationId: nextConversation?.id,
+        displayName: nextConversation?.displayName,
+        avatarUrl: nextConversation?.avatarUrl || "",
+      });
+
+      if (createdConversationId && selectedAvatarUrl) {
+        console.log("[WEB GROUP AVATAR FOLLOWUP]", {
+          status: "submitting",
+          conversationId: createdConversationId,
+          avatarUrlLength: selectedAvatarUrl.length,
+        });
+
+        try {
+          const avatarResponse = await updateConversationAvatarV1(
+            createdConversationId,
+            selectedAvatarUrl
+          );
+          const avatarConversationPayload = Array.isArray(avatarResponse?.members)
+            ? avatarResponse
+            : {
+                ...avatarResponse,
+                members: nextMembers,
+                raw: {
+                  ...(avatarResponse?.raw || avatarResponse || {}),
+                  members: nextMembers,
+                },
+              };
+          nextConversation = mapConversation({
+            ...avatarConversationPayload,
+          });
+          upsertConversation(nextConversation);
+          console.log("[WEB PHASE2 GROUP MEMBERS]", {
+            source: "create-group-avatar-followup",
+            conversationId: nextConversation?.id,
+            usedBackendMembers: Array.isArray(avatarResponse?.members),
+            memberCount: Array.isArray(nextConversation?.members)
+              ? nextConversation.members.length
+              : 0,
+          });
+          console.log("[WEB GROUP AVATAR FOLLOWUP]", {
+            status: "success",
+            conversationId: createdConversationId,
+            avatarUrl: nextConversation?.avatarUrl || "",
+          });
+          console.log("[WEB GROUP METADATA SYNC]", {
+            source: "create-group-avatar-followup",
+            conversationId: nextConversation?.id,
+            displayName: nextConversation?.displayName,
+            avatarUrl: nextConversation?.avatarUrl || "",
+          });
+        } catch (avatarError) {
+          console.error("[WEB GROUP AVATAR FOLLOWUP]", {
+            status: "failed",
+            conversationId: createdConversationId,
+            error: avatarError,
+          });
+          setConversationSettingsError(
+            "Da tao nhom, nhung khong the cap nhat anh dai dien."
+          );
+        }
+      }
+
+      handleChangeContact(nextConversation);
+      handleShowAddGroup(false);
+      setDataCreateGr({
+        username: "",
+        listMember: [],
+        showAvt: false,
+        avatar: null,
+      });
+    } catch (error) {
+      console.error("[WEB GROUP CREATE SUBMIT]", error);
+      setCreateGroupError(
+        getApiErrorMessage(error, "Khong the tao nhom. Vui long thu lai.")
+      );
+    } finally {
+      setIsCreatingGroup(false);
+    }
   };
 
   const handleShowAvatarGr = (value) => {
@@ -522,11 +767,12 @@ const storeLocal = (value) => {
   };
 
   const handleSaveAvatarGr = () => {
-    if (dataCreateGr.avatar !== null) {
+    if (String(dataCreateGr.avatar || "").trim()) {
       handleShowAvatarGr(false);
     }
   };
   const handleChangeNameGr = (e) => {
+    setCreateGroupError("");
     setDataCreateGr((prevState) => {
       return {
         ...prevState,
@@ -671,6 +917,10 @@ const handleClearRecentSearch = () => {
   localStorage.removeItem(storageKey);
 };
 
+const isCreateGroupSubmitDisabled =
+  isCreatingGroup ||
+  !String(dataCreateGr.username || "").trim() ||
+  dataCreateGr.listMember.length < 1;
 
   return (
     <>
@@ -997,10 +1247,28 @@ const handleClearRecentSearch = () => {
                         />
                       </div>
                       <div className="list-contact">
+                        {friendOptionsState.loading ? (
+                          <p className="contact-feedback-error">
+                            Dang tai danh sach ban be...
+                          </p>
+                        ) : null}
+                        {!friendOptionsState.loading && friendOptionsState.error ? (
+                          <p className="contact-feedback-error">
+                            {friendOptionsState.error}
+                          </p>
+                        ) : null}
+                        {!friendOptionsState.loading &&
+                        !friendOptionsState.error &&
+                        friendOptionsState.loaded &&
+                        friendOptions.length === 0 ? (
+                          <p className="contact-feedback-error">
+                            Chua co ban be de tao nhom.
+                          </p>
+                        ) : null}
                         {friendOptions &&
                           friendOptions.map((item, index) => (
                             <li
-                              key={index}
+                              key={item.userId || index}
                               onClick={() => handleAddMember(item.userId)}
                             >
                               <div className="contact-detial-conversation flex">
@@ -1028,16 +1296,37 @@ const handleClearRecentSearch = () => {
                             </li>
                           ))}
                       </div>
+                      {createGroupError ? (
+                        <p className="contact-feedback-error">
+                          {createGroupError}
+                        </p>
+                      ) : null}
+                      {isCreatingGroup ? (
+                        <p className="contact-feedback-error">
+                          Dang tao nhom...
+                        </p>
+                      ) : null}
                       <div className="btn-find-friend flex">
-                        <button onClick={() => handleShowAddGroup(false)}>
+                        <button
+                          type="button"
+                          onClick={() => handleShowAddGroup(false)}
+                          disabled={isCreatingGroup}
+                        >
                           Hủy
                         </button>
                         <button
+                          type="button"
                           onClick={handleCreateGroup}
+                          disabled={isCreateGroupSubmitDisabled}
                           style={{
-                            backgroundColor: "#0068ff",
+                            backgroundColor: isCreateGroupSubmitDisabled
+                              ? "#9bbdf4"
+                              : "#0068ff",
                             width: "125px",
                             color: "white",
+                            cursor: isCreateGroupSubmitDisabled
+                              ? "not-allowed"
+                              : "pointer",
                           }}
                         >
                           Tạo nhóm{" "}

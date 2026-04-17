@@ -18,7 +18,6 @@ import { BsFillCameraFill } from "react-icons/bs";
 //   getAllFriend,
 // } from "../../util/api/index.jsx";
 import {
-  getAllGroup,
   getGroupReq,
   searchUsersV2,
   getFriendsV2,
@@ -28,7 +27,11 @@ import {
   getBlockedUsersV2,
 } from "../../util/api/index.jsx";
 
-import { createConversationV1 } from "../../services/chat/conversationApi";
+import {
+  createConversationV1,
+  getConversations,
+  updateConversationAvatarV1,
+} from "../../services/chat/conversationApi";
 import { mapConversation } from "../../mappers/conversationMapper";
 
 export const LoiMoiKetBan = "Loi moi ket ban";
@@ -88,6 +91,19 @@ const mapBlockedUserToUi = (item) => ({
   reason: item.reason || "",
   blockedAt: item.createdAt,
 });
+
+const mapGroupConversationToAddressBookUi = (conversation, currentUserId) => {
+  const mappedConversation = mapConversation(conversation, { currentUserId });
+  return {
+    ...mappedConversation,
+    _id: mappedConversation.id,
+    userId: mappedConversation.id,
+    username: mappedConversation.displayName,
+    displayName: mappedConversation.displayName,
+    avatar: mappedConversation.avatarUrl || "",
+    avatarUrl: mappedConversation.avatarUrl || "",
+  };
+};
 
 
 function MenuContact({ handleChangeContact, handleSetContentMenuContact }) {
@@ -497,8 +513,47 @@ const handleShowAddFriend = (value) => {
         name: dataCreateGr.username,
         participantIds: dataCreateGr.listMember,
       });
-      const nextConversation = mapConversation(response);
+      let nextConversation = mapConversation(response);
       upsertConversation(nextConversation);
+
+      const selectedAvatarUrl = String(dataCreateGr.avatar || "").trim();
+      if (response?.id && selectedAvatarUrl) {
+        console.log("[WEB GROUP AVATAR FOLLOWUP]", {
+          source: "address-book-create",
+          status: "submitting",
+          conversationId: response.id,
+          avatarUrlLength: selectedAvatarUrl.length,
+        });
+
+        try {
+          const avatarResponse = await updateConversationAvatarV1(
+            response.id,
+            selectedAvatarUrl
+          );
+          nextConversation = mapConversation(avatarResponse);
+          upsertConversation(nextConversation);
+          console.log("[WEB GROUP AVATAR FOLLOWUP]", {
+            source: "address-book-create",
+            status: "success",
+            conversationId: response.id,
+            avatarUrl: nextConversation?.avatarUrl || "",
+          });
+        } catch (avatarError) {
+          console.error("[WEB GROUP AVATAR FOLLOWUP]", {
+            source: "address-book-create",
+            status: "failed",
+            conversationId: response.id,
+            error: avatarError,
+          });
+        }
+      }
+
+      console.log("[WEB GROUP METADATA SYNC]", {
+        source: "address-book-create",
+        conversationId: nextConversation?.id,
+        displayName: nextConversation?.displayName,
+        avatarUrl: nextConversation?.avatarUrl || "",
+      });
       handleChangeContact(nextConversation);
     } catch (error) {
       console.error("Failed to create group conversation:", error);
@@ -876,13 +931,41 @@ const handleSendFriendRequestFromSearch = async (user) => {
 
 
   if (title === DanhSachNhom) {
-    const response = await getAllGroup({ id: userData._id });
-    if (response.status === 200 || response.status === 204) {
+    try {
+      const response = await getConversations();
+      const groups = Array.isArray(response)
+        ? response
+            .map((conversation) =>
+              mapGroupConversationToAddressBookUi(
+                conversation,
+                userData?.userId || userData?._id
+              )
+            )
+            .filter((conversation) => conversation.type === "group")
+        : [];
+
+      console.log("[WEB GROUP LIST SOURCE]", {
+        source: "conversation-api",
+        count: groups.length,
+      });
+
       handleSetContentMenuContact({
         state: true,
-        data: response.data,
+        data: groups,
         title: DanhSachNhom,
-        count: `Nhom (${response.data?.length || 0})`,
+        count: `Nhom (${groups.length})`,
+      });
+    } catch (error) {
+      console.error("[WEB GROUP LIST SOURCE]", {
+        source: "conversation-api",
+        status: "failed",
+        error,
+      });
+      handleSetContentMenuContact({
+        state: true,
+        data: [],
+        title: DanhSachNhom,
+        count: "Nhom (0)",
       });
     }
     return;

@@ -85,6 +85,23 @@ const buildListData = (dataContentContac, title) => {
           BoQua: true,
         });
       });
+    } else if (title === DanhSachNhom) {
+      dataContentContac.forEach((item) => {
+        const itemId = item.id || item._id || item.userId;
+        if (!itemId) {
+          return;
+        }
+        nextMap.set(itemId, {
+          ...item,
+          _id: itemId,
+          userId: itemId,
+          username: item.username || item.displayName,
+          displayName: item.displayName || item.username,
+          avatar: item.avatar || item.avatarUrl || "",
+          avatarUrl: item.avatarUrl || item.avatar || "",
+          ...defaultFlags,
+        });
+      });
     } else if (title === DanhSachChan) {
         dataContentContac.forEach((item) => {
           nextMap.set(item._id, {

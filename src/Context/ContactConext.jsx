@@ -15,6 +15,7 @@ import {
 } from "../services/chat/conversationApi";
 import chatRealtimeService from "../services/chat/chatRealtimeService";
 import {
+  hasConversationMemberPayload,
   mapConversationList,
   mergeConversationPatch,
   normalizeConversationInput,
@@ -102,6 +103,9 @@ const summarizeConversation = (conversation) =>
         muted: conversation.muted,
         pinned: conversation.pinned,
         archived: conversation.archived,
+        memberCount: Array.isArray(conversation.members)
+          ? conversation.members.length
+          : 0,
       }
     : null;
 
@@ -143,22 +147,54 @@ export const ContactProvider = ({ children }) => {
         });
       }
 
+      if (normalizedConversation?.type === "group") {
+        console.log("[WEB PHASE2 GROUP MEMBERS]", {
+          source: meta.source || "unknown",
+          conversationId: normalizedConversation.id,
+          hasAuthoritativeMembers: Array.isArray(normalizedConversation.members),
+          memberCount: Array.isArray(normalizedConversation.members)
+            ? normalizedConversation.members.length
+            : 0,
+          displayName: normalizedConversation.displayName,
+          trustedDisplayName: normalizedConversation.trustedDisplayName,
+          avatarUrl: normalizedConversation.avatarUrl || "",
+          trustedAvatarUrl: normalizedConversation.trustedAvatarUrl || "",
+        });
+        console.log("[WEB PHASE2 CANONICAL UPSERT]", {
+          source: meta.source || "unknown",
+          conversationId: normalizedConversation.id,
+          memberCount: Array.isArray(normalizedConversation.members)
+            ? normalizedConversation.members.length
+            : 0,
+          roles: Array.isArray(normalizedConversation.members)
+            ? normalizedConversation.members.map((member) => ({
+                userId: member.userId,
+                role: member.role,
+              }))
+            : [],
+        });
+        console.log("[WEB PHASE2 GROUP MEMBERS]", {
+          source: meta.source || "unknown",
+          conversationId: normalizedConversation.id,
+          memberCount: Array.isArray(normalizedConversation.members)
+            ? normalizedConversation.members.length
+            : 0,
+          members: Array.isArray(normalizedConversation.members)
+            ? normalizedConversation.members.map((member) => ({
+                userId: member.userId,
+                username: member.username || "",
+                hasDisplayName: Boolean(member.displayName),
+                hasAvatarUrl: Boolean(member.avatarUrl),
+                role: member.role || "MEMBER",
+              }))
+            : [],
+        });
+      }
+
       return normalizedConversation;
     },
     [currentUserId]
   );
-
-  const updateConversationScope = useCallback((scope, updater) => {
-    setConversationLists((prevState) => ({
-      ...prevState,
-      [scope]:
-        typeof updater === "function"
-          ? updater(prevState[scope])
-          : Array.isArray(updater)
-          ? updater
-          : prevState[scope],
-    }));
-  }, []);
 
   const updateConversationById = useCallback((conversationId, updater) => {
     if (!conversationId) {
@@ -244,6 +280,12 @@ export const ContactProvider = ({ children }) => {
     }
 
     if (payload.status === "SEEN") {
+      console.log("[WEB PHASE2 UNREAD SYNC]", {
+        source: "status-payload",
+        conversationId: payload.conversationId,
+        status: payload.status,
+        appliedUnreadCount: 0,
+      });
       updateConversationById(payload.conversationId, { unreadCount: 0 });
     }
   }, [updateConversationById]);
@@ -254,8 +296,39 @@ export const ContactProvider = ({ children }) => {
     }
 
     if (event.payload?.status) {
+      console.log("[WEB PHASE2 UNREAD SYNC]", {
+        kind: "status",
+        conversationId: event.payload.conversationId,
+        status: event.payload.status,
+      });
       applyConversationStatusPayload(event.payload);
       return;
+    }
+
+    if (String(event.payload?.type || "").toUpperCase() === "GROUP") {
+      console.log("[WEB PHASE2 CANONICAL UPSERT]", {
+        kind: "conversation",
+        conversationId: event.payload?.id,
+        hasMembers: hasConversationMemberPayload(event.payload),
+        memberCount: Array.isArray(event.payload?.members)
+          ? event.payload.members.length
+          : 0,
+        unreadCount: Number(event.payload?.unreadCount ?? 0),
+        payloadShape: hasConversationMemberPayload(event.payload)
+          ? "member-payload"
+          : "partial-metadata",
+      });
+    }
+
+    if (event.payload?.id || event.payload?.conversationId) {
+      console.log("[WEB PHASE2 UNREAD SYNC]", {
+        source: "conversation-refresh",
+        conversationId: event.payload?.id || event.payload?.conversationId,
+        unreadCount: Number(event.payload?.unreadCount ?? 0),
+        hasUnreadField:
+          Object.prototype.hasOwnProperty.call(event.payload || {}, "unreadCount") ||
+          Object.prototype.hasOwnProperty.call(event.payload?.raw || {}, "unreadCount"),
+      });
     }
 
     upsertNormalizedConversation(event.payload, { source: "realtime" });
@@ -275,10 +348,29 @@ export const ContactProvider = ({ children }) => {
         scope,
         count: normalizedItems.length,
       });
-      updateConversationScope(scope, normalizedItems);
+      setConversationLists((prevState) => ({
+        ...prevState,
+        [scope]: sortConversationList(
+          normalizedItems
+            .map((conversation) => {
+              const currentConversation = findConversationInLists(
+                prevState,
+                conversation.id
+              );
+              const nextConversationInput = currentConversation
+                ? mergeConversationPatch(currentConversation, conversation)
+                : conversation;
+
+              return normalizeConversationForState(nextConversationInput, {
+                source: "fetchConversation",
+              });
+            })
+            .filter(Boolean)
+        ),
+      }));
       return normalizedItems;
     },
-    [currentUserId, updateConversationScope]
+    [currentUserId, normalizeConversationForState]
   );
 
   const fetchArchivedConversations = useCallback(async () => {

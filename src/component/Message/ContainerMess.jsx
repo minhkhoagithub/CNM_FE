@@ -35,7 +35,6 @@ import {
   uploadAttachmentV1,
 } from "../../services/chat/messageApi";
 import chatRealtimeService from "../../services/chat/chatRealtimeService";
-import { mapConversationMembers } from "../../mappers/conversationMapper";
 import {
   RECALLED_MESSAGE_PLACEHOLDER,
   createReplyPreviewText,
@@ -46,8 +45,10 @@ import {
   markMessageAsDeleted,
   normalizeMessageList,
   persistRecalledMessageSnapshot,
+  persistForwardedMessageFlag,
   removeMessageItem,
   removePersistedRecalledMessage,
+  updateMessageReadReceipt,
   updateMessageReactionSummary,
   upsertMessageItem,
 } from "../../mappers/messageMapper";
@@ -71,9 +72,9 @@ const codeBackground = [
   "#b4426e",
 ];
 
-const REACTION_OPTIONS = ["LIKE", "LOVE", "HAHA"];
+const REACTION_OPTIONS = ["LIKE", "LOVE", "WOW", "HAHA"];
 const TYPING_DEBOUNCE_MS = 400;
-const TYPING_IDLE_MS = 1200;
+const TYPING_IDLE_MS = 900;
 const REMOTE_TYPING_TIMEOUT_MS = 3000;
 const PRIVATE_CONVERSATION_LABEL = "Nguoi dung";
 const GROUP_CONVERSATION_LABEL = "Nhom";
@@ -83,11 +84,22 @@ const REACTION_LABELS = {
   HAHA: "😂",
 };
 
+const getReactionEmoji = (reactionType) =>
+  REACTION_LABELS[reactionType] || (reactionType === "WOW" ? "ðŸ˜®" : reactionType);
+
 const getConversationDisplayName = (conversation) =>
   conversation?.displayName ||
   conversation?.trustedDisplayName ||
   conversation?.peerDisplayName ||
   (conversation?.type === "group" ? GROUP_CONVERSATION_LABEL : PRIVATE_CONVERSATION_LABEL);
+
+const resolveReactionEmoji = (reactionType) =>
+  ({
+    LIKE: "\uD83D\uDC4D",
+    LOVE: "\u2764\uFE0F",
+    WOW: "\uD83D\uDE2E",
+    HAHA: "\uD83D\uDE02",
+  }[reactionType] || reactionType);
 
 const getConversationAvatarUrl = (conversation) =>
   conversation?.avatarUrl || conversation?.trustedAvatarUrl || conversation?.peerAvatarUrl || "";
@@ -246,6 +258,11 @@ const buildForwardDraft = (message) => {
     canForward: true,
     reason: "",
     id: message?.id || null,
+    senderDisplayName:
+      message?.senderDisplayName ||
+      message?.raw?.senderDisplayName ||
+      message?.raw?.senderName ||
+      null,
     content,
     attachments,
     deletedAt,
@@ -313,12 +330,196 @@ const resolveTypingStatusText = (typingUsers, conversationType) => {
 };
 
 const EMOJI_PATTERN = /[\p{Extended_Pictographic}\uFE0F\u200D]/u;
+const MENTION_QUERY_PATTERN = /^[A-Za-z0-9._]*$/;
+const MENTION_TOKEN_PATTERN = /(^|[^A-Za-z0-9._])@([A-Za-z0-9._]+)/g;
+
+const closeMentionState = () => ({
+  open: false,
+  query: "",
+  triggerStart: -1,
+  caretOffset: 0,
+});
+
+const normalizeMentionHandle = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/^@+/, "")
+    .replace(/[^A-Za-z0-9._]/g, "");
+
+const getNestedValue = (value, path) =>
+  path.reduce((currentValue, key) => currentValue?.[key], value);
+
+const resolveMemberUsername = (member) => {
+  const usernamePaths = [
+    ["username"],
+    ["raw", "username"],
+    ["raw", "user", "username"],
+    ["raw", "friend", "username"],
+    ["raw", "profile", "username"],
+    ["raw", "sender", "username"],
+    ["raw", "receiver", "username"],
+  ];
+
+  for (const path of usernamePaths) {
+    const username = normalizeMentionHandle(getNestedValue(member, path));
+    if (username) {
+      return username;
+    }
+  }
+
+  return "";
+};
+
+const getComposerCaretTextOffset = (composer) => {
+  const selection = window.getSelection?.();
+
+  if (!composer || !selection || selection.rangeCount === 0) {
+    return null;
+  }
+
+  const range = selection.getRangeAt(0);
+  if (!composer.contains(range.commonAncestorContainer)) {
+    return null;
+  }
+
+  const prefixRange = range.cloneRange();
+  prefixRange.selectNodeContents(composer);
+  prefixRange.setEnd(range.endContainer, range.endOffset);
+  return prefixRange.toString().length;
+};
+
+const setComposerCaretTextOffset = (composer, offset) => {
+  if (!composer) {
+    return;
+  }
+
+  if (!composer.firstChild) {
+    composer.appendChild(document.createTextNode(""));
+  }
+
+  const targetOffset = Math.max(0, offset);
+  const walker = document.createTreeWalker(composer, NodeFilter.SHOW_TEXT);
+  let currentNode = walker.nextNode();
+  let remainingOffset = targetOffset;
+  let targetNode = null;
+  let targetNodeOffset = 0;
+
+  while (currentNode) {
+    const textLength = currentNode.textContent?.length || 0;
+    if (remainingOffset <= textLength) {
+      targetNode = currentNode;
+      targetNodeOffset = remainingOffset;
+      break;
+    }
+
+    remainingOffset -= textLength;
+    currentNode = walker.nextNode();
+  }
+
+  if (!targetNode) {
+    targetNode = composer.lastChild;
+    targetNodeOffset = targetNode?.textContent?.length || 0;
+  }
+
+  const range = document.createRange();
+  range.setStart(targetNode, targetNodeOffset);
+  range.collapse(true);
+
+  const selection = window.getSelection?.();
+  if (selection) {
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+};
+
+const resolveActiveMentionQuery = (text, caretOffset) => {
+  if (caretOffset == null) {
+    return closeMentionState();
+  }
+
+  const prefixText = String(text || "").slice(0, caretOffset);
+  const triggerStart = prefixText.lastIndexOf("@");
+
+  if (triggerStart < 0) {
+    return closeMentionState();
+  }
+
+  const previousChar = triggerStart > 0 ? prefixText[triggerStart - 1] : "";
+  if (previousChar && /[A-Za-z0-9._]/.test(previousChar)) {
+    return closeMentionState();
+  }
+
+  const query = prefixText.slice(triggerStart + 1);
+  if (!MENTION_QUERY_PATTERN.test(query)) {
+    return closeMentionState();
+  }
+
+  return {
+    open: true,
+    query,
+    triggerStart,
+    caretOffset,
+  };
+};
+
+const renderMentionAwareText = (text, { enabled, messageId, conversationId } = {}) => {
+  if (!enabled || !text) {
+    return text;
+  }
+
+  const messageText = String(text);
+  const parts = [];
+  const matches = [];
+  let lastIndex = 0;
+
+  messageText.replace(MENTION_TOKEN_PATTERN, (match, prefix, handle, offset) => {
+    const mentionStart = offset + prefix.length;
+    const mentionEnd = mentionStart + handle.length + 1;
+
+    if (offset > lastIndex) {
+      parts.push(messageText.slice(lastIndex, offset));
+    }
+
+    if (prefix) {
+      parts.push(messageText.slice(offset, mentionStart));
+    }
+
+    const mentionText = messageText.slice(mentionStart, mentionEnd);
+    matches.push(mentionText);
+    parts.push(
+      <span className="message-mention-token" key={`${messageId || "msg"}-${mentionStart}`}>
+        {mentionText}
+      </span>
+    );
+
+    lastIndex = mentionEnd;
+    return match;
+  });
+
+  if (!matches.length) {
+    return text;
+  }
+
+  if (lastIndex < messageText.length) {
+    parts.push(messageText.slice(lastIndex));
+  }
+
+  console.log("[WEB GROUP MENTION RENDER]", {
+    conversationId,
+    messageId,
+    mentionCount: matches.length,
+    mentions: matches,
+  });
+
+  return parts;
+};
 
 
 function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   const scrollRef = useRef(null);
   const inputMessage = useRef(null);
   const composerSelectionRef = useRef(null);
+  const imageInputRef = useRef(null);
   const fileInputRef = useRef(null);
   const selectedAttachmentsRef = useRef([]);
   const messagesRef = useRef([]);
@@ -334,6 +535,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   const [selectedAttachments, setSelectedAttachments] = useState([]);
   const [activeIconSend, setActiveIconSend] = useState(false);
   const [draftText, setDraftText] = useState("");
+  const [mentionState, setMentionState] = useState(() => closeMentionState());
   const [actionError, setActionError] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState(null);
@@ -343,6 +545,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   const [forwardingMessage, setForwardingMessage] = useState(null);
   const [isForwardPickerOpen, setIsForwardPickerOpen] = useState(false);
   const [forwardTargetConversationId, setForwardTargetConversationId] = useState("");
+  const [forwardSearchQuery, setForwardSearchQuery] = useState("");
   const [isForwarding, setIsForwarding] = useState(false);
   const [forwardNotice, setForwardNotice] = useState("");
   const [openMessageMenuId, setOpenMessageMenuId] = useState(null);
@@ -410,25 +613,129 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       return true;
     });
   }, [archivedConversations, backendConversationId, conversations]);
+  const filteredForwardConversations = useMemo(() => {
+    const normalizedQuery = String(forwardSearchQuery || "").trim().toLowerCase();
+    if (!normalizedQuery) {
+      return availableForwardConversations;
+    }
+
+    return availableForwardConversations.filter((conversation) => {
+      const displayName = getConversationDisplayName(conversation).toLowerCase();
+      const lastMessage = String(conversation?.lastMessage || "").toLowerCase();
+      return (
+        displayName.includes(normalizedQuery) ||
+        lastMessage.includes(normalizedQuery)
+      );
+    });
+  }, [availableForwardConversations, forwardSearchQuery]);
   const currentUserAvatar = userData?.avatarUrl || userData?.avatar || null;
   const conversationMembers = useMemo(
-    () =>
-      mapConversationMembers(
-        Array.isArray(activeConversation?.members) && activeConversation.members.length
-          ? { members: activeConversation.members }
-          : activeConversation?.raw || activeConversation
-      ),
-    [activeConversation]
+    () => (Array.isArray(activeConversation?.members) ? activeConversation.members : []),
+    [activeConversation?.members]
   );
-  const memberNameMap = useMemo(
+  const memberIdentityMap = useMemo(
     () =>
       new Map(
         conversationMembers
           .filter((member) => member?.userId)
-          .map((member) => [String(member.userId), member.displayName || ""])
+          .map((member) => [
+            String(member.userId),
+            {
+              displayName: member.displayName || member.username || "",
+              avatarUrl: member.avatarUrl || "",
+              username: member.username || "",
+            },
+          ])
       ),
     [conversationMembers]
   );
+  const mentionCandidates = useMemo(() => {
+    if (activeConversation?.type !== "group") {
+      return [];
+    }
+
+    const seenUserIds = new Set();
+    let skippedMissingUsernameCount = 0;
+    const nextCandidates = conversationMembers
+      .filter((member) => member?.userId)
+      .filter((member) => String(member.userId) !== String(currentUserId))
+      .map((member) => {
+        const mentionHandle = normalizeMentionHandle(
+          member.username || resolveMemberUsername(member)
+        );
+
+        if (!mentionHandle) {
+          skippedMissingUsernameCount += 1;
+          return null;
+        }
+
+        return {
+          userId: member.userId,
+          displayName: member.displayName || member.username || mentionHandle,
+          username: mentionHandle,
+          mentionToken: `@${mentionHandle}`,
+          avatarUrl: member.avatarUrl || "",
+        };
+      })
+      .filter(Boolean)
+      .filter((candidate) => {
+        const normalizedUserId = String(candidate.userId);
+        if (seenUserIds.has(normalizedUserId)) {
+          return false;
+        }
+
+        seenUserIds.add(normalizedUserId);
+        return true;
+      });
+
+    console.log("[WEB PHASE2 MENTION SOURCE]", {
+      conversationId: backendConversationId,
+      source: "canonical-members",
+      memberCount: conversationMembers.length,
+      candidateCount: nextCandidates.length,
+      skippedMissingUsernameCount,
+      candidates: nextCandidates.map((candidate) => ({
+        userId: candidate.userId,
+        username: candidate.username,
+        displayName: candidate.displayName,
+      })),
+    });
+
+    return nextCandidates;
+  }, [
+    activeConversation?.type,
+    backendConversationId,
+    conversationMembers,
+    currentUserId,
+  ]);
+  const matchedMentionCandidates = useMemo(() => {
+    if (!mentionState.open) {
+      return [];
+    }
+
+    const normalizedQuery = mentionState.query.toLowerCase();
+    const matches = mentionCandidates
+      .filter((candidate) => {
+        const username = candidate.username.toLowerCase();
+        const displayName = String(candidate.displayName || "").toLowerCase();
+        return (
+          !normalizedQuery ||
+          username.includes(normalizedQuery) ||
+          displayName.includes(normalizedQuery)
+        );
+      })
+      .slice(0, 6);
+
+    console.log("[WEB PHASE2 MENTION SOURCE]", {
+      conversationId: backendConversationId,
+      source: "query-match",
+      query: mentionState.query,
+      matchCount: matches.length,
+      matches: matches.map((candidate) => candidate.username),
+    });
+
+    return matches;
+  }, [backendConversationId, mentionCandidates, mentionState.open, mentionState.query]);
   const renderAvatar = (avatarUrl, className = "", alt = "") =>
     avatarUrl ? (
       <img className={className} src={avatarUrl} alt={alt} />
@@ -446,17 +753,76 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     );
   const resolveUserDisplayName = useCallback(
     (userId, fallbackName = "") => {
-      if (userId && String(userId) === String(currentUserId)) {
+      const normalizedUserId = userId ? String(userId) : "";
+      if (normalizedUserId && normalizedUserId === String(currentUserId)) {
         return currentUserDisplayName;
       }
 
-      if (userId && memberNameMap.has(String(userId))) {
-        return memberNameMap.get(String(userId)) || fallbackName || "Nguoi dung";
+      if (normalizedUserId && memberIdentityMap.has(normalizedUserId)) {
+        const memberIdentity = memberIdentityMap.get(normalizedUserId);
+        return memberIdentity?.displayName || fallbackName || "Nguoi dung";
       }
 
       return fallbackName || "Nguoi dung";
     },
-    [currentUserDisplayName, currentUserId, memberNameMap]
+    [currentUserDisplayName, currentUserId, memberIdentityMap]
+  );
+  const resolveMessageSenderIdentity = useCallback(
+    (message) => {
+      const senderId = message?.senderId || null;
+      const dtoDisplayName =
+        message?.senderDisplayName ||
+        message?.raw?.senderDisplayName ||
+        message?.raw?.senderName ||
+        message?.raw?.sender?.displayName ||
+        message?.raw?.sender?.username ||
+        "";
+      const dtoAvatarUrl =
+        message?.senderAvatarUrl ||
+        message?.raw?.senderAvatarUrl ||
+        message?.raw?.senderAvatar ||
+        message?.raw?.sender?.avatarUrl ||
+        message?.raw?.sender?.avatar ||
+        "";
+      const fallbackIdentity = senderId
+        ? memberIdentityMap.get(String(senderId))
+        : null;
+      const resolvedIdentity = {
+        displayName:
+          dtoDisplayName ||
+          fallbackIdentity?.displayName ||
+          (senderId && String(senderId) === String(currentUserId)
+            ? currentUserDisplayName
+            : senderId
+            ? `Nguoi dung ${String(senderId).slice(0, 8)}`
+            : "Nguoi dung"),
+        avatarUrl:
+          dtoAvatarUrl ||
+          fallbackIdentity?.avatarUrl ||
+          (senderId && String(senderId) === String(currentUserId)
+            ? currentUserAvatar || ""
+            : ""),
+        source: dtoDisplayName || dtoAvatarUrl ? "message-dto" : fallbackIdentity ? "canonical-member-fallback" : "minimal-fallback",
+      };
+
+      console.log("[WEB MESSAGE SENDER]", {
+        conversationId: backendConversationId,
+        messageId: message?.id || null,
+        senderId,
+        mappedDisplayName: resolvedIdentity.displayName,
+        mappedAvatarUrl: resolvedIdentity.avatarUrl,
+        source: resolvedIdentity.source,
+      });
+
+      return resolvedIdentity;
+    },
+    [
+      backendConversationId,
+      currentUserAvatar,
+      currentUserDisplayName,
+      currentUserId,
+      memberIdentityMap,
+    ]
   );
   const handleCloseMessageMenu = useCallback(() => {
     setOpenMessageMenuId(null);
@@ -473,10 +839,14 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     (message) => ({
       id: message?.id || null,
       senderId: message?.senderId || null,
-      senderDisplayName: resolveUserDisplayName(
-        message?.senderId,
-        message?.senderDisplayName
-      ),
+      senderDisplayName:
+        message?.senderDisplayName ||
+        message?.raw?.senderDisplayName ||
+        resolveMessageSenderIdentity(message).displayName,
+      senderAvatarUrl:
+        message?.senderAvatarUrl ||
+        message?.raw?.senderAvatarUrl ||
+        resolveMessageSenderIdentity(message).avatarUrl,
       contentPreview: buildReplyPreview(message),
       type:
         message?.type ||
@@ -484,26 +854,28 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
           ? "ATTACHMENT"
           : "TEXT"),
     }),
-    [resolveUserDisplayName]
+    [resolveMessageSenderIdentity]
   );
 
   const clearForwardState = useCallback(() => {
     setForwardingMessage(null);
     setIsForwardPickerOpen(false);
     setForwardTargetConversationId("");
+    setForwardSearchQuery("");
   }, []);
 
   const handleOpenForwardPicker = useCallback(
     (message) => {
       const forwardDraft = buildForwardDraft(message);
 
-      console.log("[WEB FORWARD SELECT]", {
+      console.log("[WEB FORWARD OPEN]", {
         conversationId: backendConversationId,
         messageId: forwardDraft.id,
         type: forwardDraft.type,
         deletedAt: forwardDraft.deletedAt,
         attachmentsCount: forwardDraft.attachments.length,
         canForward: forwardDraft.canForward,
+        availableConversationCount: availableForwardConversations.length,
       });
 
       if (!forwardDraft.canForward) {
@@ -520,12 +892,14 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       setForwardNotice("");
       setForwardingMessage(forwardDraft);
       setForwardTargetConversationId("");
+      setForwardSearchQuery("");
       setIsForwardPickerOpen(true);
     },
-    [backendConversationId]
+    [availableForwardConversations.length, backendConversationId]
   );
 
   const handleCloseForwardPicker = useCallback(() => {
+    setActionError("");
     clearForwardState();
   }, [clearForwardState]);
 
@@ -539,7 +913,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 
       setForwardTargetConversationId(conversation.id);
 
-      console.log("[WEB FORWARD PICK TARGET]", {
+      console.log("[WEB FORWARD SELECT]", {
         messageId: forwardingMessageId,
         targetConversationId: conversation.id,
         targetConversationName: getConversationDisplayName(conversation),
@@ -549,6 +923,10 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   );
 
   const handleConfirmForward = useCallback(async () => {
+    if (isForwarding) {
+      return;
+    }
+
     if (!forwardingMessage?.canForward) {
       setActionError("Tin nhan nay khong the chuyen tiep.");
       return;
@@ -585,6 +963,32 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 
     try {
       const response = await sendMessageV1(forwardPayload);
+      const forwardedMessageId = response?.id || response?.messageId || null;
+
+      persistForwardedMessageFlag({
+        conversationId: targetConversation.id,
+        currentUserId,
+        messageId: forwardedMessageId,
+        forwardedFrom: {
+          messageId: forwardingMessage.id,
+          senderDisplayName: forwardingMessage.senderDisplayName || null,
+        },
+      });
+
+      if (String(targetConversation.id) === String(backendConversationId)) {
+        const mappedForwardedMessage = mapMessage({
+          ...response,
+          forwarded: true,
+          forwardedFrom: {
+            messageId: forwardingMessage.id,
+            senderDisplayName: forwardingMessage.senderDisplayName || null,
+          },
+        });
+
+        setMessages((currentMessages) =>
+          upsertMessageItem(currentMessages, mappedForwardedMessage)
+        );
+      }
 
       updateConversationById(targetConversation.id, {
         lastMessage: createAttachmentPreviewText(
@@ -609,8 +1013,11 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     availableForwardConversations,
     backendConversationId,
     clearForwardState,
+    currentUserId,
     forwardingMessage,
     forwardTargetConversationId,
+    isForwarding,
+    persistForwardedMessageFlag,
     updateConversationById,
   ]);
 
@@ -684,9 +1091,18 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   }, []);
 
   const syncComposerState = useCallback(() => {
-    const currentComposerValue = inputMessage.current?.textContent || "";
+    const composer = inputMessage.current;
+    const currentComposerValue = composer?.textContent || "";
     const currentText = currentComposerValue.trim();
     setDraftText(currentText);
+    setMentionState(
+      activeConversation?.type === "group"
+        ? resolveActiveMentionQuery(
+            currentComposerValue,
+            getComposerCaretTextOffset(composer)
+          )
+        : closeMentionState()
+    );
 
     if (!backendConversationId) {
       return;
@@ -715,7 +1131,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
         pushTypingState(false);
       }, TYPING_IDLE_MS);
     }
-  }, [backendConversationId, pushTypingState]);
+  }, [activeConversation?.type, backendConversationId, pushTypingState]);
 
   const insertEmojiIntoComposer = useCallback(
     (emoji) => {
@@ -782,6 +1198,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     setSelectedAttachments([]);
     setDraftText("");
     setActiveIconSend(false);
+    setMentionState(closeMentionState());
 
     if (typingDebounceTimeoutRef.current) {
       clearTimeout(typingDebounceTimeoutRef.current);
@@ -921,6 +1338,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     setTypingUsers([]);
     setReplyingToMessage(null);
     setOpenMessageMenuId(null);
+    setMentionState(closeMentionState());
     clearForwardState();
     typingStateRef.current = false;
     if (typingDebounceTimeoutRef.current) {
@@ -975,6 +1393,11 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
         });
         setMessages(page.items);
         await markConversationSeen(backendConversationId);
+        console.log("[WEB PHASE2 UNREAD SYNC]", {
+          source: "initial-message-fetch",
+          conversationId: backendConversationId,
+          appliedUnreadCount: 0,
+        });
         updateConversationById(backendConversationId, { unreadCount: 0 });
       } catch (error) {
         console.error("Failed to load backend conversation messages:", error);
@@ -1150,6 +1573,11 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 
     markConversationSeen(backendConversationId)
       .then(() => {
+        console.log("[WEB PHASE2 UNREAD SYNC]", {
+          source: "open-conversation-mark-seen",
+          conversationId: backendConversationId,
+          appliedUnreadCount: 0,
+        });
         updateConversationById(backendConversationId, { unreadCount: 0 });
       })
       .catch((error) => {
@@ -1176,6 +1604,10 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 
   const handleGetIcon = (value) => {
     insertEmojiIntoComposer(value);
+  };
+
+  const handleImagePickerOpen = () => {
+    imageInputRef.current?.click();
   };
 
   const handleFilePickerOpen = () => {
@@ -1283,7 +1715,67 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     setReplyingToMessage(null);
   };
 
+  const handleSelectMentionCandidate = useCallback(
+    (candidate) => {
+      const composer = inputMessage.current;
+      if (!composer || !candidate?.mentionToken || !mentionState.open) {
+        return;
+      }
+
+      const currentText = composer.textContent || "";
+      const caretOffset = mentionState.caretOffset;
+      const beforeMention = currentText.slice(0, mentionState.triggerStart);
+      const afterMention = currentText.slice(caretOffset);
+      const insertion = `${candidate.mentionToken} `;
+      const nextText = `${beforeMention}${insertion}${afterMention}`;
+      const nextCaretOffset = beforeMention.length + insertion.length;
+
+      composer.textContent = nextText;
+      composer.focus();
+      setComposerCaretTextOffset(composer, nextCaretOffset);
+      composerSelectionRef.current = window.getSelection?.()?.rangeCount
+        ? window.getSelection().getRangeAt(0).cloneRange()
+        : null;
+
+      setDraftText(nextText.trim());
+      setMentionState(closeMentionState());
+
+      console.log("[WEB GROUP MENTION INSERT]", {
+        conversationId: backendConversationId,
+        userId: candidate.userId,
+        token: candidate.mentionToken,
+        nextTextLength: nextText.length,
+      });
+
+      syncComposerState();
+    },
+    [
+      backendConversationId,
+      mentionState.caretOffset,
+      mentionState.open,
+      mentionState.triggerStart,
+      syncComposerState,
+    ]
+  );
+
   const handleButtonSendMess = (event) => {
+    if (mentionState.open && event.key === "Escape") {
+      event.preventDefault();
+      setMentionState(closeMentionState());
+      return;
+    }
+
+    if (
+      mentionState.open &&
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      matchedMentionCandidates.length > 0
+    ) {
+      event.preventDefault();
+      handleSelectMentionCandidate(matchedMentionCandidates[0]);
+      return;
+    }
+
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       handleSendMess(event);
@@ -1354,6 +1846,11 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 
   const handleReactionClick = async (message) => {
     try {
+      console.log("[WEB REACTION]", {
+        messageId: message.id,
+        previousReaction: message.myReaction || null,
+        nextReaction: message.myReaction === "LIKE" ? null : "LIKE",
+      });
       if (message.myReaction === "LIKE") {
         await removeReactionV1(message.id);
         const nextReactionState = applyLocalReactionChange(message, null);
@@ -1381,6 +1878,11 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 
   const handleQuickReaction = async (message, reactionType) => {
     try {
+      console.log("[WEB REACTION]", {
+        messageId: message.id,
+        previousReaction: message.myReaction || null,
+        nextReaction: message.myReaction === reactionType ? null : reactionType,
+      });
       if (message.myReaction === reactionType) {
         await removeReactionV1(message.id);
         const nextReactionState = applyLocalReactionChange(message, null);
@@ -1406,6 +1908,177 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   };
 
   const normalizedMessages = useMemo(() => normalizeMessageList(messages), [messages]);
+  useEffect(() => {
+    if (activeConversation?.type !== "group" || !backendConversationId || !currentUserId) {
+      return undefined;
+    }
+
+    const ownGroupMessageIds = normalizedMessages
+      .filter(
+        (message) =>
+          message?.id &&
+          !message.deletedAt &&
+          String(message.senderId) === String(currentUserId)
+      )
+      .map((message) => message.id);
+
+    if (!ownGroupMessageIds.length) {
+      return undefined;
+    }
+
+    ownGroupMessageIds.forEach((messageId) => {
+      const subscriptionKey = `chat:message:${messageId}:status`;
+      chatRealtimeService
+        .subscribe(subscriptionKey, `/topic/messages/${messageId}/status`, (event) => {
+          const payload =
+            event?.payload && typeof event.payload === "object" ? event.payload : event;
+
+          if (!payload?.messageId && !payload?.id) {
+            return;
+          }
+
+          console.log("[WEB GROUP READ MAP]", {
+            source: "status-topic",
+            conversationId: backendConversationId,
+            messageId: payload.messageId || payload.id,
+            userId: payload.userId || null,
+            status: payload.status || "",
+          });
+
+          setMessages((prevMessages) =>
+            updateMessageReadReceipt(prevMessages, payload)
+          );
+        })
+        .catch((error) => {
+          console.error("[WEB GROUP READ MAP]", {
+            source: "status-topic-subscribe-failed",
+            conversationId: backendConversationId,
+            messageId,
+            error,
+          });
+        });
+    });
+
+    return () => {
+      ownGroupMessageIds.forEach((messageId) => {
+        chatRealtimeService.unsubscribe(`chat:message:${messageId}:status`);
+      });
+    };
+  }, [
+    activeConversation?.type,
+    backendConversationId,
+    currentUserId,
+    normalizedMessages,
+  ]);
+
+  const buildGroupReadReceiptSummary = useCallback(
+    (message) => {
+      if (
+        activeConversation?.type !== "group" ||
+        !message?.id ||
+        message.deletedAt ||
+        String(message.senderId) !== String(currentUserId)
+      ) {
+        return null;
+      }
+
+      const seenByUserIds = Array.isArray(message.seenByUserIds)
+        ? message.seenByUserIds
+        : [];
+      const otherSeenUserIds = seenByUserIds.filter(
+        (userId) => String(userId) !== String(currentUserId)
+      );
+
+      if (!otherSeenUserIds.length) {
+        console.log("[WEB GROUP READ RENDER]", {
+          conversationId: backendConversationId,
+          messageId: message.id,
+          source: message.readReceiptSource || "none",
+          decision: "no-known-other-readers",
+          viewerSeenFlag: message.seen,
+        });
+        return null;
+      }
+
+      const resolvedReaders = otherSeenUserIds.map((userId) => {
+        const memberIdentity = memberIdentityMap.get(String(userId));
+        return {
+          userId,
+          displayName: memberIdentity?.displayName || "",
+          source: memberIdentity ? "canonical-member" : "unknown",
+        };
+      });
+      const knownNames = resolvedReaders
+        .map((reader) => reader.displayName)
+        .filter(Boolean);
+      const label =
+        knownNames.length === 1 && otherSeenUserIds.length === 1
+          ? `Da xem boi ${knownNames[0]}`
+          : knownNames.length > 1 && knownNames.length <= 3 && knownNames.length === otherSeenUserIds.length
+          ? `Da xem boi ${knownNames.join(", ")}`
+          : `Da xem boi ${otherSeenUserIds.length} nguoi`;
+      const title = knownNames.length
+        ? knownNames.join(", ")
+        : `${otherSeenUserIds.length} thanh vien da xem`;
+
+      console.log("[WEB GROUP READ MEMBERS]", {
+        conversationId: backendConversationId,
+        messageId: message.id,
+        readerCount: otherSeenUserIds.length,
+        resolvedReaders,
+      });
+      console.log("[WEB GROUP READ RENDER]", {
+        conversationId: backendConversationId,
+        messageId: message.id,
+        source: message.readReceiptSource || "unknown",
+        label,
+      });
+
+      return { label, title };
+    },
+    [
+      activeConversation?.type,
+      backendConversationId,
+      currentUserId,
+      memberIdentityMap,
+    ]
+  );
+
+  useEffect(() => {
+    if (activeConversation?.type !== "group") {
+      return;
+    }
+
+    const senderIds = Array.from(
+      new Set(
+        normalizedMessages
+          .map((message) => message.senderId)
+          .filter(Boolean)
+          .map((senderId) => String(senderId))
+      )
+    );
+    const unresolvedSenderIds = senderIds.filter(
+      (senderId) =>
+        String(senderId) !== String(currentUserId) &&
+        !memberIdentityMap.has(senderId)
+    );
+
+    console.log("[WEB MESSAGE SENDER]", {
+      conversationId: backendConversationId,
+      source: "canonical-members",
+      memberCount: conversationMembers.length,
+      messageCount: normalizedMessages.length,
+      senderCount: senderIds.length,
+      unresolvedSenderIds,
+    });
+  }, [
+    activeConversation?.type,
+    backendConversationId,
+    conversationMembers.length,
+    currentUserId,
+    memberIdentityMap,
+    normalizedMessages,
+  ]);
   const typingStatusText = useMemo(
     () => resolveTypingStatusText(typingUsers, activeConversation?.type),
     [activeConversation?.type, typingUsers]
@@ -1493,11 +2166,31 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                 isMine && !isDeleted && !visibleAttachments.length && Boolean(item.content);
               const canDelete = isMine && !isDeleted;
               const canReply = Boolean(item.id) && !isDeleted;
+              const forwardDraft = buildForwardDraft(item);
+              const canForwardMessage = forwardDraft.canForward;
               const replyPreviewSenderName = !isDeleted && item.replyTo
-                ? resolveUserDisplayName(
-                    item.replyTo.senderId,
-                    item.replyTo.senderDisplayName
-                  )
+                ? (() => {
+                    const resolvedReplySenderName =
+                      item.replyTo.senderDisplayName ||
+                      (item.replyTo.senderId &&
+                      String(item.replyTo.senderId) === String(currentUserId)
+                        ? currentUserDisplayName
+                        : memberIdentityMap.get(String(item.replyTo.senderId || ""))?.displayName) ||
+                      "Nguoi dung";
+
+                    console.log("[WEB REPLY SENDER]", {
+                      conversationId: backendConversationId,
+                      messageId: item.id || null,
+                      senderId: item.replyTo.senderId || null,
+                      mappedDisplayName: resolvedReplySenderName,
+                      mappedAvatarUrl:
+                        item.replyTo.senderAvatarUrl ||
+                        memberIdentityMap.get(String(item.replyTo.senderId || ""))?.avatarUrl ||
+                        "",
+                    });
+
+                    return resolvedReplySenderName;
+                  })()
                 : "";
               const replyPreviewText = !isDeleted && item.replyTo
                 ? truncateText(item.replyTo.contentPreview || "Tin nhan", 90)
@@ -1505,6 +2198,26 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
               const displayText = isDeleted
                 ? RECALLED_MESSAGE_PLACEHOLDER
                 : item.content;
+              const renderedDisplayText = renderMentionAwareText(displayText, {
+                enabled: activeConversation?.type === "group" && !isDeleted,
+                conversationId: backendConversationId,
+                messageId: item.id,
+              });
+              const senderIdentity = resolveMessageSenderIdentity(item);
+              const forwardedFromSenderName =
+                item?.forwardedFrom?.senderDisplayName ||
+                item?.raw?.forwardedFrom?.senderDisplayName ||
+                "";
+              if (item.forwarded && !isDeleted) {
+                console.log("[WEB FORWARD RENDER]", {
+                  conversationId: backendConversationId,
+                  messageId: item.id,
+                  forwardedFromMessageId:
+                    item?.forwardedFrom?.messageId || item?.raw?.forwardedFrom?.messageId || null,
+                  forwardedFromSenderName: forwardedFromSenderName || null,
+                });
+              }
+              const groupReadReceiptSummary = buildGroupReadReceiptSummary(item);
 
               return (
                 <li
@@ -1514,17 +2227,15 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                     item.deletedAt ? "message-row-deleted" : ""
                   } flex`}
                 >
-                  {renderAvatar(
-                    isMine ? currentUserAvatar : conversationAvatar,
-                    "",
-                    ""
-                  )}
+                  {renderAvatar(senderIdentity.avatarUrl, "", senderIdentity.displayName)}
                   <div
                     className={`detail-mess ${
                       isDeleted ? "detail-mess-deleted" : ""
                     } ${fileAttachments.length ? "detail-mess-has-files" : ""}`}
                   >
-                    {!isMine && <p className="name-mess">{conversationName}</p>}
+                    {!isMine && (
+                      <p className="name-mess">{senderIdentity.displayName}</p>
+                    )}
                     {editingMessageId === item.id ? (
                       <div className="message-edit-card">
                         <textarea
@@ -1551,6 +2262,16 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                       </div>
                     ) : (
                       <>
+                        {item.forwarded && !isDeleted ? (
+                          <div className="message-forwarded-preview">
+                            <p className="message-forwarded-label">Chuyen tiep</p>
+                            {forwardedFromSenderName ? (
+                              <p className="message-forwarded-meta">
+                                tu {forwardedFromSenderName}
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
                         {!isDeleted && item.replyTo ? (
                           <div className="message-reply-preview">
                             <p className="message-reply-sender">
@@ -1600,7 +2321,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                               isDeleted ? "message-text-deleted" : ""
                             }`}
                           >
-                            {displayText}
+                            {renderedDisplayText}
                           </p>
                         ) : null}
                         {item.editedAt && !isDeleted ? (
@@ -1643,7 +2364,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                                 type="button"
                                 onClick={() => handleQuickReaction(item, reactionType)}
                               >
-                                {REACTION_LABELS[reactionType]}
+                                {resolveReactionEmoji(reactionType)}
                               </button>
                             ))}
                           </div>
@@ -1675,7 +2396,12 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                               <button
                                 className="message-action-menu-item"
                                 type="button"
+                                disabled={!canForwardMessage}
+                                title={!canForwardMessage ? forwardDraft.reason : undefined}
                                 onClick={() => {
+                                  if (!canForwardMessage) {
+                                    return;
+                                  }
                                   handleCloseMessageMenu();
                                   handleOpenForwardPicker(item);
                                 }}
@@ -1740,19 +2466,31 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                               .filter((reaction) => Number(reaction.count || 0) > 0)
                               .map(
                                 (reaction) =>
-                                  `${REACTION_LABELS[reaction.type] || reaction.type} ${reaction.count}`
+                                  `${resolveReactionEmoji(reaction.type)} ${reaction.count}`
                               )
                               .join(" ")}
                           </span>
                         ) : null}
                       </div>
                     )}
+                    {groupReadReceiptSummary ? (
+                      <p
+                        className="group-read-receipt"
+                        title={groupReadReceiptSummary.title}
+                      >
+                        {groupReadReceiptSummary.label}
+                      </p>
+                    ) : null}
 
                     {index === normalizedMessages.length - 1 ? (
                       <div className="time-mess">
                         <p>
                           {formatTime(item.editedAt || item.createdAt)}
-                          {item.id === lastOwnMessageId && item.seen ? " • Da xem" : ""}
+                          {activeConversation?.type !== "group" &&
+                          item.id === lastOwnMessageId &&
+                          item.seen
+                            ? " • Da xem"
+                            : ""}
                         </p>
                       </div>
                     ) : null}
@@ -1779,7 +2517,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                 </div>
               ) : null}
             </div>
-            <AiOutlinePicture className="icon-header" onClick={handleFilePickerOpen} />
+            <AiOutlinePicture className="icon-header" onClick={handleImagePickerOpen} />
             <IoMdAttach className="icon-header" onClick={handleFilePickerOpen} />
             <IoCameraOutline className="icon-header" />
             <MdOutlineContactMail className="icon-header" />
@@ -1809,6 +2547,14 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
           </div>
         </div>
         <form onSubmit={handleSendMess}>
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={handleAttachmentPick}
+          />
           <input
             ref={fileInputRef}
             type="file"
@@ -1853,6 +2599,33 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                 </li>
               ))}
             </ul>
+            {activeConversation?.type === "group" && mentionState.open ? (
+              <div className="mention-suggestion-panel">
+                {matchedMentionCandidates.length > 0 ? (
+                  matchedMentionCandidates.map((candidate) => (
+                    <button
+                      className="mention-suggestion-row"
+                      key={candidate.userId}
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => handleSelectMentionCandidate(candidate)}
+                    >
+                      {renderAvatar(
+                        candidate.avatarUrl,
+                        "mention-suggestion-avatar",
+                        candidate.displayName
+                      )}
+                      <span className="mention-suggestion-meta">
+                        <strong>{candidate.displayName}</strong>
+                        <span>{candidate.mentionToken}</span>
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <p className="mention-suggestion-empty">Khong tim thay thanh vien</p>
+                )}
+              </div>
+            ) : null}
             <div
               className={`wrap-input-chat ${
                 selectedAttachments.length > 0 ? "content-chat-height" : ""
@@ -1908,10 +2681,20 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                   <IoMdClose />
                 </button>
               </div>
+              <div className="forward-picker-search-row">
+                <CiSearch className="forward-picker-search-icon" />
+                <input
+                  className="forward-picker-search-input"
+                  type="text"
+                  placeholder="Tim cuoc tro chuyen"
+                  value={forwardSearchQuery}
+                  onChange={(event) => setForwardSearchQuery(event.target.value)}
+                />
+              </div>
               <div className="forward-picker-body">
-                {availableForwardConversations.length > 0 ? (
+                {filteredForwardConversations.length > 0 ? (
                   <ul className="forward-target-list">
-                    {availableForwardConversations.map((conversation) => {
+                    {filteredForwardConversations.map((conversation) => {
                       const conversationName = getConversationDisplayName(conversation);
                       const conversationAvatar = getConversationAvatarUrl(conversation);
                       const isSelected =
@@ -1942,7 +2725,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                   </ul>
                 ) : (
                   <p className="forward-picker-empty">
-                    Khong co cuoc tro chuyen nao de chuyen tiep.
+                    Khong tim thay cuoc tro chuyen phu hop.
                   </p>
                 )}
               </div>
@@ -1963,12 +2746,15 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                   {isForwarding ? "Dang gui..." : "Gui"}
                 </button>
               </div>
+              {actionError ? (
+                <p className="composer-feedback-error forward-picker-error">{actionError}</p>
+              ) : null}
             </div>
           </div>
         ) : null}
         {isSending ? <p className="composer-feedback-hint">Dang gui tin nhan...</p> : null}
         {forwardNotice ? <p className="composer-feedback-success">{forwardNotice}</p> : null}
-        {actionError ? (
+        {!isForwardPickerOpen && actionError ? (
           <p className="composer-feedback-error">{actionError}</p>
         ) : null}
       </div>

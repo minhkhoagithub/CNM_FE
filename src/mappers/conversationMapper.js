@@ -32,6 +32,27 @@ export const normalizeConversationType = (value) => {
   return String(rawType).toLowerCase() === "group" ? "group" : "private";
 };
 
+const normalizeMemberRole = (value) => {
+  const role = pickFirstString(value);
+  return role ? role.toUpperCase() : "MEMBER";
+};
+
+const resolveMemberRoleValue = (member) => {
+  if (!member || typeof member !== "object") {
+    return "";
+  }
+
+  const source =
+    member.user || member.friend || member.receiver || member.sender || member.profile || member;
+
+  return pickFirstString(
+    member.role,
+    member.memberRole,
+    member.member_role,
+    source?.role
+  );
+};
+
 const normalizeMemberEntry = (member) => {
   if (!member) {
     return null;
@@ -40,6 +61,7 @@ const normalizeMemberEntry = (member) => {
   if (typeof member === "string") {
     return {
       userId: member,
+      username: member,
       displayName: member,
       avatarUrl: "",
       role: "MEMBER",
@@ -65,6 +87,10 @@ const normalizeMemberEntry = (member) => {
 
   return {
     userId,
+    username: pickFirstString(
+      source?.username,
+      member.username
+    ),
     displayName: pickFirstString(
       source?.displayName,
       source?.username,
@@ -82,39 +108,142 @@ const normalizeMemberEntry = (member) => {
       member.avatarUrl,
       member.avatar
     ),
-    role:
-      member.role ||
-      member.memberRole ||
-      member.member_role ||
-      source?.role ||
-      "MEMBER",
+    role: normalizeMemberRole(resolveMemberRoleValue(member)),
     raw: member,
   };
 };
 
+const pickMemberPayload = (conversation) => {
+  if (!conversation || typeof conversation !== "object") {
+    return { hasPayload: false, members: [] };
+  }
+
+  if (hasOwn(conversation, "members")) {
+    return { hasPayload: true, members: conversation.members };
+  }
+
+  if (hasOwn(conversation, "member")) {
+    return { hasPayload: true, members: conversation.member };
+  }
+
+  const raw = conversation.raw && typeof conversation.raw === "object"
+    ? conversation.raw
+    : null;
+
+  if (raw && hasOwn(raw, "members")) {
+    return { hasPayload: true, members: raw.members };
+  }
+
+  if (raw && hasOwn(raw, "member")) {
+    return { hasPayload: true, members: raw.member };
+  }
+
+  return { hasPayload: false, members: [] };
+};
+
 export const mapConversationMembers = (conversation) => {
-  const directMembers =
-    Array.isArray(conversation?.members) && conversation.members.length
-      ? conversation.members
-      : null;
-  const legacyMembers =
-    Array.isArray(conversation?.member) && conversation.member.length
-      ? conversation.member
-      : null;
-  const rawMembers =
-    directMembers ||
-    legacyMembers ||
-    (Array.isArray(conversation?.raw?.members)
-      ? conversation.raw.members
-      : Array.isArray(conversation?.raw?.member)
-      ? conversation.raw.member
-      : []);
+  const { members: rawMembers } = pickMemberPayload(conversation);
 
   if (!Array.isArray(rawMembers)) {
     return [];
   }
 
   return rawMembers.map(normalizeMemberEntry).filter(Boolean);
+};
+
+const mergeMemberEntry = (currentMember, incomingMember) => {
+  const current = normalizeMemberEntry(currentMember);
+  const incoming = normalizeMemberEntry(incomingMember);
+
+  if (!current) {
+    return incoming;
+  }
+
+  if (!incoming) {
+    return current;
+  }
+
+  return {
+    ...current,
+    ...incoming,
+    userId: incoming.userId || current.userId,
+    username: pickFirstString(incoming.username, current.username),
+    displayName: pickFirstString(incoming.displayName, current.displayName, incoming.username, current.username, incoming.userId),
+    avatarUrl: pickFirstString(incoming.avatarUrl, current.avatarUrl),
+    role: normalizeMemberRole(
+      resolveMemberRoleValue(incomingMember) ? incoming.role : current.role || incoming.role
+    ),
+    raw: {
+      ...(current.raw && typeof current.raw === "object" ? current.raw : {}),
+      ...(incoming.raw && typeof incoming.raw === "object" ? incoming.raw : {}),
+    },
+  };
+};
+
+export const mergeConversationMembers = (
+  currentMembers = [],
+  incomingMembers = [],
+  options = {}
+) => {
+  const mode = options.mode || "auto";
+  const normalizedCurrentMembers = Array.isArray(currentMembers)
+    ? currentMembers.map(normalizeMemberEntry).filter(Boolean)
+    : [];
+  const normalizedIncomingMembers = Array.isArray(incomingMembers)
+    ? incomingMembers.map(normalizeMemberEntry).filter(Boolean)
+    : [];
+  const currentByUserId = new Map(
+    normalizedCurrentMembers.map((member) => [String(member.userId), member])
+  );
+  const incomingByUserId = new Map(
+    normalizedIncomingMembers.map((member) => [String(member.userId), member])
+  );
+  const shouldReplaceMembership =
+    mode === "replace" ||
+    (mode === "auto" &&
+      (!normalizedCurrentMembers.length ||
+        normalizedIncomingMembers.length >= normalizedCurrentMembers.length));
+  const sourceMembers = shouldReplaceMembership
+    ? normalizedIncomingMembers
+    : normalizedCurrentMembers;
+  const mergedMembers = sourceMembers
+    .map((member) =>
+      mergeMemberEntry(
+        currentByUserId.get(String(member.userId)),
+        incomingByUserId.get(String(member.userId)) || member
+      )
+    )
+    .filter(Boolean);
+
+  if (!shouldReplaceMembership) {
+    normalizedIncomingMembers.forEach((member) => {
+      if (
+        !mergedMembers.some(
+          (mergedMember) => String(mergedMember.userId) === String(member.userId)
+        )
+      ) {
+        mergedMembers.push(mergeMemberEntry(null, member));
+      }
+    });
+  }
+
+  console.log("[WEB PHASE2 GROUP MEMBERS]", {
+    mode,
+    effectiveMode: shouldReplaceMembership ? "replace" : "patch",
+    currentCount: normalizedCurrentMembers.length,
+    incomingCount: normalizedIncomingMembers.length,
+    resultCount: mergedMembers.length,
+    preservedUserIds: normalizedCurrentMembers
+      .filter(
+        (member) =>
+          !normalizedIncomingMembers.some(
+            (incomingMember) => String(incomingMember.userId) === String(member.userId)
+          )
+      )
+      .map((member) => member.userId),
+  });
+
+  return mergedMembers;
 };
 
 const resolvePeerMember = (conversation, currentUserId) => {
@@ -242,6 +371,25 @@ const resolveIdentityPatchValue = (patch, raw, key) => {
   return undefined;
 };
 
+const resolveGroupMetadataPatchValue = (patch, raw, canonicalKey, alternateKeys = []) => {
+  const directValue = resolveIdentityPatchValue(patch, raw, canonicalKey);
+  if (directValue !== undefined) {
+    return directValue;
+  }
+
+  for (const key of alternateKeys) {
+    const nextValue = resolveIdentityPatchValue(patch, raw, key);
+    if (nextValue !== undefined) {
+      return nextValue;
+    }
+  }
+
+  return undefined;
+};
+
+export const hasConversationMemberPayload = (value) =>
+  pickMemberPayload(value).hasPayload;
+
 const preserveIdentityValue = (currentValue, nextValue) => {
   if (typeof nextValue === "string") {
     const normalizedValue = nextValue.trim();
@@ -270,20 +418,77 @@ export const mergeConversationPatch = (currentConversation, patch) => {
     ...patch,
     raw: nextRaw,
   };
+  const isGroupConversation = normalizeConversationType(nextConversation) === "group";
+  const memberPayload = pickMemberPayload(patch);
+  const incomingMemberMergeMode =
+    patch.__memberMergeMode || patch.raw?.__memberMergeMode || null;
+  const memberMergeMode =
+    incomingMemberMergeMode ||
+    (isGroupConversation && memberPayload.hasPayload ? "replace" : "auto");
+
+  delete nextConversation.__memberMergeMode;
+  if (nextConversation.raw && typeof nextConversation.raw === "object") {
+    delete nextConversation.raw.__memberMergeMode;
+  }
+
+  if (isGroupConversation) {
+    if (memberPayload.hasPayload) {
+      const mergedMembers = mergeConversationMembers(
+        currentConversation.members,
+        memberPayload.members,
+        { mode: memberMergeMode }
+      );
+
+      nextConversation.members = mergedMembers;
+      nextConversation.raw = {
+        ...(nextConversation.raw || {}),
+        members: mergedMembers,
+      };
+      console.log("[WEB PHASE2 CANONICAL UPSERT]", {
+        conversationId: nextConversation.id,
+        source: "authoritative-group-members",
+        memberMergeMode,
+        currentCount: Array.isArray(currentConversation.members)
+          ? currentConversation.members.length
+          : 0,
+        incomingCount: Array.isArray(memberPayload.members)
+          ? memberPayload.members.length
+          : 0,
+        resultCount: mergedMembers.length,
+      });
+    } else if (Array.isArray(currentConversation.members)) {
+      nextConversation.members = currentConversation.members;
+      nextConversation.raw = {
+        ...(nextConversation.raw || {}),
+        members: currentConversation.members,
+      };
+      console.log("[WEB PHASE2 CANONICAL UPSERT]", {
+        conversationId: nextConversation.id,
+        source: "partial-payload-preserve-members",
+        preservedCount: currentConversation.members.length,
+      });
+    }
+  }
 
   const nextPeerUserId = resolveIdentityPatchValue(patch, nextRaw, "peerUserId");
   const nextPeerDisplayName = resolveIdentityPatchValue(patch, nextRaw, "peerDisplayName");
   const nextPeerAvatarUrl = resolveIdentityPatchValue(patch, nextRaw, "peerAvatarUrl");
-  const nextTrustedDisplayName = resolveIdentityPatchValue(
-    patch,
-    nextRaw,
-    "trustedDisplayName"
-  );
-  const nextTrustedAvatarUrl = resolveIdentityPatchValue(
-    patch,
-    nextRaw,
-    "trustedAvatarUrl"
-  );
+  const nextTrustedDisplayName =
+    isGroupConversation
+      ? resolveGroupMetadataPatchValue(patch, nextRaw, "trustedDisplayName", [
+          "displayName",
+          "name",
+          "groupName",
+        ])
+      : resolveIdentityPatchValue(patch, nextRaw, "trustedDisplayName");
+  const nextTrustedAvatarUrl =
+    isGroupConversation
+      ? resolveGroupMetadataPatchValue(patch, nextRaw, "trustedAvatarUrl", [
+          "avatarUrl",
+          "avatar",
+          "groupAvatarUrl",
+        ])
+      : resolveIdentityPatchValue(patch, nextRaw, "trustedAvatarUrl");
 
   nextConversation.peerUserId = preserveIdentityValue(
     currentConversation.peerUserId,
