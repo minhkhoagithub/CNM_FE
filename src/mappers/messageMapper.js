@@ -15,12 +15,158 @@ const mapReaction = (reaction) => ({
 
 export const RECALLED_MESSAGE_PLACEHOLDER = "Tin nhan da duoc thu hoi";
 
+const normalizeUserId = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  return String(value).trim();
+};
+
+const pickReadUserId = (value) =>
+  normalizeUserId(
+    typeof value === "object"
+      ? value.userId ||
+          value.readerUserId ||
+          value.seenByUserId ||
+          value.id ||
+          value._id ||
+          value.user?.userId ||
+          value.user?.id ||
+          value.profile?.userId
+      : value
+  );
+
+const mapReadUser = (value) => {
+  const userId = pickReadUserId(value);
+  if (!userId) {
+    return null;
+  }
+
+  return {
+    userId,
+    displayName:
+      pickFirstText(
+        value?.displayName,
+        value?.username,
+        value?.name,
+        value?.user?.displayName,
+        value?.user?.username,
+        value?.profile?.displayName,
+        value?.profile?.username
+      ) || "",
+    avatarUrl:
+      pickFirstText(
+        value?.avatarUrl,
+        value?.avatar,
+        value?.user?.avatarUrl,
+        value?.user?.avatar,
+        value?.profile?.avatarUrl
+      ) || "",
+    seenAt: value?.seenAt || value?.readAt || value?.updatedAt || null,
+    raw: value,
+  };
+};
+
+const uniqueReadUsers = (items) => {
+  const seenUserIds = new Set();
+
+  return (Array.isArray(items) ? items : [])
+    .map(mapReadUser)
+    .filter(Boolean)
+    .filter((item) => {
+      const normalizedUserId = String(item.userId);
+      if (seenUserIds.has(normalizedUserId)) {
+        return false;
+      }
+
+      seenUserIds.add(normalizedUserId);
+      return true;
+    });
+};
+
+const mapReadReceipts = (message) => {
+  if (!message || typeof message !== "object") {
+    return {
+      seenByUserIds: [],
+      seenByUsers: [],
+      source: "none",
+    };
+  }
+
+  const idSources = [
+    message.seenByUserIds,
+    message.seenUserIds,
+    message.readByUserIds,
+    message.readUserIds,
+    message.readerUserIds,
+  ].find((items) => Array.isArray(items) && items.length);
+  const userSources = [
+    message.seenBy,
+    message.seenUsers,
+    message.readBy,
+    message.readUsers,
+    message.readers,
+  ].find((items) => Array.isArray(items) && items.length);
+  const statusSources = [
+    message.statuses,
+    message.messageStatuses,
+    message.deliveryStatuses,
+  ].find((items) => Array.isArray(items) && items.length);
+
+  if (Array.isArray(userSources) && userSources.length) {
+    const seenByUsers = uniqueReadUsers(userSources);
+    return {
+      seenByUserIds: seenByUsers.map((item) => item.userId),
+      seenByUsers,
+      source: "user-list",
+    };
+  }
+
+  if (Array.isArray(idSources) && idSources.length) {
+    const seenByUsers = uniqueReadUsers(idSources);
+    return {
+      seenByUserIds: seenByUsers.map((item) => item.userId),
+      seenByUsers,
+      source: "user-id-list",
+    };
+  }
+
+  if (Array.isArray(statusSources) && statusSources.length) {
+    const seenByUsers = uniqueReadUsers(
+      statusSources.filter(
+        (item) => String(item?.status || "").toUpperCase() === "SEEN"
+      )
+    );
+    return {
+      seenByUserIds: seenByUsers.map((item) => item.userId),
+      seenByUsers,
+      source: "status-list",
+    };
+  }
+
+  return {
+    seenByUserIds: [],
+    seenByUsers: [],
+    source: message.seen == null ? "none" : "viewer-seen-flag",
+  };
+};
+
 const getStorage = () =>
   typeof window !== "undefined" && window.localStorage ? window.localStorage : null;
 
 const buildRecallStorageKey = (conversationId, currentUserId) =>
   conversationId && currentUserId
     ? `web:recalled-messages:${currentUserId}:${conversationId}`
+    : null;
+
+const buildForwardedStorageKey = (conversationId, currentUserId) =>
+  conversationId && currentUserId
+    ? `web:forwarded-messages:${currentUserId}:${conversationId}`
     : null;
 
 const readPersistedRecalledMessages = ({ conversationId, currentUserId }) => {
@@ -70,6 +216,134 @@ const writePersistedRecalledMessages = ({
     storage.setItem(storageKey, JSON.stringify(items));
   } catch (error) {
     console.log("[WEB RECALL MAP]", "Failed to persist recalled messages", {
+      conversationId,
+      currentUserId,
+      count: items.length,
+      error,
+    });
+  }
+};
+
+const normalizeForwardedMetadata = (item) => {
+  if (!item && item !== 0) {
+    return null;
+  }
+
+  if (typeof item === "string" || typeof item === "number") {
+    return {
+      id: String(item),
+      forwardedFrom: null,
+    };
+  }
+
+  if (typeof item !== "object") {
+    return null;
+  }
+
+  const normalizedId = item?.id == null ? "" : String(item.id);
+  if (!normalizedId) {
+    return null;
+  }
+
+  const forwardedFromMessageId =
+    item?.forwardedFrom?.messageId == null
+      ? null
+      : String(item.forwardedFrom.messageId);
+  const forwardedFromSenderName =
+    [
+      item?.forwardedFrom?.senderDisplayName,
+      item?.forwardedFromSenderName,
+      item?.senderDisplayName,
+    ].find((value) => typeof value === "string" && value.trim()) || null;
+
+  return {
+    id: normalizedId,
+    forwardedFrom:
+      forwardedFromMessageId || forwardedFromSenderName
+        ? {
+            messageId: forwardedFromMessageId,
+            senderDisplayName: forwardedFromSenderName,
+          }
+        : null,
+  };
+};
+
+const mapForwardedFrom = (message) => {
+  const forwardedFromMessageId =
+    message?.forwardedFrom?.messageId ??
+    message?.metadata?.forwardedFrom?.messageId ??
+    message?.raw?.forwardedFrom?.messageId ??
+    null;
+  const forwardedFromSenderName =
+    [
+      message?.forwardedFrom?.senderDisplayName,
+      message?.metadata?.forwardedFrom?.senderDisplayName,
+      message?.raw?.forwardedFrom?.senderDisplayName,
+      message?.forwardedFromSenderName,
+      message?.metadata?.forwardedFromSenderName,
+      message?.raw?.forwardedFromSenderName,
+    ].find((value) => typeof value === "string" && value.trim()) || null;
+
+  if (!forwardedFromMessageId && !forwardedFromSenderName) {
+    return null;
+  }
+
+  return {
+    messageId:
+      forwardedFromMessageId == null ? null : String(forwardedFromMessageId),
+    senderDisplayName: forwardedFromSenderName,
+  };
+};
+
+const readPersistedForwardedMessages = ({ conversationId, currentUserId }) => {
+  const storageKey = buildForwardedStorageKey(conversationId, currentUserId);
+  const storage = getStorage();
+
+  if (!storageKey || !storage) {
+    return [];
+  }
+
+  try {
+    const raw = storage.getItem(storageKey);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.map(normalizeForwardedMetadata).filter(Boolean)
+      : [];
+  } catch (error) {
+    console.log("[WEB FORWARD SEND]", "Failed to read persisted forwarded messages", {
+      conversationId,
+      currentUserId,
+      error,
+    });
+    return [];
+  }
+};
+
+const writePersistedForwardedMessages = ({
+  conversationId,
+  currentUserId,
+  items,
+}) => {
+  const storageKey = buildForwardedStorageKey(conversationId, currentUserId);
+  const storage = getStorage();
+
+  if (!storageKey || !storage) {
+    return;
+  }
+
+  try {
+    if (!items.length) {
+      storage.removeItem(storageKey);
+      return;
+    }
+
+    storage.setItem(storageKey, JSON.stringify(items));
+  } catch (error) {
+    console.log("[WEB FORWARD SEND]", "Failed to persist forwarded messages", {
       conversationId,
       currentUserId,
       count: items.length,
@@ -133,18 +407,40 @@ const mapReplyInfo = (replyTo) => {
     return null;
   }
 
+  const replyMessageId = replyTo.messageId || replyTo.replyToMessageId || replyTo.id || null;
+  const replySenderUserId = replyTo.senderId || replyTo.userId || null;
+  const senderDisplayName =
+    pickFirstText(
+      replyTo.senderDisplayName,
+      replyTo.displayName,
+      replyTo.sender?.displayName,
+      replyTo.sender?.username,
+      replyTo.user?.displayName,
+      replyTo.user?.username
+    ) || null;
+  const senderAvatarUrl =
+    pickFirstText(
+      replyTo.senderAvatarUrl,
+      replyTo.senderAvatar,
+      replyTo.avatarUrl,
+      replyTo.avatar,
+      replyTo.sender?.avatarUrl,
+      replyTo.sender?.avatar,
+      replyTo.user?.avatarUrl,
+      replyTo.user?.avatar
+    ) || null;
+
+  console.log("[WEB REPLY SENDER]", {
+    senderId: replySenderUserId,
+    senderDisplayName,
+    senderAvatarUrl,
+  });
+
   return {
-    messageId: replyTo.messageId || replyTo.replyToMessageId || replyTo.id || null,
-    senderId: replyTo.senderId || replyTo.userId || null,
-    senderDisplayName:
-      pickFirstText(
-        replyTo.senderDisplayName,
-        replyTo.displayName,
-        replyTo.sender?.displayName,
-        replyTo.sender?.username,
-        replyTo.user?.displayName,
-        replyTo.user?.username
-      ) || null,
+    messageId: replyMessageId,
+    senderId: replySenderUserId,
+    senderDisplayName,
+    senderAvatarUrl,
     contentPreview: createReplyPreviewText(replyTo),
     type: replyTo.type || null,
   };
@@ -170,6 +466,17 @@ export const mapMessage = (message) => {
     !isDeleted && Array.isArray(message?.attachments)
       ? message.attachments.map(mapAttachment)
       : [];
+  const forwardedFrom = mapForwardedFrom(message);
+  const forwarded = Boolean(
+    message?.forwarded ||
+      message?.isForwarded ||
+      forwardedFrom ||
+      message?.metadata?.forwarded ||
+      message?.raw?.forwarded
+  );
+  const readReceipts = isDeleted
+    ? { seenByUserIds: [], seenByUsers: [], source: "deleted" }
+    : mapReadReceipts(message);
 
   if (isDeleted) {
     console.log("[WEB RECALL MAP]", {
@@ -179,6 +486,31 @@ export const mapMessage = (message) => {
       deletedAt,
     });
   }
+  console.log("[WEB GROUP READ MAP]", {
+    messageId: message?.id || null,
+    conversationId: message?.conversationId || null,
+    seenField: message?.seen ?? null,
+    receiptSource: readReceipts.source,
+    seenByCount: readReceipts.seenByUserIds.length,
+  });
+  console.log("[WEB MESSAGE SENDER]", {
+    messageId: message?.id || null,
+    senderId: message?.senderId || null,
+    senderDisplayName:
+      pickFirstText(
+        message?.senderDisplayName,
+        message?.senderName,
+        message?.sender?.displayName,
+        message?.sender?.username
+      ) || null,
+    senderAvatarUrl:
+      pickFirstText(
+        message?.senderAvatarUrl,
+        message?.senderAvatar,
+        message?.sender?.avatarUrl,
+        message?.sender?.avatar
+      ) || null,
+  });
 
   return {
     id: message?.id || null,
@@ -191,6 +523,13 @@ export const mapMessage = (message) => {
         message?.sender?.displayName,
         message?.sender?.username
       ) || null,
+    senderAvatarUrl:
+      pickFirstText(
+        message?.senderAvatarUrl,
+        message?.senderAvatar,
+        message?.sender?.avatarUrl,
+        message?.sender?.avatar
+      ) || null,
     content: isDeleted ? RECALLED_MESSAGE_PLACEHOLDER : message?.content || "",
     attachments,
     reactions:
@@ -198,7 +537,12 @@ export const mapMessage = (message) => {
         ? message.reactions.map(mapReaction)
         : [],
     myReaction: isDeleted ? null : message?.myReaction || null,
-    seen: Boolean(message?.seen),
+    seen: message?.seen == null ? null : Boolean(message.seen),
+    forwarded,
+    forwardedFrom,
+    seenByUserIds: readReceipts.seenByUserIds,
+    seenByUsers: readReceipts.seenByUsers,
+    readReceiptSource: readReceipts.source,
     createdAt: message?.createdAt || null,
     editedAt: isDeleted ? null : message?.editedAt || null,
     deletedAt,
@@ -220,6 +564,12 @@ export const mapMessage = (message) => {
       content: isDeleted ? null : message?.content || "",
       editedAt: isDeleted ? null : message?.editedAt || null,
       myReaction: isDeleted ? null : message?.myReaction || null,
+      seen: isDeleted ? null : message?.seen ?? null,
+      forwarded,
+      forwardedFrom,
+      seenByUserIds: readReceipts.seenByUserIds,
+      seenByUsers: readReceipts.seenByUsers,
+      readReceiptSource: readReceipts.source,
     },
   };
 };
@@ -362,20 +712,98 @@ export const mergePersistedRecalledMessages = ({
   return sortMessagesByTimeline([...nextMessages.values()]);
 };
 
+export const mergePersistedForwardedFlags = ({
+  conversationId,
+  currentUserId,
+  messages,
+}) => {
+  const normalizedMessages = normalizeMessageList(messages);
+  const forwardedMessages = readPersistedForwardedMessages({
+    conversationId,
+    currentUserId,
+  });
+  const forwardedMessageMap = new Map(
+    forwardedMessages.map((item) => [String(item.id), item.forwardedFrom || null])
+  );
+
+  if (!forwardedMessageMap.size) {
+    return normalizedMessages;
+  }
+
+  return normalizedMessages.map((message) =>
+    forwardedMessageMap.has(String(message?.id))
+      ? {
+          ...message,
+          forwarded: true,
+          forwardedFrom:
+            forwardedMessageMap.get(String(message?.id)) || message?.forwardedFrom || null,
+          raw: {
+            ...(message?.raw || {}),
+            forwarded: true,
+            forwardedFrom:
+              forwardedMessageMap.get(String(message?.id)) || message?.raw?.forwardedFrom || null,
+          },
+        }
+      : message
+  );
+};
+
 export const mapMessagePage = (messagePage, options = {}) => {
   const items = Array.isArray(messagePage?.items) ? messagePage.items : [];
   const mappedItems = items.slice().reverse().map(mapMessage);
+  const recalledMergedItems = mergePersistedRecalledMessages({
+    conversationId: options.conversationId || null,
+    currentUserId: options.currentUserId || null,
+    messages: mappedItems,
+  });
 
   return {
-    items: mergePersistedRecalledMessages({
+    items: mergePersistedForwardedFlags({
       conversationId: options.conversationId || null,
       currentUserId: options.currentUserId || null,
-      messages: mappedItems,
+      messages: recalledMergedItems,
     }),
     nextCursor: messagePage?.nextCursor || null,
     hasMore: Boolean(messagePage?.hasMore),
     raw: messagePage,
   };
+};
+
+export const persistForwardedMessageFlag = ({
+  conversationId,
+  currentUserId,
+  messageId,
+  forwardedFrom,
+}) => {
+  if (!conversationId || !currentUserId || !messageId) {
+    return;
+  }
+
+  const currentMessages = readPersistedForwardedMessages({
+    conversationId,
+    currentUserId,
+  });
+  const normalizedMessageId = String(messageId);
+  const nextMessages = [
+    ...currentMessages.filter((item) => String(item.id) !== normalizedMessageId),
+    {
+      id: normalizedMessageId,
+      forwardedFrom:
+        forwardedFrom?.messageId || forwardedFrom?.senderDisplayName
+          ? {
+              messageId:
+                forwardedFrom?.messageId == null ? null : String(forwardedFrom.messageId),
+              senderDisplayName: forwardedFrom?.senderDisplayName || null,
+            }
+          : null,
+    },
+  ];
+
+  writePersistedForwardedMessages({
+    conversationId,
+    currentUserId,
+    items: nextMessages,
+  });
 };
 
 export const normalizeMessageList = (messages) => (Array.isArray(messages) ? messages : []);
@@ -397,7 +825,20 @@ export const upsertMessageItem = (messages, nextMessage) => {
 
   return sortMessagesByTimeline(
     normalizedMessages.map((message) =>
-      message.id === nextMessage.id ? { ...message, ...nextMessage } : message
+      message.id === nextMessage.id
+        ? {
+            ...message,
+            ...nextMessage,
+            forwarded:
+              nextMessage.forwarded === undefined
+                ? message.forwarded || false
+                : nextMessage.forwarded,
+            forwardedFrom:
+              nextMessage.forwardedFrom === undefined
+                ? message.forwardedFrom || null
+                : nextMessage.forwardedFrom,
+          }
+        : message
     )
   );
 };
@@ -425,6 +866,55 @@ export const updateMessageReactionSummary = (
         }
       : message
   );
+
+export const updateMessageReadReceipt = (messages, payload = {}) => {
+  const messageId = payload.messageId || payload.id || null;
+  const userId = normalizeUserId(payload.userId || payload.readerUserId);
+  const status = String(payload.status || "").toUpperCase();
+
+  if (!messageId || !userId || status !== "SEEN") {
+    return normalizeMessageList(messages);
+  }
+
+  return normalizeMessageList(messages).map((message) => {
+    if (String(message.id) !== String(messageId)) {
+      return message;
+    }
+
+    const currentUsers = Array.isArray(message.seenByUsers)
+      ? message.seenByUsers
+      : [];
+    const nextUsers = uniqueReadUsers([
+      ...currentUsers,
+      {
+        userId,
+        seenAt: payload.updatedAt || payload.seenAt || null,
+        raw: payload,
+      },
+    ]);
+    const nextUserIds = nextUsers.map((item) => item.userId);
+
+    console.log("[WEB GROUP READ MAP]", {
+      source: "status-event",
+      messageId,
+      userId,
+      seenByCount: nextUserIds.length,
+    });
+
+    return {
+      ...message,
+      seenByUserIds: nextUserIds,
+      seenByUsers: nextUsers,
+      readReceiptSource: "status-event",
+      raw: {
+        ...(message.raw || {}),
+        seenByUserIds: nextUserIds,
+        seenByUsers: nextUsers,
+        readReceiptSource: "status-event",
+      },
+    };
+  });
+};
 
 // Remove-for-me is local-only visibility; do not convert it to a recalled placeholder.
 export const removeMessageItem = (messages, messageId) =>
