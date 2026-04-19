@@ -33,6 +33,10 @@ import {
   uploadAttachmentV1,
 } from "../../services/chat/messageApi";
 import chatRealtimeService from "../../services/chat/chatRealtimeService";
+import { askAi, getChatSummary } from "../../services/ai/aiApi";
+import GroupCallMessageItem from "../Call/GroupCallMessageItem";
+import { initiateGroupCallApi } from "../../services/call/groupCallApi";
+import groupCallService from "../../services/call/GroupCallService";
 import {
   RECALLED_MESSAGE_PLACEHOLDER,
   createReplyPreviewText,
@@ -527,6 +531,13 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   const [isForwarding, setIsForwarding] = useState(false);
   const [forwardNotice, setForwardNotice] = useState("");
   const [openMessageMenuId, setOpenMessageMenuId] = useState(null);
+  const [aiMessages, setAiMessages] = useState([]);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [summaryState, setSummaryState] = useState({
+    open: false,
+    content: "",
+    loading: false
+  });
   const forwardNoticeTimeoutRef = useRef(null);
   const { userData } = useContext(UserContext);
   const {
@@ -553,6 +564,26 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 
     return null;
   }, [contactData, currentConversationNormalized, selectedConversationId]);
+
+  // Listener cho sự kiện mở tóm tắt AI từ Sidebar
+  useEffect(() => {
+    const handleOpenSummary = async (event) => {
+      const { conversationId } = event.detail;
+      if (!conversationId || !currentUserId) return;
+
+      setSummaryState({ open: true, content: "", loading: true });
+      try {
+        const result = await getChatSummary(conversationId, currentUserId);
+        setSummaryState({ open: true, content: result, loading: false });
+      } catch (error) {
+        setSummaryState({ open: true, content: "Không thể lấy tóm tắt lúc này.", loading: false });
+      }
+    };
+
+    window.addEventListener('OPEN_AI_SUMMARY', handleOpenSummary);
+    return () => window.removeEventListener('OPEN_AI_SUMMARY', handleOpenSummary);
+  }, [currentUserId]);
+
   const backendConversationId = activeConversation?.id || null;
   const conversationName =
     activeConversation?.displayName ||
@@ -1015,7 +1046,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 
   const pushTypingState = useCallback(
     async (isTyping) => {
-      if (!backendConversationId) {
+      if (!backendConversationId || backendConversationId === "AI_ASSISTANT") {
         return;
       }
 
@@ -1370,8 +1401,8 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       setActionError("");
       setEditingMessageId(null);
 
-      if (!backendConversationId) {
-        setMessages([]);
+      if (!backendConversationId || backendConversationId === "AI_ASSISTANT") {
+        if (!backendConversationId) setMessages([]);
         return;
       }
 
@@ -1400,8 +1431,31 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     fetchMessages();
   }, [backendConversationId, currentUserId, updateConversationById]);
 
+  // Khởi tạo và đồng bộ tin nhắn AI từ Local Storage
   useEffect(() => {
-    if (!backendConversationId) {
+    if (backendConversationId === "AI_ASSISTANT") {
+      const stored = localStorage.getItem(`ai_chat_${currentUserId}`);
+      if (stored) {
+        setAiMessages(JSON.parse(stored));
+      } else {
+        setAiMessages([{
+          id: 'welcome',
+          senderId: 'AI',
+          content: 'Xin chào! Tôi là Trợ lý AI. Tôi có thể giúp gì cho bạn?',
+          createdAt: new Date().toISOString()
+        }]);
+      }
+    }
+  }, [backendConversationId, currentUserId]);
+
+  useEffect(() => {
+    if (backendConversationId === "AI_ASSISTANT") {
+      localStorage.setItem(`ai_chat_${currentUserId}`, JSON.stringify(aiMessages));
+    }
+  }, [aiMessages, backendConversationId, currentUserId]);
+
+  useEffect(() => {
+    if (!backendConversationId || backendConversationId === "AI_ASSISTANT") {
       return undefined;
     }
 
@@ -1464,8 +1518,38 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     upsertMessage,
   ]);
 
+  // --- Group Call WebSocket Subscription (Web - Tách biệt) ---
   useEffect(() => {
-    if (!backendConversationId) {
+    if (!backendConversationId || activeConversation?.type !== 'group') {
+      return undefined;
+    }
+
+    const subscriptionKey = `chat:conversation:${backendConversationId}:calls`;
+    chatRealtimeService.subscribe(
+      subscriptionKey,
+      `/topic/conversations/${backendConversationId}/calls`,
+      (payload) => {
+        const eventType = payload?.type;
+        const data = payload?.payload || payload;
+        
+        console.log('[WEB] Group Call Event Received:', { eventType, data });
+
+        if (eventType === 'GROUP_CALL_INCOMING') {
+          // Gửi event lên window để Zalo.jsx bắt được và hiện Modal nhận cuộc gọi
+          window.dispatchEvent(new CustomEvent('group-call-incoming', { detail: data }));
+        } else if (eventType === 'GROUP_CALL_ENDED') {
+          window.dispatchEvent(new CustomEvent('group-call-ended', { detail: data }));
+        }
+      }
+    ).catch(err => console.error('[WEB] Subscribe group calls error:', err));
+
+    return () => {
+      chatRealtimeService.unsubscribe(subscriptionKey);
+    };
+  }, [backendConversationId, activeConversation?.type]);
+
+  useEffect(() => {
+    if (!backendConversationId || backendConversationId === "AI_ASSISTANT") {
       setTypingUsers([]);
       return undefined;
     }
@@ -1559,7 +1643,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   }, [backendConversationId, currentUserId, resolveUserDisplayName]);
 
   const handleSeenMess = useCallback(() => {
-    if (!backendConversationId) {
+    if (!backendConversationId || backendConversationId === "AI_ASSISTANT") {
       return;
     }
 
@@ -1644,6 +1728,41 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     }
 
     setIsSending(true);
+
+    // Xử lý gửi tin nhắn cho AI Assistant
+    if (backendConversationId === "AI_ASSISTANT") {
+      const userMsg = {
+        id: `user-${Date.now()}`,
+        senderId: currentUserId,
+        content: messageText,
+        createdAt: new Date().toISOString()
+      };
+      setAiMessages(prev => [...prev, userMsg]);
+      resetComposer();
+      setIsAiLoading(true);
+
+      try {
+        const aiResponseContent = await askAi(messageText);
+        const aiMsg = {
+          id: `ai-${Date.now()}`,
+          senderId: 'AI',
+          content: aiResponseContent,
+          createdAt: new Date().toISOString()
+        };
+        setAiMessages(prev => [...prev, aiMsg]);
+      } catch (error) {
+        setAiMessages(prev => [...prev, {
+          id: `error-${Date.now()}`,
+          senderId: 'AI',
+          content: 'Xin lỗi, tôi đang gặp trục trặc kỹ thuật. Vui lòng thử lại sau.',
+          createdAt: new Date().toISOString()
+        }]);
+      } finally {
+        setIsAiLoading(false);
+        setIsSending(false);
+      }
+      return;
+    }
 
     if (containsEmoji) {
       console.log("[WEB EMOJI SEND]", {
@@ -2101,6 +2220,45 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     window.dispatchEvent(event);
   }, [activeConversation, currentUserId]);
 
+  const handleStartGroupCall = useCallback(async (type) => {
+    if (!backendConversationId) return;
+    try {
+      console.log("[WEB] Initiating group call:", { type, conversationId: backendConversationId });
+      const callData = await initiateGroupCallApi(backendConversationId, type);
+      
+      // Chuyển hướng ngay lập tức (Host mode)
+      const event = new CustomEvent('group-call-join-request', { 
+        detail: {
+          ...callData,
+          initiatorId: currentUserId,
+          initiatorName: userData?.displayName || "Bạn",
+          type: type.toUpperCase() // VIDEO/VOICE
+        } 
+      });
+      window.dispatchEvent(event);
+    } catch (error) {
+      console.error("[WEB] Failed to initiate group call:", error);
+      alert("Không thể khởi tạo cuộc gọi nhóm.");
+    }
+  }, [backendConversationId, currentUserId, userData]);
+
+  const handleOpenAiSummaryInChat = async () => {
+    if (!backendConversationId || !currentUserId) return;
+    setSummaryState({ open: true, content: "", loading: true });
+    try {
+      const result = await getChatSummary(backendConversationId, currentUserId);
+      setSummaryState({ open: true, content: result, loading: false });
+    } catch (error) {
+      setSummaryState({ open: true, content: "Không thể lấy tóm tắt lúc này.", loading: false });
+    }
+  };
+
+  const getUnreadCount = () => {
+    const conv = conversations.find(c => c.id === backendConversationId) || 
+                 archivedConversations.find(c => c.id === backendConversationId);
+    return Number(conv?.unreadCount || 0);
+  };
+
   return (
     <div className="container-containermess" onClick={handleSeenMess}>
       <div className="top-container flex">
@@ -2132,22 +2290,58 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
           </div>
         </div>
         <div className="group-choice flex">
+          {getUnreadCount() >= 5 && (
+            <div 
+              className="icon-header ai-summary-btn" 
+              title="Tóm tắt tin nhắn bằng AI" 
+              onClick={handleOpenAiSummaryInChat}
+              style={{ color: '#0084ff', fontWeight: 'bold' }}
+            >
+              ✨
+            </div>
+          )}
           <HiOutlineUserGroup className="icon-header" />
           <CiSearch className="icon-header" />
-          <IoCallOutline className="icon-header" onClick={() => handleStartCall("VOICE")} />
-          <IoVideocamOutline className="icon-header" onClick={() => handleStartCall("VIDEO")} />
+          {activeConversation?.type === 'group' ? (
+            <>
+              <IoCallOutline className="icon-header" onClick={() => handleStartGroupCall("VOICE")} />
+              <IoVideocamOutline className="icon-header" onClick={() => handleStartGroupCall("VIDEO")} />
+            </>
+          ) : (
+            <>
+              <IoCallOutline className="icon-header" onClick={() => handleStartCall("VOICE")} />
+              <IoVideocamOutline className="icon-header" onClick={() => handleStartCall("VIDEO")} />
+            </>
+          )}
         </div>
       </div>
       <div className="infor-container" style={conversationBackgroundStyle}>
         <div>
           <ul>
-            {normalizedMessages.map((item, index) => {
+            {(backendConversationId === "AI_ASSISTANT" ? aiMessages : normalizedMessages).map((item, index) => {
               const isMine = item.senderId === currentUserId;
+              const isAi = item.senderId === 'AI';
+
+              // Render Group Call Log (Tin nhắn thông báo cuộc gọi)
+              if (item.type === 'CALL_LOG') {
+                return (
+                  <GroupCallMessageItem 
+                    key={item.id || index}
+                    message={item}
+                    isMine={isMine}
+                    onJoin={(callData) => {
+                      // Gửi event để Zalo.jsx xử lý việc tham gia cuộc gọi
+                      window.dispatchEvent(new CustomEvent('group-call-join-request', { detail: callData }));
+                    }}
+                  />
+                );
+              }
+
               const isDeleted = Boolean(item.deletedAt);
-              const visibleAttachments = isDeleted ? [] : item.attachments;
-              const imageAttachments = visibleAttachments.filter(isImageAttachment);
+              const visibleAttachments = isDeleted ? [] : (item.attachments || []);
+              const imageAttachments = visibleAttachments.filter(attachment => attachment && isImageAttachment(attachment));
               const fileAttachments = visibleAttachments.filter(
-                (attachment) => !isImageAttachment(attachment)
+                (attachment) => attachment && !isImageAttachment(attachment)
               );
               const canEdit =
                 isMine && !isDeleted && !visibleAttachments.length && Boolean(item.content);
@@ -2214,15 +2408,20 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                     item.deletedAt ? "message-row-deleted" : ""
                   } flex`}
                 >
-                  {renderAvatar(senderIdentity.avatarUrl, "", senderIdentity.displayName)}
+                  {isAi ? (
+                    <img className="" src="https://cdn-icons-png.flaticon.com/512/4712/4712035.png" alt="AI" style={{ width: 40, height: 40, borderRadius: '50%' }} />
+                  ) : (
+                    renderAvatar(senderIdentity.avatarUrl, "", senderIdentity.displayName)
+                  )}
                   <div
                     className={`detail-mess ${
                       isDeleted ? "detail-mess-deleted" : ""
                     } ${fileAttachments.length ? "detail-mess-has-files" : ""}`}
                   >
-                    {!isMine && (
+                    {!isMine && !isAi && (
                       <p className="name-mess">{senderIdentity.displayName}</p>
                     )}
+                    {isAi && <p className="name-mess">Trợ lý AI</p>}
                     {editingMessageId === item.id ? (
                       <div className="message-edit-card">
                         <textarea
@@ -2485,6 +2684,15 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                 </li>
               );
             })}
+            {isAiLoading && (
+              <li className="wrap-text-mess flex">
+                <img src="https://cdn-icons-png.flaticon.com/512/4712/4712035.png" alt="AI" style={{ width: 40, height: 40, borderRadius: '50%' }} />
+                <div className="detail-mess">
+                  <p className="name-mess">Trợ lý AI</p>
+                  <p className="text-mess">Đang suy nghĩ...</p>
+                </div>
+              </li>
+            )}
           </ul>
         </div>
       </div>
@@ -2723,6 +2931,43 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
           <p className="composer-feedback-error">{actionError}</p>
         ) : null}
       </div>
+
+      {/* AI Summary Modal */}
+      {summaryState.open && (
+        <div className="ai-summary-overlay" style={{
+          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+          backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 10000, display: 'flex',
+          justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(5px)'
+        }}>
+          <div className="ai-summary-modal" style={{
+            backgroundColor: 'white', width: '500px', maxWidth: '90%',
+            borderRadius: '12px', padding: '24px', position: 'relative',
+            boxShadow: '0 10px 25px rgba(0,0,0,0.2)'
+          }}>
+            <h2 style={{ margin: '0 0 16px', color: '#0068ff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              ✨ Tóm tắt bằng AI
+            </h2>
+            <div style={{ 
+              maxHeight: '400px', overflowY: 'auto', lineHeight: '1.6', color: '#444',
+              whiteSpace: 'pre-wrap'
+            }}>
+              {summaryState.loading ? (
+                <div style={{ textAlign: 'center', padding: '20px' }}>Đang phân tích tin nhắn...</div>
+              ) : summaryState.content}
+            </div>
+            <button 
+              onClick={() => setSummaryState({ ...summaryState, open: false })}
+              style={{
+                marginTop: '24px', width: '100%', padding: '10px',
+                backgroundColor: '#0068ff', color: 'white', border: 'none',
+                borderRadius: '6px', cursor: 'pointer', fontWeight: '500'
+              }}
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

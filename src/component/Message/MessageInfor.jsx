@@ -1,4 +1,4 @@
-﻿import React, { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import "../../resource/style/Chat/messageInfor.css";
 import { ThemeContext } from "../../Context/ThemeContext";
 import { ContactContext } from "../../Context/ContactConext";
@@ -1260,22 +1260,26 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
             )}
             <div className="mess-infor-nickname flex">
               <p>{effectiveDisplayName}</p>
-              <CiEdit style={{ fontSize: "23px", cursor: "pointer" }} />
+              {activeConversation?.id !== "AI_ASSISTANT" && (
+                <CiEdit style={{ fontSize: "23px", cursor: "pointer" }} />
+              )}
             </div>
-            <div className="mess-infor-status-chips">
-              {activeConversation?.pinned ? (
-                <span className="mess-infor-status-chip pinned">Ghim</span>
-              ) : null}
-              {activeConversation?.muted ? (
-                <span className="mess-infor-status-chip muted">Tắt thông báo</span>
-              ) : null}
-              {activeConversation?.archived ? (
-                <span className="mess-infor-status-chip archived">Lưu trữ</span>
-              ) : null}
-              <span className="mess-infor-status-chip">
-                {activeConversation?.notificationLevel || "ALL"}
-              </span>
-            </div>
+            {activeConversation?.id !== "AI_ASSISTANT" && (
+              <div className="mess-infor-status-chips">
+                {activeConversation?.pinned ? (
+                  <span className="mess-infor-status-chip pinned">Ghim</span>
+                ) : null}
+                {activeConversation?.muted ? (
+                  <span className="mess-infor-status-chip muted">Tắt thông báo</span>
+                ) : null}
+                {activeConversation?.archived ? (
+                  <span className="mess-infor-status-chip archived">Lưu trữ</span>
+                ) : null}
+                <span className="mess-infor-status-chip">
+                  {activeConversation?.notificationLevel || "ALL"}
+                </span>
+              </div>
+            )}
             {canUpdateGroupAvatar ? (
               <div
                 style={{

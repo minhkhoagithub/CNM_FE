@@ -42,7 +42,7 @@ class CallService {
     this._onCallEnded = onCallEnded;
     this._onStateChange = onStateChange;
     this._onRemoteVideoToggle = onRemoteVideoToggle;
-    this._callType = type;
+    this._callType = (type || 'VIDEO').toUpperCase(); // Chuẩn hóa thành VIDEO/VOICE
     
     // Reset state cũ
     this._producers.clear();
@@ -85,7 +85,7 @@ class CallService {
     this._roomId = channel;
     // [v22] PeerId siêu duy nhất
     this._peerId = peerId || `web-callee-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-    this._callType = type;
+    this._callType = (type || 'VIDEO').toUpperCase();
 
     // Reset state cũ
     this._producers.clear();
@@ -482,14 +482,13 @@ class CallService {
 
     this._consumers.set(consumerId, consumer);
 
-    // Kích hoạt ngay lập tức trên Server và Local
-    console.log('[CallService] Resuming consumer:', consumerId);
-    if (this._ws && this._ws.readyState === WebSocket.OPEN) {
-      this._ws.send(JSON.stringify({
-        notification: true,
-        method: 'resumeConsumer',
-        data: { consumerId }
-      }));
+    // Kích hoạt ngay lập tức trên Server (SỬ DỤNG REQUEST ĐỂ ĐẢM BẢO SERVER NHẬN ĐƯỢC)
+    console.log('[CallService] 📤 Resuming consumer:', consumerId);
+    try {
+      await this._sendRequest('resumeConsumer', { consumerId });
+      console.log('[CallService] ✅ Consumer resumed successfully:', consumerId);
+    } catch (err) {
+      console.error('[CallService] ❌ Failed to resume consumer:', err);
     }
     
     // Web: track.enabled mặc định là true, nhưng ta ép lại lần nữa
@@ -502,7 +501,7 @@ class CallService {
 
     // QUAN TRỌNG: Tạo reference mới để React nhận diện thay đổi
     const newStream = new MediaStream(this._remoteStream.getTracks());
-    this._onRemoteStream?.(this._remoteStream, Date.now());
+    this._onRemoteStream?.(newStream, Date.now());
 
     // [v24] Bắt đầu theo dõi lưu lượng trên Web
     const statsInterval = setInterval(async () => {

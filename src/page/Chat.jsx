@@ -15,21 +15,11 @@ import todo from "../resource/svg/chat/todo.svg";
 import cloud from "../resource/svg/chat/cloud.svg";
 import toolbox from "../resource/svg/chat/toolbox.svg";
 import setting from "../resource/svg/chat/setting.svg";
-function Chat({ handleLogout }) {
+function Chat({ handleLogout, onConversationSelect }) {
   const { userData } = useContext(UserContext);
 
   const [showPageAddressBook, setShowPageAddressBook] = useState(false);
-  const topMenu = [mess, addressbook, todo];
-  const bottomMenu = [cloud, toolbox, setting];
   const [menuActive, setMenuactive] = useState(0);
-  const listComponent = [
-    <Message showPageAddressBook={showPageAddressBook} />,
-    <AddressBook onClick={() => handleShowPageAddressBook(true)} />,
-    <ToDo />,
-    <Clod />,
-    <ToolBox />,
-  ];
-  const CurrentComponent = listComponent[menuActive];
   const [isShowStartup, setIsShoeStartup] = useState(false);
   const [showSetting, setShowSetting] = useState(false);
   const [showSettingMenu, setShowSettingMenu] = useState(false);
@@ -41,6 +31,38 @@ function Chat({ handleLogout }) {
     newPassword: "",
     confirmPassword: ""
   });
+
+  const topMenu = [mess, addressbook, todo];
+  const bottomMenu = [cloud, toolbox, setting];
+
+  const handleShowSettingMenu = () => {
+    setShowSettingMenu(!showSettingMenu);
+  };
+
+  const handleShowStartup = () => {
+    isShowStartup ? setIsShoeStartup(false) : setIsShoeStartup(true);
+  };
+
+  const handleShowPageAddressBook = (value) => {
+    setShowPageAddressBook(value);
+  };
+
+  const handleShowSetting = (value) => {
+    setShowSetting(value);
+  };
+
+  const listComponent = [
+    <Message 
+      showPageAddressBook={showPageAddressBook} 
+      onConversationSelect={onConversationSelect} 
+    />,
+    <AddressBook onClick={() => handleShowPageAddressBook(true)} />,
+    <ToDo />,
+    <Clod />,
+    <ToolBox />,
+  ];
+
+  const CurrentComponent = listComponent[menuActive];
   // Device management is handled by DeviceManager component
   const boxRef = useRef(null);
   const boxAvatar = useRef(null);
@@ -50,7 +72,7 @@ function Chat({ handleLogout }) {
   useEffect(() => {
     function handleClickOutside(event) {
       if (
-        !boxAvatar.current.contains(event.target) &&
+        !boxAvatar.current?.contains(event.target) &&
         boxRef.current &&
         !boxRef.current.contains(event.target)
       ) {
@@ -72,28 +94,12 @@ function Chat({ handleLogout }) {
     };
   }, [boxRef, setIsShoeStartup, boxSettingRef, setShowSettingMenu]);
 
-
-
   const handleChangeMenuActive = (index) => {
-    if (index == 0 || index == 1) {
+    if (index === 0 || index === 1) {
       setMenuactive(index);
-    } else if (index == 5) {
+    } else if (index === 5) {
       handleShowSettingMenu();
     }
-  };
-  const handleShowSetting = (value) => {
-    setShowSetting(value);
-  };
-
-  const handleShowSettingMenu = () => {
-    setShowSettingMenu(!showSettingMenu);
-  };
-
-  const handleShowStartup = () => {
-    isShowStartup ? setIsShoeStartup(false) : setIsShoeStartup(true);
-  };
-  const handleShowPageAddressBook = (value) => {
-    setShowPageAddressBook(value);
   };
 
   const handlePasswordChange = (e) => {
