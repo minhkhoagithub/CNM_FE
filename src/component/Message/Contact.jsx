@@ -1093,7 +1093,7 @@ const isCreateGroupSubmitDisabled =
                                 handleFindUsersForAddFriend();
                               }
                             }}
-                            placeholder="Nhap ten, username hoac so dien thoai"
+                            placeholder="Nhập tên, username, họ tên hoặc số điện thoại"
                           />
                         </div>
                       </div>
@@ -1110,7 +1110,7 @@ const isCreateGroupSubmitDisabled =
                       </div>
 
                       <div className="recent-result">
-                        <p>Ket qua</p>
+                        <p>Kết quả tìm kiếm</p>
                         {friendSearch.error ? <p>{friendSearch.error}</p> : null}
                         {friendSearch.searched &&
                         friendSearch.results.length === 0 &&
