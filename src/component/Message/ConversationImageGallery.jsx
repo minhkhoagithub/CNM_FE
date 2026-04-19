@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useMemo } from "react";
+﻿import React, { memo, useEffect, useMemo } from "react";
 import { IoMdClose } from "react-icons/io";
 import { IoChevronBack, IoChevronForward } from "react-icons/io5";
 import "../../resource/style/Chat/imageGallery.css";
@@ -71,11 +71,11 @@ function ConversationImageGallery({
       <div className="conversation-gallery-shell" onClick={(event) => event.stopPropagation()}>
         <div className="conversation-gallery-header">
           <div className="conversation-gallery-heading">
-            <h3>{conversationName || "Anh trong hoi thoai"}</h3>
+            <h3>{conversationName || "Ảnh trong hội thoại"}</h3>
             <p>
               {normalizedImages.length
                 ? `${activeImageIndex >= 0 ? activeImageIndex + 1 : 1} / ${normalizedImages.length} anh`
-                : "Dang tai gallery..."}
+                : "Đang tải thư viện ảnh..."}
             </p>
           </div>
           <button
@@ -104,17 +104,17 @@ function ConversationImageGallery({
               <>
                 <img src={activeImage.url} alt={activeImage.fileName || ""} />
                 <div className="conversation-gallery-image-meta">
-                  <strong>{activeImage.fileName || "Anh trong hoi thoai"}</strong>
+                  <strong>{activeImage.fileName || "Ảnh trong hội thoại"}</strong>
                 </div>
               </>
             ) : (
               <div className="conversation-gallery-status">
-                {loading ? "Dang tai gallery..." : error || "Khong co anh trong hoi thoai."}
+            {loading ? "Đang tải thư viện ảnh..." : error || "Không có ảnh trong hội thoại."}
               </div>
             )}
 
             {loading && activeImage ? (
-              <div className="conversation-gallery-loading-chip">Dang dong bo anh...</div>
+              <div className="conversation-gallery-loading-chip">Đang đồng bộ ảnh...</div>
             ) : null}
           </div>
 
@@ -134,7 +134,7 @@ function ConversationImageGallery({
         ) : null}
         {isPartial ? (
           <p className="conversation-gallery-inline-message">
-            Dang hien thi anh gan day trong hoi thoai.
+            Đang hiển thị ảnh gần đây trong hội thoại.
           </p>
         ) : null}
 
@@ -162,3 +162,6 @@ function ConversationImageGallery({
 }
 
 export default memo(ConversationImageGallery);
+
+
+

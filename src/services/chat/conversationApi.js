@@ -58,6 +58,44 @@ export const updateConversationPinV1 = async (conversationId, pinned) => {
   return unwrapResponseData(response);
 };
 
+export const updateConversationBackgroundV1 = async (
+  conversationId,
+  payload
+) => {
+  const requestPayload =
+    typeof payload === "string"
+      ? {
+          backgroundType: "COLOR",
+          backgroundColor: payload,
+        }
+      : payload;
+
+  const response = await chatHttpClient.patch(
+    `/conversations/${conversationId}/background`,
+    requestPayload
+  );
+  return unwrapResponseData(response);
+};
+
+export const uploadConversationBackgroundImageV1 = async (
+  conversationId,
+  file
+) => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await chatHttpClient.post(
+    `/conversations/${conversationId}/background-image`,
+    formData,
+    {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    }
+  );
+  return unwrapResponseData(response);
+};
+
 export const updateConversationNotificationLevelV1 = async (
   conversationId,
   notificationLevel

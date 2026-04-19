@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useEffect, useState } from "react";
+﻿import React, { useCallback, useContext, useEffect, useState } from "react";
 import { ContactContext } from "../../Context/ContactConext";
 import { UserContext } from "../../Context/UserContext";
 import MessageInfor from "../Message/MessageInfor";
@@ -35,7 +35,7 @@ export default function AddressBook() {
   const conversationName =
     currentConversationNormalized?.displayName ||
     currentConversationNormalized?.trustedDisplayName ||
-    "Anh trong hoi thoai";
+    "Ảnh trong hội thoại";
 
   const handleChangeContact = async (value) => {
     setOpenChatError("");
@@ -54,7 +54,7 @@ export default function AddressBook() {
       });
     } catch (err) {
       console.error(err);
-      setOpenChatError("Khong the mo cuoc tro chuyen nay.");
+      setOpenChatError("Không thể mở cuộc trò chuyện này.");
     }
   };
 
@@ -118,7 +118,7 @@ export default function AddressBook() {
       const fallbackImage = {
         id: clickedImage.id || clickedImage.url,
         url: clickedImage.url,
-        fileName: clickedImage.fileName || "Anh trong hoi thoai",
+        fileName: clickedImage.fileName || "Ảnh trong hội thoại",
       };
 
       setImageGalleryState({
@@ -140,7 +140,7 @@ export default function AddressBook() {
           .map((attachment) => ({
             id: attachment.id || attachment.url,
             url: attachment.url,
-            fileName: attachment.fileName || "Anh trong hoi thoai",
+            fileName: attachment.fileName || "Ảnh trong hội thoại",
             createdAt: attachment.createdAt || null,
           }));
 
@@ -148,7 +148,7 @@ export default function AddressBook() {
           setImageGalleryState({
             isOpen: true,
             loading: false,
-            error: "Khong tim thay anh trong hoi thoai nay.",
+            error: "Không tìm thấy ảnh trong hội thoại này.",
             images: [fallbackImage],
             activeImageId: fallbackImage.id,
             isPartial: false,
@@ -175,7 +175,7 @@ export default function AddressBook() {
         setImageGalleryState({
           isOpen: true,
           loading: false,
-          error: "Khong the tai gallery anh luc nay.",
+          error: "Không thể tải thư viện ảnh lúc này.",
           images: [fallbackImage],
           activeImageId: fallbackImage.id,
           isPartial: false,
@@ -242,3 +242,6 @@ export default function AddressBook() {
     </>
   );
 }
+
+
+

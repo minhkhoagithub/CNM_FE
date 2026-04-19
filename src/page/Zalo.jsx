@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useEffect, useState } from "react";
+﻿import React, { useCallback, useContext, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { UserContext } from "../Context/UserContext";
 import WebSocketService from "../services/WebSocketService";
@@ -104,7 +104,7 @@ export default function Zalo() {
 
     const handleDeviceLoginRequest = async (event) => {
       const shouldApprove = window.confirm(
-        `Thiet bi moi "${event?.deviceName || "Unknown device"}" (${event?.platform || "UNKNOWN"}) dang yeu cau dang nhap. Ban co muon cho phep khong?`,
+        `Thiết bị mới "${event?.deviceName || "Unknown device"}" (${event?.platform || "UNKNOWN"}) đang yêu cầu đăng nhập. Bạn có muốn cho phép không?`,
       );
 
       try {
@@ -310,3 +310,5 @@ export default function Zalo() {
     </>
   );
 }
+
+
