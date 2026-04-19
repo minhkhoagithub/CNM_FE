@@ -543,6 +543,7 @@ export const mapMessage = (message) => {
     seenByUserIds: readReceipts.seenByUserIds,
     seenByUsers: readReceipts.seenByUsers,
     readReceiptSource: readReceipts.source,
+    type: message?.type || "TEXT",
     createdAt: message?.createdAt || null,
     editedAt: isDeleted ? null : message?.editedAt || null,
     deletedAt,

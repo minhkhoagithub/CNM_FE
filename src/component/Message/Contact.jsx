@@ -168,7 +168,8 @@ function Contact({
 const getSearchItemId = (item) => item?.userId || item?._id || item?.id || null;
 
   const searchTimeout = useRef(null);
-  const displayedConversationList = showArchived ? archivedConversations : conversations;
+  const displayedConversationList = (showArchived ? archivedConversations : conversations)
+    ?.filter(conversation => conversation.id !== "AI_ASSISTANT");
   const displayedConversationListNotSeen = useMemo(
     () =>
       displayedConversationList.filter(
@@ -1510,6 +1511,44 @@ const isCreateGroupSubmitDisabled =
               <div className="contact-listConversation">
                 {allMessActive ? (
                   <ul>
+                    {/* Hàng Trợ lý AI cố định */}
+                    <li
+                      className={
+                        selectedConversationId === "AI_ASSISTANT"
+                          ? "conversation-active"
+                          : ""
+                      }
+                      onClick={() => {
+                        handleChangeContact({
+                          id: "AI_ASSISTANT",
+                          displayName: "Trợ lý AI",
+                          trustedDisplayName: "Trợ lý AI",
+                          peerDisplayName: "Trợ lý AI",
+                          type: "AI",
+                          avatarUrl: "https://cdn-icons-png.flaticon.com/512/4712/4712035.png",
+                          trustedAvatarUrl: "https://cdn-icons-png.flaticon.com/512/4712/4712035.png",
+                        });
+                      }}
+                    >
+                      <div className="contact-detial-conversation flex">
+                        <div className="flex">
+                          <div className="contact-avatar-friend">
+                            <img
+                              src="https://cdn-icons-png.flaticon.com/512/4712/4712035.png"
+                              alt="AI"
+                            />
+                          </div>
+                          <div className="contact-overview-mess">
+                            <h3>
+                              <span>Trợ lý AI</span>
+                              <span className="contact-conversation-pill muted" style={{ marginLeft: "5px", backgroundColor: "#e0f2f1", color: "#00796b" }}>Hệ thống</span>
+                            </h3>
+                            <p>Hỏi tôi bất cứ điều gì!</p>
+                          </div>
+                        </div>
+                      </div>
+                    </li>
+
                     {displayedConversationList &&
                       displayedConversationList.map((data, index) => (
                         <li
@@ -1617,7 +1656,23 @@ const isCreateGroupSubmitDisabled =
                                 </div>
                               </div>
                               {getUnreadConversationCount(data) > 0 && (
-                                <div className="wrap-count-seen">
+                                <div className="wrap-count-seen" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                  {getUnreadConversationCount(data) >= 5 && (
+                                    <div 
+                                      className="ai-summary-trigger-sidebar"
+                                      title="Tóm tắt tin nhắn bằng AI"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        // Chúng ta sẽ xử lý việc mở Modal tóm tắt thông qua một Custom Event hoặc Context
+                                        window.dispatchEvent(new CustomEvent('OPEN_AI_SUMMARY', { 
+                                          detail: { conversationId: data.id } 
+                                        }));
+                                      }}
+                                      style={{ cursor: 'pointer', fontSize: '16px' }}
+                                    >
+                                      ✨
+                                    </div>
+                                  )}
                                   <p className="count-seen">
                                     {getUnreadConversationCount(data)}
                                   </p>

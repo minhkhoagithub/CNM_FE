@@ -154,10 +154,58 @@ class WebSocketService {
       console.log(`[WebSocket]    - ${deviceLogoutTopic}`);
       console.log(`[WebSocket]    - ${devicesTopic}`);
       console.log(`[WebSocket]    - ${deviceLoginRequestTopic}`);
-      console.log("[WebSocket]    - /topic/auth/error");
+      console.log('[WebSocket]    - /topic/auth/error');
       console.log(`[WebSocket]    - ${callsTopic}`);
     } catch (error) {
-      console.error("[WebSocket] Error setting up subscriptions:", error);
+      console.error('[WebSocket] Error setting up subscriptions:', error);
+    }
+  }
+
+  // --- Group Call Subscriptions (tách biệt khỏi 1-1) ---
+  // Mỗi lần vào GroupChatScreen sẽ subscribe; rời màn hình sẽ unsubscribe.
+  // Dùng Map để quản lý nhiều cuộc hội thoại nhóm đồng thời.
+
+  subscribeGroupCall(conversationId) {
+    if (!this.client || !this.isConnected) {
+      console.warn('[WebSocket] Cannot subscribe group call: not connected');
+      return;
+    }
+    if (!this._groupCallSubs) this._groupCallSubs = new Map();
+    if (this._groupCallSubs.has(conversationId)) return; // Đã subscribe rồi
+
+    const topic = `/topic/conversations/${conversationId}/calls`;
+    const subscription = this.client.subscribe(topic, (message) => {
+      try {
+        const event = JSON.parse(message.body);
+        console.log(`[WebSocket] Group call event on ${topic}:`, event);
+
+        if (event.type === 'GROUP_CALL_INCOMING') {
+          this.emitEvent('group-call-incoming', event.payload || event);
+        } else if (event.type === 'GROUP_CALL_ENDED') {
+          this.emitEvent('group-call-ended', event.payload || event);
+        }
+      } catch (error) {
+        console.error('[WebSocket] Error parsing group call event:', error);
+      }
+    });
+
+    if (subscription) {
+      this._groupCallSubs.set(conversationId, subscription);
+      console.log(`[WebSocket] Subscribed group call topic: ${topic}`);
+    }
+  }
+
+  unsubscribeGroupCall(conversationId) {
+    if (!this._groupCallSubs) return;
+    const subscription = this._groupCallSubs.get(conversationId);
+    if (subscription) {
+      try {
+        subscription.unsubscribe();
+        this._groupCallSubs.delete(conversationId);
+        console.log(`[WebSocket] Unsubscribed group call topic for conversation: ${conversationId}`);
+      } catch (error) {
+        console.warn('[WebSocket] Error unsubscribing group call:', error);
+      }
     }
   }
 

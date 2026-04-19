@@ -7,7 +7,7 @@ import ContainerMess from "./ContainerMess";
 import ConversationImageGallery from "./ConversationImageGallery";
 import { fetchConversationSharedAttachments } from "./conversationMedia";
 
-export default function Message({ showPageAddressBook }) {
+export default function Message({ showPageAddressBook, onConversationSelect }) {
   const {
     currentConversationNormalized,
     openConversation,
@@ -67,7 +67,10 @@ export default function Message({ showPageAddressBook }) {
 
   useEffect(() => {
     handleCloseImageGallery();
-  }, [conversationId, handleCloseImageGallery]);
+    if (onConversationSelect) {
+      onConversationSelect(conversationId);
+    }
+  }, [conversationId, handleCloseImageGallery, onConversationSelect]);
 
   const handleSelectGalleryImage = useCallback((imageId) => {
     setImageGalleryState((prevState) => ({

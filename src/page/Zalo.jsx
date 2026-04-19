@@ -10,19 +10,30 @@ import CallRoom from "../component/Call/CallRoom";
 import IncomingCallModal from "../component/Call/IncomingCallModal";
 import OutgoingCallModal from "../component/Call/OutgoingCallModal";
 import callService from "../services/call/CallService";
+import groupCallService from "../services/call/GroupCallService";
+import { initiateGroupCallApi, leaveGroupCallApi } from "../services/call/groupCallApi";
+import GroupCallRoom from "../component/Call/GroupCallRoom";
 
 export default function Zalo() {
   const [chat, setChat] = useState(false);
   const { userData, setUserData } = useContext(UserContext);
   const [isLoadding, setIsLoadding] = useState(true);
+  const [selectedConversationId, setSelectedConversationId] = useState(null);
   const navigate = useNavigate();
 
-  // Call states
-  const [callState, setCallState] = useState("idle"); // 'idle' | 'incoming' | 'outgoing' | 'connected'
+  // Call states (1-1)
+  const [callState, setCallState] = useState("idle");
   const [callData, setCallData] = useState(null);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
   const [isRemoteVideoOff, setIsRemoteVideoOff] = useState(false);
+
+  // Group Call states (tách biệt hoàn toàn)
+  const [groupCallState, setGroupCallState] = useState('idle'); // 'idle' | 'incoming' | 'connected'
+  const [groupCallData, setGroupCallData] = useState(null);
+  const [groupLocalStream, setGroupLocalStream] = useState(null);
+  const [groupRemoteStreams, setGroupRemoteStreams] = useState(new Map());
+  const [groupActiveSpeaker, setGroupActiveSpeaker] = useState(null);
 
   const handleChangeStateChat = () => {
     setChat(true);
@@ -137,7 +148,11 @@ export default function Zalo() {
           calleeId,
           type,
           peerId,
-          onRemoteStream: (stream) => setRemoteStream(stream),
+          onRemoteStream: (stream) => {
+            console.log("[Zalo] 📡 Nhận remote stream mới:", stream.id, "Tracks:", stream.getTracks().length);
+            // Ép React re-render bằng cách tạo bọc mới hoặc dùng timestamp nếu cần
+            setRemoteStream(stream);
+          },
           onLocalStream: (stream) => setLocalStream(stream),
           onRemoteVideoToggle: (enabled) => setIsRemoteVideoOff(!enabled),
           onCallEnded: () => {
@@ -179,6 +194,79 @@ export default function Zalo() {
        return () => WebSocketService.off("incoming-call", handleIncomingCall);
     }
   }, [userData]);
+
+  // --- Group Call WebSocket Subscription (tách biệt khỏi luồng 1-1) ---
+  useEffect(() => {
+    if (!userData) return;
+    const handleGroupCallIncoming = (payload) => {
+      console.log('[Zalo] 👥 GROUP_CALL_INCOMING:', payload);
+      setGroupCallState('incoming');
+      setGroupCallData(payload);
+    };
+    const handleGroupCallEnded = (payload) => {
+      console.log('[Zalo] Group call ended:', payload);
+      if (groupCallState !== 'idle') {
+        setGroupCallState('idle');
+        setGroupCallData(null);
+        setGroupLocalStream(null);
+        setGroupRemoteStreams(new Map());
+        groupCallService.leaveCall();
+      }
+    };
+    WebSocketService.on('group-call-incoming', handleGroupCallIncoming);
+    WebSocketService.on('group-call-ended', handleGroupCallEnded);
+
+    // Lắng nghe sự kiện từ ContainerMess gửi lên (CustomEvent)
+    const handleJoinRequest = (e) => {
+      console.log('[Zalo] 👥 JOIN Request from Message:', e.detail);
+      setGroupCallData(e.detail);
+      setGroupCallState('connected');
+    };
+
+    const handleWindowIncoming = (e) => {
+      console.log('[Zalo] 👥 INCOMING from window:', e.detail);
+      setGroupCallData(e.detail);
+      setGroupCallState('incoming');
+    };
+
+    const handleWindowEnded = (e) => {
+      if (groupCallState !== 'idle') {
+        setGroupCallState('idle');
+        setGroupCallData(null);
+      }
+    };
+
+    window.addEventListener('group-call-join-request', handleJoinRequest);
+    window.addEventListener('group-call-incoming', handleWindowIncoming);
+    window.addEventListener('group-call-ended', handleWindowEnded);
+
+    return () => {
+      WebSocketService.off('group-call-incoming', handleGroupCallIncoming);
+      WebSocketService.off('group-call-ended', handleGroupCallEnded);
+      window.removeEventListener('group-call-join-request', handleJoinRequest);
+      window.removeEventListener('group-call-incoming', handleWindowIncoming);
+      window.removeEventListener('group-call-ended', handleWindowEnded);
+    };
+  }, [userData, groupCallState]);
+
+  // --- Tự động subscribe topic cuộc gọi khi vào phòng chat ---
+  useEffect(() => {
+    if (selectedConversationId) {
+      WebSocketService.subscribeGroupCall(selectedConversationId);
+      return () => {
+        WebSocketService.unsubscribeGroupCall(selectedConversationId);
+      };
+    }
+  }, [selectedConversationId]);
+
+  const handleAcceptGroupCall = () => {
+    setGroupCallState('connected');
+  };
+
+  const handleRejectGroupCall = () => {
+    setGroupCallState('idle');
+    setGroupCallData(null);
+  };
 
   useEffect(() => {
     if (userData) {
@@ -230,7 +318,10 @@ export default function Zalo() {
          channel: callData.roomId,
          peerId: userData?.userId || "",
          type: callData.callType,
-         onRemoteStream: (stream) => setRemoteStream(stream),
+          onRemoteStream: (stream) => {
+            console.log("[Zalo] 📡 Nhận remote stream mới (Callee):", stream.id, "Tracks:", stream.getTracks().length);
+            setRemoteStream(stream);
+          },
          onLocalStream: (stream) => setLocalStream(stream),
          onRemoteVideoToggle: (enabled) => setIsRemoteVideoOff(!enabled),
          onCallEnded: () => {
@@ -289,7 +380,9 @@ export default function Zalo() {
       )}
       {callState === "connected" && (
         <CallRoom 
-          callType={callData?.callType || "VOICE"}
+          callState={callState}
+          callType={callData?.callType}
+          callData={callData}
           localStream={localStream}
           remoteStream={remoteStream}
           isRemoteVideoOff={isRemoteVideoOff}
@@ -297,12 +390,33 @@ export default function Zalo() {
         />
       )}
 
+      {/* Group Call Room (Đa thành viên) */}
+      {groupCallState === "connected" && (
+        <GroupCallRoom 
+          callData={groupCallData} 
+          onLeave={() => setGroupCallState('idle')} 
+        />
+      )}
+
+      {/* Modal nhận cuộc gọi nhóm */}
+      {groupCallState === "incoming" && (
+        <IncomingCallModal 
+          callerName={groupCallData?.initiatorName || 'Cuộc gọi nhóm'}
+          onAccept={handleAcceptGroupCall}
+          onReject={handleRejectGroupCall}
+          callType={groupCallData?.callType || 'VIDEO'}
+        />
+      )}
+
       {/* Main app UI - only show when not in any call state */}
-      {callState === "idle" && (
+      {callState === "idle" && groupCallState === "idle" && (
         isLoadding ? (
           <Loadding />
         ) : chat ? (
-          <Chat handleLogout={handleLogout} />
+          <Chat 
+            handleLogout={handleLogout} 
+            onConversationSelect={(id) => setSelectedConversationId(id)}
+          />
         ) : (
           <Login handleChangeStateChat={handleChangeStateChat} />
         )

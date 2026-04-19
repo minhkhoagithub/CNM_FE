@@ -1090,22 +1090,26 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
             )}
             <div className="mess-infor-nickname flex">
               <p>{effectiveDisplayName}</p>
-              <CiEdit style={{ fontSize: "23px", cursor: "pointer" }} />
+              {activeConversation?.id !== "AI_ASSISTANT" && (
+                <CiEdit style={{ fontSize: "23px", cursor: "pointer" }} />
+              )}
             </div>
-            <div className="mess-infor-status-chips">
-              {activeConversation?.pinned ? (
-                <span className="mess-infor-status-chip pinned">Ghim</span>
-              ) : null}
-              {activeConversation?.muted ? (
-                <span className="mess-infor-status-chip muted">Tat thong bao</span>
-              ) : null}
-              {activeConversation?.archived ? (
-                <span className="mess-infor-status-chip archived">Luu tru</span>
-              ) : null}
-              <span className="mess-infor-status-chip">
-                {activeConversation?.notificationLevel || "ALL"}
-              </span>
-            </div>
+            {activeConversation?.id !== "AI_ASSISTANT" && (
+              <div className="mess-infor-status-chips">
+                {activeConversation?.pinned ? (
+                  <span className="mess-infor-status-chip pinned">Ghim</span>
+                ) : null}
+                {activeConversation?.muted ? (
+                  <span className="mess-infor-status-chip muted">Tat thong bao</span>
+                ) : null}
+                {activeConversation?.archived ? (
+                  <span className="mess-infor-status-chip archived">Luu tru</span>
+                ) : null}
+                <span className="mess-infor-status-chip">
+                  {activeConversation?.notificationLevel || "ALL"}
+                </span>
+              </div>
+            )}
             {canUpdateGroupAvatar ? (
               <div
                 style={{

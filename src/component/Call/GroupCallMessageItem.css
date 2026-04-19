@@ -1,0 +1,96 @@
+/* GroupCallMessageItem.css – Styles cho tin nhắn cuộc gọi nhóm trong chat */
+
+.group-call-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid;
+  max-width: 300px;
+  transition: all 0.2s ease;
+}
+
+.group-call-msg--ongoing {
+  background-color: rgba(0, 123, 255, 0.07);
+  border-color: rgba(0, 123, 255, 0.25);
+}
+
+.group-call-msg--ended {
+  background-color: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.group-call-msg__icon-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.group-call-msg__icon-circle {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.group-call-msg__icon-circle.active {
+  background-color: #007bff;
+  color: white;
+}
+
+.group-call-msg__icon-circle.ended {
+  background-color: #aaa;
+  color: white;
+}
+
+.group-call-msg__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.group-call-msg__title {
+  margin: 0 0 2px 0;
+  font-weight: 600;
+  font-size: 13px;
+  color: #111;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.group-call-msg__subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: #555;
+}
+
+/* Nút Tham gia */
+.group-call-msg__join-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 14px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s, opacity 0.2s;
+}
+
+.group-call-msg__join-btn:hover {
+  background-color: #0069d9;
+}
+
+.group-call-msg__join-btn.loading {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
