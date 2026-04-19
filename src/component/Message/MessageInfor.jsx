@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import "../../resource/style/Chat/messageInfor.css";
 import { ThemeContext } from "../../Context/ThemeContext";
 import { ContactContext } from "../../Context/ContactConext";
@@ -8,6 +8,7 @@ import { GoPin } from "react-icons/go";
 import { HiOutlineArchiveBox } from "react-icons/hi2";
 import { CiEdit } from "react-icons/ci";
 import { IoTriangle } from "react-icons/io5";
+import { TbBackground } from "react-icons/tb";
 import { mapFriendOptions } from "../../mappers/friendOptionMapper";
 import {
   addConversationMemberV1,
@@ -22,30 +23,76 @@ import {
   updateConversationCustomNameV1,
   updateConversationMuteV1,
   updateConversationNotificationLevelV1,
+  updateConversationBackgroundV1,
   updateConversationPinV1,
+  uploadConversationBackgroundImageV1,
 } from "../../services/chat/conversationApi";
 import { fetchConversationSharedAttachments } from "./conversationMedia";
 import { getFriendsV2 } from "../../util/api";
 
 const NOTIFICATION_OPTIONS = [
-  { value: "ALL", label: "Tat ca" },
-  { value: "MENTIONS_ONLY", label: "Chi khi co @username cua ban" },
-  { value: "NONE", label: "Tat" },
+  { value: "ALL", label: "Tất cả" },
+  { value: "MENTIONS_ONLY", label: "Chỉ khi có @username của bạn" },
+  { value: "NONE", label: "Tắt" },
+];
+const BACKGROUND_COLOR_PRESETS = [
+  "#f4f7fb",
+  "#e6f4ff",
+  "#fff2e8",
+  "#fff1f1",
+  "#eefbf2",
+  "#f3ecff",
+  "#1f2937",
+  "#0f766e",
+  "#34568b",
+  "#b4426e",
 ];
 const NOTIFICATION_LEVEL_HINTS = {
-  ALL: "Nhan cap nhat cuoc tro chuyen nhu binh thuong.",
+  ALL: "Nhận cập nhật cuộc trò chuyện như bình thường.",
   MENTIONS_ONLY:
-    "Trong nhom, muc nay uu tien tin nhan co token @username cua ban.",
-  NONE: "Khong uu tien cap nhat thong bao cho cuoc tro chuyen nay.",
+    "Trong nhóm, mức này ưu tiên tin nhắn có token @username của bạn.",
+  NONE: "Không ưu tiên cập nhật thông báo cho cuộc trò chuyện này.",
 };
-const PRIVATE_CONVERSATION_LABEL = "Nguoi dung";
-const GROUP_CONVERSATION_LABEL = "Nhom";
+const PRIVATE_CONVERSATION_LABEL = "Người dùng";
+const GROUP_CONVERSATION_LABEL = "Nhóm";
 
 const getApiErrorMessage = (error, fallback) =>
   error?.response?.data?.message ||
   error?.response?.data?.error ||
   error?.message ||
   fallback;
+
+const clampColorChannel = (value) => Math.max(0, Math.min(255, Number(value || 0)));
+
+const toHexColor = (red, green, blue) =>
+  `#${[red, green, blue]
+    .map((value) => clampColorChannel(value).toString(16).padStart(2, "0"))
+    .join("")}`.toLowerCase();
+
+const normalizeColorForPicker = (value, fallback = "#f4f7fb") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (/^#[0-9a-f]{6}$/i.test(normalized)) {
+    return normalized;
+  }
+
+  if (/^#[0-9a-f]{3}$/i.test(normalized)) {
+    const [, r, g, b] = normalized;
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+
+  const rgbMatch = normalized.match(
+    /^rgba?\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*(?:\d|0?\.\d+))?\)$/
+  );
+  if (rgbMatch) {
+    return toHexColor(rgbMatch[1], rgbMatch[2], rgbMatch[3]);
+  }
+
+  return fallback;
+};
 
 const renderAvatarPlaceholder = (className, size = 32) => (
   <div
@@ -120,6 +167,10 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
   const [isSavingAvatar, setIsSavingAvatar] = useState(false);
   const [isUpdatingPreference, setIsUpdatingPreference] = useState(false);
   const [isUpdatingMembers, setIsUpdatingMembers] = useState(false);
+  const [isBackgroundPanelOpen, setIsBackgroundPanelOpen] = useState(false);
+  const [backgroundColorDraft, setBackgroundColorDraft] = useState("#f4f7fb");
+  const [isUpdatingBackground, setIsUpdatingBackground] = useState(false);
+  const backgroundImageInputRef = useRef(null);
   const [sharedAttachmentState, setSharedAttachmentState] = useState({
     loading: false,
     error: "",
@@ -170,6 +221,13 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     activeConversation?.avatarUrl ||
     activeConversation?.trustedAvatarUrl ||
     null;
+  const currentConversationBackgroundColor =
+    activeConversation?.backgroundColor || "#f4f7fb";
+  const currentConversationBackgroundColorForPicker = normalizeColorForPicker(
+    currentConversationBackgroundColor
+  );
+  const currentConversationBackgroundImageUrl =
+    activeConversation?.backgroundImageUrl || "";
   const isGroupConversation = activeConversation?.type === "group";
   const currentUserId = userData?.userId || userData?._id || null;
   const normalizedMembers = useMemo(
@@ -271,12 +329,12 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     [friendOptions, normalizedMembers]
   );
   const listOption = useMemo(
-    () => ["Tuy chinh thong bao", "Tep da chia se", "Lien ket", "Bao mat"],
+    () => ["Tùy chỉnh thông báo", "Tệp đã chia sẻ", "Liên kết", "Bảo mật"],
     []
   );
   const optionBaseIndex = isGroupConversation ? 2 : 1;
   const isMemberPanelOpen = isGroupConversation && showTool.includes(1);
-  const sharedFilesToolIndex = optionBaseIndex + listOption.indexOf("Tep da chia se");
+  const sharedFilesToolIndex = optionBaseIndex + listOption.indexOf("Tệp đã chia sẻ");
   const isSharedFilesPanelOpen = showTool.includes(sharedFilesToolIndex);
 
   useEffect(() => {
@@ -310,12 +368,16 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     setCustomNameDraft(activeConversation?.customName || "");
     setAvatarUrlDraft(activeConversation?.avatarUrl || activeConversation?.trustedAvatarUrl || "");
     setNotificationLevelDraft(activeConversation?.notificationLevel || "ALL");
+    setBackgroundColorDraft(currentConversationBackgroundColorForPicker);
+    setIsBackgroundPanelOpen(false);
     setSettingsError("");
   }, [
     activeConversation?.avatarUrl,
+    activeConversation?.backgroundColor,
     activeConversation?.customName,
     activeConversation?.notificationLevel,
     activeConversation?.trustedAvatarUrl,
+    currentConversationBackgroundColorForPicker,
     conversationId,
   ]);
 
@@ -325,7 +387,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     }
 
     if (!canAddMember) {
-      setSettingsError("Ban khong co quyen them thanh vien.");
+      setSettingsError("Bạn không có quyền thêm thành viên.");
       return;
     }
 
@@ -372,7 +434,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
         loading: false,
         loadedConversationId: null,
         attemptedConversationId: conversationId,
-        error: "Khong the tai danh sach ban be.",
+        error: "Không thể tải danh sách bạn bè.",
       });
     }
   }, [
@@ -472,7 +534,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
 
         setSharedAttachmentState({
           loading: false,
-          error: "Khong the tai tep da chia se trong hoi thoai nay.",
+          error: "Không thể tải tệp đã chia sẻ trong hội thoại này.",
           images: [],
           files: [],
           isPartial: false,
@@ -528,9 +590,117 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
       });
     } catch (error) {
       console.error("Failed to update room preference:", error);
-      setSettingsError("Khong the cap nhat tuy chon hoi thoai.");
+      setSettingsError("Không thể cập nhật tùy chọn hội thoại.");
     } finally {
       setIsUpdatingPreference(false);
+    }
+  };
+
+  const applyBackgroundConversationState = (response, fallbackPatch = {}) => {
+    const responsePatch = response
+      ? {
+          backgroundColor:
+            response.backgroundColor || response.background || undefined,
+          backgroundImageUrl:
+            response.backgroundImageUrl ||
+            response.backgroundImage ||
+            response.backgroundUrl ||
+            undefined,
+        }
+      : {};
+    const nextPatch = {
+      ...fallbackPatch,
+      ...Object.fromEntries(
+        Object.entries(responsePatch).filter(([, value]) => value !== undefined)
+      ),
+    };
+
+    if (Object.keys(nextPatch).length > 0) {
+      updateConversationById(conversationId, nextPatch);
+    }
+
+    if (response?.id) {
+      upsertConversation(response, { source: "conversation-background-update" });
+    }
+  };
+
+  const handleSaveConversationBackgroundColor = async () => {
+    if (!conversationId || isUpdatingBackground) {
+      return;
+    }
+
+    const nextColor = normalizeColorForPicker(backgroundColorDraft);
+    const currentColor = normalizeColorForPicker(currentConversationBackgroundColor);
+    if (!nextColor || nextColor === currentColor) {
+      setIsBackgroundPanelOpen(false);
+      return;
+    }
+
+    setSettingsError("");
+    setIsUpdatingBackground(true);
+
+    try {
+      const response = await updateConversationBackgroundV1(conversationId, {
+        backgroundType: "COLOR",
+        backgroundColor: nextColor,
+        backgroundImageUrl: null,
+      });
+      applyBackgroundConversationState(response, {
+        backgroundColor: nextColor,
+        backgroundImageUrl: null,
+      });
+      setIsBackgroundPanelOpen(false);
+    } catch (error) {
+      console.error("Failed to update conversation background color:", error);
+      setSettingsError(
+        getApiErrorMessage(error, "Không thể cập nhật màu nền cuộc trò chuyện.")
+      );
+    } finally {
+      setIsUpdatingBackground(false);
+    }
+  };
+
+  const handleConversationBackgroundImagePick = async (event) => {
+    if (!conversationId || isUpdatingBackground) {
+      return;
+    }
+
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    setSettingsError("");
+    setIsUpdatingBackground(true);
+
+    try {
+      const uploadResult = await uploadConversationBackgroundImageV1(
+        conversationId,
+        file
+      );
+      const uploadedUrl = String(uploadResult?.url || "").trim();
+      if (!uploadedUrl) {
+        throw new Error("Background image upload did not return URL.");
+      }
+
+      const response = await updateConversationBackgroundV1(conversationId, {
+        backgroundType: "IMAGE",
+        backgroundColor: null,
+        backgroundImageUrl: uploadedUrl,
+      });
+      applyBackgroundConversationState(response, {
+        backgroundColor: null,
+        backgroundImageUrl: uploadedUrl,
+      });
+      setIsBackgroundPanelOpen(false);
+    } catch (error) {
+      console.error("Failed to upload conversation background image:", error);
+      setSettingsError(
+        getApiErrorMessage(error, "Không thể tải ảnh nền lên lúc này.")
+      );
+    } finally {
+      event.target.value = "";
+      setIsUpdatingBackground(false);
     }
   };
 
@@ -556,7 +726,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
       });
     } catch (error) {
       console.error("Failed to update custom room name:", error);
-      setSettingsError("Khong the cap nhat ten goi nho.");
+      setSettingsError("Không thể cập nhật tên gọi nhớ.");
     } finally {
       setIsSavingCustomName(false);
     }
@@ -571,7 +741,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     const currentAvatarUrl = String(avatarUrl || "").trim();
 
     if (!nextAvatarUrl) {
-      setSettingsError("Vui long nhap URL anh nhom.");
+      setSettingsError("Vui lòng nhập URL ảnh nhóm.");
       return;
     }
 
@@ -609,7 +779,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
         error,
       });
       setSettingsError(
-        getApiErrorMessage(error, "Khong the cap nhat anh dai dien nhom.")
+        getApiErrorMessage(error, "Không thể cập nhật ảnh đại diện nhóm.")
       );
     } finally {
       setIsSavingAvatar(false);
@@ -655,7 +825,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     }
 
     if (!selectedMemberId) {
-      setSettingsError("Vui long chon thanh vien can them.");
+      setSettingsError("Vui lòng chọn thành viên cần thêm.");
       return;
     }
 
@@ -663,7 +833,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
       (friend) => String(friend.userId) === String(selectedMemberId)
     );
     if (!selectedFriend) {
-      setSettingsError("Thanh vien nay khong hop le hoac da co trong nhom.");
+      setSettingsError("Thành viên này không hợp lệ hoặc đã có trong nhóm.");
       return;
     }
 
@@ -688,7 +858,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
         error,
       });
       setSettingsError(
-        getApiErrorMessage(error, "Khong the them thanh vien vao nhom.")
+      getApiErrorMessage(error, "Không thể thêm thành viên vào nhóm.")
       );
     } finally {
       setIsUpdatingMembers(false);
@@ -708,7 +878,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
       (member) => String(member.userId) === String(memberUserId)
     );
     if (!canRemoveMember(targetMember)) {
-      setSettingsError("Ban khong co quyen xoa thanh vien nay.");
+      setSettingsError("Bạn không có quyền xóa thành viên này.");
       return;
     }
 
@@ -734,7 +904,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
         error,
       });
       setSettingsError(
-        getApiErrorMessage(error, "Khong the xoa thanh vien khoi nhom.")
+        getApiErrorMessage(error, "Không thể xóa thành viên khỏi nhóm.")
       );
     } finally {
       setIsUpdatingMembers(false);
@@ -754,7 +924,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
       (member) => String(member.userId) === String(targetUserId)
     );
     if (!canTransferOwnershipTo(targetMember)) {
-      setSettingsError("Ban khong co quyen chuyen chu nhom cho thanh vien nay.");
+      setSettingsError("Bạn không có quyền chuyển chủ nhóm cho thành viên này.");
       return;
     }
 
@@ -779,7 +949,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
         error,
       });
       setSettingsError(
-        getApiErrorMessage(error, "Khong the chuyen quyen truong nhom.")
+        getApiErrorMessage(error, "Không thể chuyển quyền trưởng nhóm.")
       );
     } finally {
       setIsUpdatingMembers(false);
@@ -799,7 +969,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
       (member) => String(member.userId) === String(targetUserId)
     );
     if (!canPromoteAdminFor(targetMember)) {
-      setSettingsError("Ban khong co quyen cap quyen admin cho thanh vien nay.");
+      setSettingsError("Bạn không có quyền cấp quyền admin cho thành viên này.");
       return;
     }
 
@@ -824,7 +994,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
         error,
       });
       setSettingsError(
-        getApiErrorMessage(error, "Khong the cap nhat quyen quan tri.")
+        getApiErrorMessage(error, "Không thể cập nhật quyền quản trị.")
       );
     } finally {
       setIsUpdatingMembers(false);
@@ -844,7 +1014,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
       (member) => String(member.userId) === String(targetUserId)
     );
     if (!canDemoteAdminFor(targetMember)) {
-      setSettingsError("Ban khong co quyen thu hoi admin cua thanh vien nay.");
+      setSettingsError("Bạn không có quyền thu hồi admin của thành viên này.");
       return;
     }
 
@@ -869,7 +1039,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
         error,
       });
       setSettingsError(
-        getApiErrorMessage(error, "Khong the thu hoi quyen quan tri.")
+        getApiErrorMessage(error, "Không thể thu hồi quyền quản trị.")
       );
     } finally {
       setIsUpdatingMembers(false);
@@ -886,7 +1056,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     }
 
     if (!canLeaveGroup) {
-      setSettingsError("Chu nhom can chuyen quyen hoac dong nhom truoc khi roi.");
+      setSettingsError("Chủ nhóm cần chuyển quyền hoặc đóng nhóm trước khi rời.");
       return;
     }
 
@@ -910,7 +1080,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
         error,
       });
       setSettingsError(
-        getApiErrorMessage(error, "Khong the roi nhom nay luc nay.")
+        getApiErrorMessage(error, "Không thể rời nhóm này lúc này.")
       );
     } finally {
       setIsUpdatingMembers(false);
@@ -927,11 +1097,11 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     }
 
     if (!canCloseConversation) {
-      setSettingsError("Chi chu nhom moi co the dong nhom.");
+      setSettingsError("Chỉ chủ nhóm mới có thể đóng nhóm.");
       return;
     }
 
-    const confirmed = window.confirm("Ban co chac muon dong nhom nay?");
+    const confirmed = window.confirm("Bạn có chắc muốn đóng nhóm này?");
     if (!confirmed) {
       return;
     }
@@ -956,7 +1126,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
         error,
       });
       setSettingsError(
-        getApiErrorMessage(error, "Khong the dong nhom nay luc nay.")
+        getApiErrorMessage(error, "Không thể đóng nhóm này lúc này.")
       );
     } finally {
       setIsUpdatingMembers(false);
@@ -970,12 +1140,12 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     return (
       <div className="mess-infor-shared-panel">
         <p className="mess-infor-section-note">
-          Tong hop tat ca anh va tep da duoc gui trong hoi thoai nay.
+          Tổng hợp tất cả ảnh va tệp đã được gửi trong hội thoại này.
         </p>
 
         {sharedAttachmentState.loading ? (
           <div className="mess-infor-shared-feedback">
-            Dang tai du lieu tep trong hoi thoai...
+            Đang tải dữ liệu tệp trong hội thoại...
           </div>
         ) : null}
 
@@ -989,9 +1159,9 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
           <div className="mess-infor-shared-summary">
             <span>{totalSharedAttachments} muc</span>
             {sharedAttachmentState.isPartial ? (
-              <span>Dang hien thi du lieu gan day</span>
+              <span>Đang hiển thị dữ liệu gần đây</span>
             ) : (
-              <span>{conversationId ? "Theo hoi thoai hien tai" : ""}</span>
+              <span>{conversationId ? "Theo hội thoại hiện tại" : ""}</span>
             )}
           </div>
         ) : null}
@@ -1014,7 +1184,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                       onOpenConversationImageGallery?.({
                         id: attachment.id || attachment.url,
                         url: attachment.url,
-                        fileName: attachment.fileName || "Anh trong hoi thoai",
+                        fileName: attachment.fileName || "Ảnh trong hội thoại",
                       })
                     }
                   >
@@ -1023,7 +1193,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                 ))}
               </div>
             ) : (
-              <div className="mess-infor-shared-empty">Chua co anh duoc chia se.</div>
+              <div className="mess-infor-shared-empty">Chưa có ảnh được chia sẻ.</div>
             )}
           </div>
         ) : null}
@@ -1060,7 +1230,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                 ))}
               </div>
             ) : (
-              <div className="mess-infor-shared-empty">Chua co tep duoc chia se.</div>
+              <div className="mess-infor-shared-empty">Chưa có tệp được chia sẻ.</div>
             )}
           </div>
         ) : null}
@@ -1074,7 +1244,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
       style={{ backgroundColor: theme }}
     >
       <div className="mess-infor-title-text flex">
-        <h3>Thong tin hoi thoai</h3>
+        <h3>Thông tin hội thoại</h3>
       </div>
       <div className="mess-infor-scrool-header">
         <div className="mess-infor-header-infor">
@@ -1100,10 +1270,10 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                   <span className="mess-infor-status-chip pinned">Ghim</span>
                 ) : null}
                 {activeConversation?.muted ? (
-                  <span className="mess-infor-status-chip muted">Tat thong bao</span>
+                  <span className="mess-infor-status-chip muted">Tắt thông báo</span>
                 ) : null}
                 {activeConversation?.archived ? (
-                  <span className="mess-infor-status-chip archived">Luu tru</span>
+                  <span className="mess-infor-status-chip archived">Lưu trữ</span>
                 ) : null}
                 <span className="mess-infor-status-chip">
                   {activeConversation?.notificationLevel || "ALL"}
@@ -1123,7 +1293,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                   type="text"
                   value={avatarUrlDraft}
                   onChange={(event) => setAvatarUrlDraft(event.target.value)}
-                  placeholder="URL anh dai dien nhom"
+                  placeholder="URL ảnh đại diện nhóm"
                   style={{
                     padding: "9px 10px",
                     borderRadius: 8,
@@ -1159,7 +1329,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                         : "pointer",
                   }}
                 >
-                  {isSavingAvatar ? "Dang cap nhat..." : "Cap nhat anh nhom"}
+                  {isSavingAvatar ? "Đang cập nhật..." : "Cập nhật ảnh nhóm"}
                 </button>
               </div>
             ) : null}
@@ -1175,7 +1345,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
               }
             >
               <AiOutlineBell className="icon-tool-mess" />
-              <p>{activeConversation?.muted ? "Bat thong bao" : "Tat thong bao"}</p>
+              <p>{activeConversation?.muted ? "Bật thông báo" : "Tắt thông báo"}</p>
             </div>
             <div
               className="mess-infor-quick-action"
@@ -1187,7 +1357,14 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
               }
             >
               <GoPin className="icon-tool-mess" />
-              <p>{activeConversation?.pinned ? "Bo ghim" : "Ghim hoi thoai"}</p>
+              <p>{activeConversation?.pinned ? "Bỏ ghim" : "Ghim hội thoại"}</p>
+            </div>
+            <div
+              className="mess-infor-quick-action"
+              onClick={() => setIsBackgroundPanelOpen((prevState) => !prevState)}
+            >
+              <TbBackground className="icon-tool-mess" />
+              <p>Đổi nền chat</p>
             </div>
             <div
               className="mess-infor-quick-action"
@@ -1199,9 +1376,77 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
               }
             >
               <HiOutlineArchiveBox className="icon-tool-mess" />
-              <p>{activeConversation?.archived ? "Bo luu tru" : "Luu tru"}</p>
+              <p>{activeConversation?.archived ? "Bỏ lưu trữ" : "Lưu trữ"}</p>
             </div>
           </div>
+          {isBackgroundPanelOpen ? (
+            <div className="mess-infor-background-panel">
+              <input
+                ref={backgroundImageInputRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={handleConversationBackgroundImagePick}
+              />
+              <label className="mess-infor-background-color-label">
+                <span>Màu nền</span>
+                <input
+                  type="color"
+                  value={normalizeColorForPicker(backgroundColorDraft)}
+                  onChange={(event) =>
+                    setBackgroundColorDraft(normalizeColorForPicker(event.target.value))
+                  }
+                  disabled={isUpdatingBackground}
+                />
+              </label>
+              <div className="mess-infor-background-swatch-grid">
+                {BACKGROUND_COLOR_PRESETS.map((color) => {
+                  const normalizedColor = normalizeColorForPicker(color);
+                  const isActive =
+                    normalizeColorForPicker(backgroundColorDraft) === normalizedColor;
+                  return (
+                    <button
+                      key={normalizedColor}
+                      type="button"
+                      className={`mess-infor-background-swatch ${
+                        isActive ? "active" : ""
+                      }`}
+                      style={{ backgroundColor: normalizedColor }}
+                      onClick={() => setBackgroundColorDraft(normalizedColor)}
+                      disabled={isUpdatingBackground}
+                      aria-label={`Chọn màu ${normalizedColor}`}
+                    />
+                  );
+                })}
+              </div>
+              <div className="mess-infor-background-actions">
+                <button
+                  type="button"
+                  onClick={handleSaveConversationBackgroundColor}
+                  disabled={
+                    isUpdatingBackground ||
+                    !backgroundColorDraft ||
+                    normalizeColorForPicker(backgroundColorDraft) ===
+                      normalizeColorForPicker(currentConversationBackgroundColor)
+                  }
+                >
+                  {isUpdatingBackground ? "Đang lưu..." : "Lưu màu nền"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => backgroundImageInputRef.current?.click()}
+                  disabled={isUpdatingBackground}
+                >
+                  Tải ảnh nền từ máy
+                </button>
+              </div>
+              {currentConversationBackgroundImageUrl ? (
+                <p className="mess-infor-background-preview-label">
+                  Hội thoại đang dùng ảnh nền.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         <div className="mess-infor-footer-tool">
           <ul>
@@ -1210,7 +1455,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                 onClick={() => handleShowTool(0)}
                 className="title-tool flex"
               >
-                <p>Tuy chinh hoi thoai</p>
+                <p>Tùy chỉnh hội thoại</p>
                 <div
                   className={`mess-infor-detial-tool ${
                     showTool.includes(0) ? "mess-infor-tool-active" : ""
@@ -1222,15 +1467,15 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
               <div className={showTool.includes(0) ? "li-tool-active" : "li-tool-none"}>
                 <div className="mess-infor-panel-body">
                   <p className="mess-infor-section-note">
-                    Cap nhat ten goi nho va cach nhan thong bao cho hoi thoai nay.
+                    Cập nhật tên gọi nhớ va cách nhận thông báo cho hội thoại này.
                   </p>
                   <label style={{ display: "grid", gap: 6 }}>
-                    <span style={{ fontSize: 14, fontWeight: 500 }}>Ten goi nho</span>
+                    <span style={{ fontSize: 14, fontWeight: 500 }}>Tên gọi nhớ</span>
                     <input
                       type="text"
                       value={customNameDraft}
                       onChange={(event) => setCustomNameDraft(event.target.value)}
-                      placeholder="Nhap ten goi nho"
+                      placeholder="Nhập tên gọi nhớ"
                       style={{
                         padding: "10px 12px",
                         borderRadius: 8,
@@ -1252,10 +1497,10 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                       cursor: "pointer",
                     }}
                   >
-                    {isSavingCustomName ? "Dang luu..." : "Luu ten goi nho"}
+                    {isSavingCustomName ? "Đang lưu..." : "Lưu tên gọi nhớ"}
                   </button>
                   <label style={{ display: "grid", gap: 6 }}>
-                    <span style={{ fontSize: 14, fontWeight: 500 }}>Thong bao</span>
+                    <span style={{ fontSize: 14, fontWeight: 500 }}>Thông báo</span>
                     <select
                       value={notificationLevelDraft}
                       onChange={(event) => {
@@ -1290,7 +1535,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                   onClick={() => handleShowTool(1)}
                   className="title-tool flex"
                 >
-                  <p>Thanh vien nhom</p>
+                  <p>Thành viên nhóm</p>
                   <div
                     className={`mess-infor-detial-tool ${
                       showTool.includes(1) ? "mess-infor-tool-active" : ""
@@ -1302,7 +1547,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                 <div className={showTool.includes(1) ? "li-tool-active" : "li-tool-none"}>
                   <div className="mess-infor-panel-body">
                     <p className="mess-infor-section-note">
-                      Quan ly thanh vien, quyen nhom va vong doi hoi thoai.
+                      Quản lý thành viên, quyền nhóm va vòng đời hội thoại.
                     </p>
                     <div className="mess-infor-member-list">
                       {normalizedMembers.map((member) => {
@@ -1360,7 +1605,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                                       cursor: "pointer",
                                     }}
                                   >
-                                    Chuyen chu nhom
+                                    Chuyển chủ nhóm
                                   </button>
                                 ) : null}
                                 {canPromoteToAdmin ? (
@@ -1376,7 +1621,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                                       cursor: "pointer",
                                     }}
                                   >
-                                    Len admin
+                                    Lên admin
                                   </button>
                                 ) : null}
                                 {canDemoteAdmin ? (
@@ -1392,7 +1637,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                                       cursor: "pointer",
                                     }}
                                   >
-                                    Ha admin
+                                    Hạ admin
                                   </button>
                                 ) : null}
                                 {canRemoveThisMember ? (
@@ -1408,7 +1653,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                                       cursor: "pointer",
                                     }}
                                   >
-                                    Xoa
+                                    Xóa
                                   </button>
                                 ) : null}
                               </div>
@@ -1419,10 +1664,10 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                     </div>
                     {canAddMember ? (
                     <div className="mess-infor-add-member">
-                      <span style={{ fontSize: 14, fontWeight: 500 }}>Them thanh vien</span>
+                      <span style={{ fontSize: 14, fontWeight: 500 }}>Thêm thành viên</span>
                       {friendOptionsState.loading ? (
                         <p className="mess-infor-feedback-error">
-                          Dang tai danh sach ban be...
+                          Đang tải danh sách bạn bè...
                         </p>
                       ) : null}
                       {!friendOptionsState.loading && friendOptionsState.error ? (
@@ -1446,10 +1691,10 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                       >
                         <option value="">
                           {friendOptionsState.loading
-                            ? "Dang tai danh sach ban be"
+                            ? "Đang tải danh sách bạn bè"
                             : addableFriendOptions.length
-                            ? "Chon ban de them"
-                            : "Khong con ban nao de them"}
+                            ? "Chọn bạn để thêm"
+                            : "Không còn bạn nào để thêm"}
                         </option>
                         {addableFriendOptions.map((friend) => (
                           <option key={friend.userId} value={friend.userId}>
@@ -1485,7 +1730,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                               : "pointer",
                         }}
                       >
-                        {isUpdatingMembers ? "Dang xu ly..." : "Them thanh vien"}
+                        {isUpdatingMembers ? "Đang xử lý..." : "Thêm thành viên"}
                       </button>
                     </div>
                     ) : null}
@@ -1505,7 +1750,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                           cursor: "pointer",
                         }}
                       >
-                        Roi nhom
+                        Rời nhóm
                       </button>
                     ) : null}
                     {canCloseConversation ? (
@@ -1515,7 +1760,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                         onClick={handleCloseConversation}
                         disabled={isUpdatingMembers}
                       >
-                        Dong nhom
+                        Đóng nhóm
                       </button>
                     ) : null}
                   </div>
@@ -1552,11 +1797,11 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                       : "li-tool-none"
                   }
                 >
-                  {data === "Tep da chia se" ? (
+                  {data === "Tệp đã chia sẻ" ? (
                     renderSharedAttachmentPanel()
                   ) : (
                     <div style={{ padding: "0 12px 12px", color: "#7589a3", fontSize: 14 }}>
-                      Tinh nang nay se duoc mo rong o giai doan sau.
+                      Tính năng này sẽ được mở rộng ở giai đoạn sau.
                     </div>
                   )}
                 </div>
@@ -1579,3 +1824,6 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
 }
 
 export default memo(MessageInfor);
+
+
+

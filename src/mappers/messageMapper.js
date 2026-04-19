@@ -1,4 +1,4 @@
-const mapAttachment = (attachment) => ({
+﻿const mapAttachment = (attachment) => ({
   id: attachment?.id || null,
   url: attachment?.url || "",
   storageKey: attachment?.storageKey || null,
@@ -13,7 +13,7 @@ const mapReaction = (reaction) => ({
   count: Number(reaction?.count || 0),
 });
 
-export const RECALLED_MESSAGE_PLACEHOLDER = "Tin nhan da duoc thu hoi";
+export const RECALLED_MESSAGE_PLACEHOLDER = "Tin nhắn da duoc thu hoi";
 
 const normalizeUserId = (value) => {
   if (!value) {
@@ -395,11 +395,11 @@ export const createReplyPreviewText = (value) => {
   const attachmentCount = getAttachmentCount(value);
   if (attachmentCount > 0) {
     return attachmentCount === 1
-      ? "Da gui 1 tep dinh kem"
-      : `Da gui ${attachmentCount} tep dinh kem`;
+      ? "Đã gửi 1 tệp đính kèm"
+      : `Đã gửi ${attachmentCount} tệp đính kèm`;
   }
 
-  return "Tin nhan";
+  return "Tin nhắn";
 };
 
 const mapReplyInfo = (replyTo) => {
@@ -931,6 +931,9 @@ export const createAttachmentPreviewText = (messageText, attachments) => {
   }
 
   return attachments.length === 1
-    ? "Da gui 1 tep dinh kem"
-    : `Da gui ${attachments.length} tep dinh kem`;
+    ? "Đã gửi 1 tệp đính kèm"
+    : `Đã gửi ${attachments.length} tệp đính kèm`;
 };
+
+
+
