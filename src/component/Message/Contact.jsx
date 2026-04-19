@@ -1,4 +1,4 @@
-import React, {
+﻿import React, {
   useEffect,
   useState,
   useContext,
@@ -48,21 +48,21 @@ const mapSearchUserToUi = (item) => ({
 const getFriendActionMeta = (relationshipStatus) => {
   switch (relationshipStatus) {
     case "FRIEND":
-      return { label: "Ban be", disabled: true };
+      return { label: "Bạn bè", disabled: true };
     case "REQUEST_SENT":
-      return { label: "Da gui loi moi", disabled: true };
+      return { label: "Đã gửi lời mời", disabled: true };
     case "REQUEST_RECEIVED":
-      return { label: "Da nhan loi moi", disabled: true };
+      return { label: "Đã nhận lời mời", disabled: true };
     default:
-      return { label: "Ket ban", disabled: false };
+      return { label: "Kết bạn", disabled: false };
   }
 };
 
 
 const getUnreadConversationCount = (conversation) =>
   Number(conversation?.unreadCount || 0);
-const PRIVATE_CONVERSATION_LABEL = "Nguoi dung";
-const GROUP_CONVERSATION_LABEL = "Nhom";
+const PRIVATE_CONVERSATION_LABEL = "Người dùng";
+const GROUP_CONVERSATION_LABEL = "Nhóm";
 
 const getConversationDisplayName = (conversation) =>
   conversation?.displayName ||
@@ -75,7 +75,7 @@ const getConversationAvatarUrl = (conversation) =>
   conversation?.avatarUrl || conversation?.trustedAvatarUrl || "";
 
 const getConversationPreview = (conversation) =>
-  conversation?.lastMessage || `Gui loi chao den ${getConversationDisplayName(conversation)}`;
+  conversation?.lastMessage || `Gửi lời chào đến ${getConversationDisplayName(conversation)}`;
 
 const getApiErrorMessage = (error, fallback) =>
   error?.response?.data?.message ||
@@ -225,7 +225,7 @@ const getSearchItemId = (item) => item?.userId || item?._id || item?.id || null;
         loading: false,
         loaded: false,
         attempted: true,
-        error: "Khong the tai danh sach ban be.",
+        error: "Không thể tải danh sách bạn bè.",
       });
     }
   }, [
@@ -385,7 +385,7 @@ const handleSearchDb = (value) => {
         await fetchArchivedConversations();
       } catch (error) {
         console.error("Failed to load archived conversations:", error);
-        setConversationSettingsError("Khong the tai danh sach luu tru.");
+        setConversationSettingsError("Không thể tải danh sách lưu trữ.");
         return;
       }
     }
@@ -424,7 +424,7 @@ const handleSearchDb = (value) => {
       }
     } catch (error) {
       console.error("Failed to update conversation setting:", error);
-      setConversationSettingsError("Khong the cap nhat thiet lap hoi thoai.");
+      setConversationSettingsError("Không thể cập nhật thiết lập hội thoại.");
     } finally {
       setPendingConversationId(null);
     }
@@ -582,12 +582,12 @@ const storeLocal = (value) => {
     const participantIds = dataCreateGr.listMember.filter(Boolean);
 
     if (!groupName) {
-      setCreateGroupError("Vui long nhap ten nhom.");
+      setCreateGroupError("Vui lòng nhập tên nhóm.");
       return;
     }
 
     if (participantIds.length < 1) {
-      setCreateGroupError("Vui long chon it nhat 1 thanh vien.");
+      setCreateGroupError("Vui lòng chọn ít nhất 1 thành viên.");
       return;
     }
 
@@ -716,7 +716,7 @@ const storeLocal = (value) => {
             error: avatarError,
           });
           setConversationSettingsError(
-            "Da tao nhom, nhung khong the cap nhat anh dai dien."
+            "Đã tạo nhóm, nhưng không thể cập nhật ảnh đại diện."
           );
         }
       }
@@ -732,7 +732,7 @@ const storeLocal = (value) => {
     } catch (error) {
       console.error("[WEB GROUP CREATE SUBMIT]", error);
       setCreateGroupError(
-        getApiErrorMessage(error, "Khong the tao nhom. Vui long thu lai.")
+        getApiErrorMessage(error, "Không thể tạo nhóm. Vui lòng thử lại.")
       );
     } finally {
       setIsCreatingGroup(false);
@@ -832,7 +832,7 @@ const storeLocal = (value) => {
       ...prevState,
       searched: true,
       results: [],
-      error: "Vui long nhap ten, username, ho ten hoac so dien thoai",
+      error: "Vui lòng nhập tên, username, họ tên hoặc số điện thoại",
     }));
     return;
   }
@@ -866,7 +866,7 @@ const storeLocal = (value) => {
       loading: false,
       searched: true,
       results: [],
-      error: "Khong the tim kiem luc nay",
+      error: "Không thể tìm kiếm lúc này",
     }));
   }
 };
@@ -1098,13 +1098,13 @@ const isCreateGroupSubmitDisabled =
                       </div>
 
                       <div className="btn-find-friend flex">
-                        <button onClick={() => handleShowAddFriend(false)}>Huy</button>
+                        <button onClick={() => handleShowAddFriend(false)}>Hủy</button>
                         <button
                           style={{ backgroundColor: "#0068ff", color: "white" }}
                           onClick={handleFindUsersForAddFriend}
                           disabled={friendSearch.loading}
                         >
-                          {friendSearch.loading ? "Dang tim..." : "Tim kiem"}
+                          {friendSearch.loading ? "Đang tìm..." : "Tìm kiếm"}
                         </button>
                       </div>
 
@@ -1114,7 +1114,7 @@ const isCreateGroupSubmitDisabled =
                         {friendSearch.searched &&
                         friendSearch.results.length === 0 &&
                         !friendSearch.error ? (
-                          <p>Khong tim thay nguoi dung</p>
+                          <p>Không tìm thấy người dùng</p>
                         ) : null}
                       </div>
 
@@ -1249,7 +1249,7 @@ const isCreateGroupSubmitDisabled =
                       <div className="list-contact">
                         {friendOptionsState.loading ? (
                           <p className="contact-feedback-error">
-                            Dang tai danh sach ban be...
+                            Đang tải danh sách bạn bè...
                           </p>
                         ) : null}
                         {!friendOptionsState.loading && friendOptionsState.error ? (
@@ -1262,7 +1262,7 @@ const isCreateGroupSubmitDisabled =
                         friendOptionsState.loaded &&
                         friendOptions.length === 0 ? (
                           <p className="contact-feedback-error">
-                            Chua co ban be de tao nhom.
+                            Chưa có bạn bè để tạo nhóm.
                           </p>
                         ) : null}
                         {friendOptions &&
@@ -1303,7 +1303,7 @@ const isCreateGroupSubmitDisabled =
                       ) : null}
                       {isCreatingGroup ? (
                         <p className="contact-feedback-error">
-                          Dang tao nhom...
+                          Đang tạo nhóm...
                         </p>
                       ) : null}
                       <div className="btn-find-friend flex">
@@ -1410,7 +1410,7 @@ const isCreateGroupSubmitDisabled =
               </button>
               <span className="contact-list-scope-subtle">
                 {displayedConversationList.length}
-                {showArchived ? " muc" : " hoi thoai"}
+                  {showArchived ? " mục" : " hội thoại"}
               </span>
             </div>
           ) : null}
@@ -1600,7 +1600,7 @@ const isCreateGroupSubmitDisabled =
                                       handleConversationSettingChange(event, data, "archive")
                                     }
                                   >
-                                    {data.archived ? "Mo hoi thoai" : "Luu tru"}
+                          {data.archived ? "Mở hội thoại" : "Lưu trữ"}
                                   </p>
                                   <p
                                     style={{ fontSize: 13 }}
@@ -1608,10 +1608,10 @@ const isCreateGroupSubmitDisabled =
                                       handleConversationSettingChange(event, data, "mute")
                                     }
                                   >
-                                    {data.muted ? "Bat thong bao" : "Tat thong bao"}
+                                    {data.muted ? "Bật thông báo" : "Tắt thông báo"}
                                   </p>
                                   {pendingConversationId === data.id ? (
-                                    <p style={{ fontSize: 13 }}>Dang cap nhat...</p>
+                                    <p style={{ fontSize: 13 }}>Đang cập nhật...</p>
                                   ) : null}
                                   <p>Xóa hội thoại</p>
                                 </div>
@@ -1698,5 +1698,8 @@ const isCreateGroupSubmitDisabled =
 }
 
 export default memo(Contact);
+
+
+
 
 

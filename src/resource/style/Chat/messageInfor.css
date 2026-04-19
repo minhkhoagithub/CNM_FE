@@ -117,6 +117,72 @@
   background-color: #f5f8fc;
   transform: translateY(-1px);
 }
+.mess-infor-background-panel {
+  margin: 0 14px 12px;
+  padding: 12px;
+  border: 1px solid #dfe6ed;
+  border-radius: 12px;
+  background-color: #fcfdff;
+  display: grid;
+  gap: 10px;
+}
+.mess-infor-background-color-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.mess-infor-background-color-label span {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2c3f55;
+}
+.mess-infor-background-color-label input[type="color"] {
+  width: 42px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+.mess-infor-background-swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.mess-infor-background-swatch {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
+  border: 2px solid #d7e0ea;
+  cursor: pointer;
+}
+.mess-infor-background-swatch.active {
+  border-color: #0068ff;
+  box-shadow: 0 0 0 2px rgba(0, 104, 255, 0.2);
+}
+.mess-infor-background-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.mess-infor-background-actions button {
+  border: none;
+  border-radius: 10px;
+  padding: 9px 10px;
+  background-color: #0068ff;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mess-infor-background-actions button:disabled {
+  background-color: #9bbdf4;
+  cursor: not-allowed;
+}
+.mess-infor-background-preview-label {
+  margin: 0;
+  font-size: 12px;
+  color: #6b7f95;
+}
 .mess-infor-footer-tool {
   min-height: 248px;
   background: linear-gradient(180deg, #f7fafc 0%, #ffffff 10%);

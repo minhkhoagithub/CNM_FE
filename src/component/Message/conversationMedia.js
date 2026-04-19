@@ -33,7 +33,7 @@ export const buildConversationSharedAttachments = (messages) => {
         url: attachment.url,
         fileName:
           attachment?.fileName ||
-          (isImageAttachment(attachment) ? "Anh da chia se" : "Tep dinh kem"),
+          (isImageAttachment(attachment) ? "Ảnh đã chia sẻ" : "Tệp đính kèm"),
         fileSize: Number(attachment?.fileSize || 0),
         contentType: attachment?.contentType || "",
         createdAt: message?.createdAt || null,

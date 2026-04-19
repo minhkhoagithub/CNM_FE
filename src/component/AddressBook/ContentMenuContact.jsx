@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from "react";
+﻿import React, { useContext, useEffect, useState } from "react";
 import "../../resource/style/AddressBook/contentMenuContact.css";
 import {
   LoiMoiKetBan,
@@ -20,14 +20,14 @@ import {
 } from "../../util/api";
 
 
-export const HUY_LOI_MOI_KET_BAN = "Thu hoi loi moi";
-export const KET_BAN = "Ket ban";
-export const DONG_Y = "Dong y";
-export const BAN_BE = "Ban be";
-export const XOA_BAN_BE = "Xoa ban be";
-export const BO_QUA = "Bo qua";
-export const CHAN = "Chan";
-export const BO_CHAN = "Bo chan";
+export const HUY_LOI_MOI_KET_BAN = "Thu hồi lời mời kết bạn";
+export const KET_BAN = "Kết bạn";
+export const DONG_Y = "Đồng ý";
+export const BAN_BE = "Bạn bè";
+export const XOA_BAN_BE = "Xóa bạn bè";
+export const BO_QUA = "Bỏ qua";
+export const CHAN = "Chặn";
+export const BO_CHAN = "Bỏ chặn";
 
 
 // const defaultFlags = {
@@ -369,14 +369,14 @@ useEffect(() => {
             <div className="content-fetch-contact">
               {/* {listData?.size > 0 ? (
                 <div>
-                  <input type="text" placeholder="Tim kiem" onChange={handleSeachContact} />
+                  <input type="text" placeholder="Tìm kiếm" onChange={handleSeachContact} />
                 </div>
               ) : null} */}
               {(title === DanhSachBanBe ||title === LoiMoiKetBan) && listData?.size > 0 ? (
                 <div>
                   <input
                     type="text"
-                    placeholder="Tim ban be"
+                    placeholder="Tìm bạn bè"
                     value={searchKeyword}
                     onChange={handleSeachContact}
                   />
@@ -474,7 +474,7 @@ useEffect(() => {
                       src="https://chat.zalo.me/assets/invitation-emptystate.248ad1da229565685f19d3d527985812.png"
                       alt=""
                     />
-                    <p style={{ padding: "10px", color: "#7589a3" }}>Khong co du lieu</p>
+                    <p style={{ padding: "10px", color: "#7589a3" }}>Không có dữ liệu</p>
                   </div>
                 )}
               </ul>
@@ -483,7 +483,7 @@ useEffect(() => {
           {friendReq?.length > 0 && title === LoiMoiKetBan ? (
             <div>
               <div className="list-fetch-contact">
-                <div className="total-fetch">Loi moi da gui ({friendReq?.length})</div>
+                <div className="total-fetch">Lời mời đã gửi ({friendReq?.length})</div>
               </div>
               <div className="friend-req">
                 <ul className="flex">
@@ -508,10 +508,10 @@ useEffect(() => {
                       </div>
                       <div>
                         {/* <button onClick={(e) => handleCrudFriend(item, e)}>
-                          Thu hoi loi moi
+                          Thu hồi lời mời
                         </button> */}
                         <div>
-                          <button disabled>Da gui loi moi</button>
+                          <button disabled>Đã gửi lời mời</button>
                         </div>
                       </div>
                     </li>
@@ -525,3 +525,5 @@ useEffect(() => {
     </>
   );
 }
+
+

@@ -1,5 +1,5 @@
-const PRIVATE_CONVERSATION_PLACEHOLDER = "Nguoi dung";
-const GROUP_CONVERSATION_PLACEHOLDER = "Nhom";
+﻿const PRIVATE_CONVERSATION_PLACEHOLDER = "Người dùng";
+const GROUP_CONVERSATION_PLACEHOLDER = "Nhóm";
 
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key);
 
@@ -24,6 +24,28 @@ const pickFirstString = (...values) => {
 
   return "";
 };
+
+const resolveConversationBackgroundColor = (conversation, rawConversation) =>
+  toNullableString(
+    pickFirstString(
+      conversation?.backgroundColor,
+      rawConversation?.backgroundColor,
+      conversation?.background,
+      rawConversation?.background
+    )
+  );
+
+const resolveConversationBackgroundImageUrl = (conversation, rawConversation) =>
+  toNullableString(
+    pickFirstString(
+      conversation?.backgroundImageUrl,
+      rawConversation?.backgroundImageUrl,
+      conversation?.backgroundImage,
+      rawConversation?.backgroundImage,
+      conversation?.backgroundUrl,
+      rawConversation?.backgroundUrl
+    )
+  );
 
 export const normalizeConversationType = (value) => {
   const rawType =
@@ -534,6 +556,14 @@ export const normalizeConversationInput = (conversation, options = {}) => {
       : PRIVATE_CONVERSATION_PLACEHOLDER);
   const trustedAvatarUrl = toNullableString(trustedIdentity.trustedAvatarUrl);
   const finalDisplayName = customName || trustedDisplayName;
+  const backgroundColor = resolveConversationBackgroundColor(
+    conversation,
+    rawConversation
+  );
+  const backgroundImageUrl = resolveConversationBackgroundImageUrl(
+    conversation,
+    rawConversation
+  );
 
   return {
     id: conversation?.id || rawConversation?.id || null,
@@ -557,6 +587,8 @@ export const normalizeConversationInput = (conversation, options = {}) => {
     notificationLevel:
       conversation?.notificationLevel || rawConversation?.notificationLevel || "ALL",
     customName,
+    backgroundColor,
+    backgroundImageUrl,
     peerUserId: trustedIdentity.peerUserId,
     peerDisplayName: trustedIdentity.peerDisplayName,
     peerAvatarUrl: trustedIdentity.peerAvatarUrl,
@@ -570,3 +602,5 @@ export const mapConversation = (conversation, options = {}) =>
 
 export const mapConversationList = (conversations = [], options = {}) =>
   conversations.map((conversation) => mapConversation(conversation, options));
+
+

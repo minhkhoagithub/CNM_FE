@@ -1,4 +1,4 @@
-import React, {
+﻿import React, {
   memo,
   useCallback,
   useContext,
@@ -8,7 +8,6 @@ import React, {
   useState,
 } from "react";
 import "../../resource/style/Chat/containermess.css";
-import { ThemeContext } from "../../Context/ThemeContext";
 import { UserContext } from "../../Context/UserContext";
 import { ContactContext } from "../../Context/ContactConext";
 import Icon from "./Icon";
@@ -17,7 +16,6 @@ import { CiSearch } from "react-icons/ci";
 import { IoVideocamOutline, IoCameraOutline, IoCallOutline } from "react-icons/io5";
 import { AiOutlineLike, AiOutlinePicture, AiOutlineSend } from "react-icons/ai";
 import { IoMdClose, IoMdAttach,IoMdMore  } from "react-icons/io";
-import { TbBackground } from "react-icons/tb";
 import { MdOutlineContactMail } from "react-icons/md";
 import { RiCalendarTodoFill, RiEmojiStickerLine } from "react-icons/ri";
 import { RxDotFilled } from "react-icons/rx";
@@ -53,31 +51,12 @@ import {
   upsertMessageItem,
 } from "../../mappers/messageMapper";
 
-const codeBackground = [
-  "#34568B",
-  "rgb(8 108 167)",
-  "#a183b3",
-  "#88b04b",
-  "#b565a7",
-  "#dd4124",
-  "#d65076",
-  "#5b5ea6",
-  "#9b2335",
-  "#abdde6",
-  "#f3bcb6",
-  "#ffccb6",
-  "#ff968a",
-  "#8fcaca",
-  "#f4f3f3",
-  "#b4426e",
-];
-
 const REACTION_OPTIONS = ["LIKE", "LOVE", "WOW", "HAHA"];
 const TYPING_DEBOUNCE_MS = 400;
 const TYPING_IDLE_MS = 900;
 const REMOTE_TYPING_TIMEOUT_MS = 3000;
-const PRIVATE_CONVERSATION_LABEL = "Nguoi dung";
-const GROUP_CONVERSATION_LABEL = "Nhom";
+const PRIVATE_CONVERSATION_LABEL = "Người dùng";
+const GROUP_CONVERSATION_LABEL = "Nhóm";
 const REACTION_LABELS = {
   LIKE: "👍",
   LOVE: "❤️",
@@ -177,7 +156,7 @@ const buildForwardMessageSummary = (message) => {
     : 0;
 
   if (content && attachmentCount) {
-    return `${content} · ${attachmentCount} tep dinh kem`;
+    return `${content} · ${attachmentCount} tệp đính kèm`;
   }
 
   if (content) {
@@ -185,11 +164,11 @@ const buildForwardMessageSummary = (message) => {
   }
 
   if (attachmentCount === 1) {
-    return "1 tep dinh kem";
+    return "1 tệp đính kèm";
   }
 
   if (attachmentCount > 1) {
-    return `${attachmentCount} tep dinh kem`;
+    return `${attachmentCount} tệp đính kèm`;
   }
 
   return "";
@@ -209,7 +188,7 @@ const buildForwardDraft = (message) => {
   if (deletedAt) {
     return {
       canForward: false,
-      reason: "Tin nhan da thu hoi khong the chuyen tiep.",
+      reason: "Tin nhắn đã thu hồi không thể chuyển tiếp.",
       id: message?.id || null,
       content,
       attachments,
@@ -225,7 +204,7 @@ const buildForwardDraft = (message) => {
   if (!hasUsableContent && !hasAttachments) {
     return {
       canForward: false,
-      reason: "Tin nhan nay khong co noi dung de chuyen tiep.",
+      reason: "Tin nhắn này không có nội dung để chuyển tiếp.",
       id: message?.id || null,
       content,
       attachments,
@@ -241,7 +220,7 @@ const buildForwardDraft = (message) => {
   if (hasAttachments && !attachmentsAreReusable) {
     return {
       canForward: false,
-      reason: "Tep dinh kem nay khong the chuyen tiep an toan.",
+      reason: "Tệp đính kèm này không thể chuyển tiếp an toàn.",
       id: message?.id || null,
       content,
       attachments,
@@ -275,7 +254,7 @@ const buildForwardDraft = (message) => {
 };
 
 const buildReplyPreview = (message) =>
-  truncateText(createReplyPreviewText(message), 90) || "Tin nhan";
+  truncateText(createReplyPreviewText(message), 90) || "Tin nhắn";
 
 const normalizeTypingPayload = (event) => {
   const payload =
@@ -307,7 +286,7 @@ const resolveTypingStatusText = (typingUsers, conversationType) => {
   }
 
   if (conversationType !== "group") {
-    return "Dang go tin nhan...";
+    return "Đang gõ tin nhắn...";
   }
 
   const namedTypingUsers = typingUsers
@@ -315,18 +294,18 @@ const resolveTypingStatusText = (typingUsers, conversationType) => {
     .filter(Boolean);
 
   if (!namedTypingUsers.length) {
-    return "Co nguoi dang go tin nhan...";
+    return "Có người đang gõ tin nhắn...";
   }
 
   if (namedTypingUsers.length === 1) {
-    return `${namedTypingUsers[0]} dang go tin nhan...`;
+    return `${namedTypingUsers[0]} đang gõ tin nhắn...`;
   }
 
   if (namedTypingUsers.length === 2) {
-    return `${namedTypingUsers[0]} va ${namedTypingUsers[1]} dang go tin nhan...`;
+    return `${namedTypingUsers[0]} và ${namedTypingUsers[1]} đang gõ tin nhắn...`;
   }
 
-  return "Nhieu nguoi dang go tin nhan...";
+  return "Nhiều người đang gõ tin nhắn...";
 };
 
 const EMOJI_PATTERN = /[\p{Extended_Pictographic}\uFE0F\u200D]/u;
@@ -529,7 +508,6 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   const remoteTypingTimeoutsRef = useRef(new Map());
   const [messages, setMessages] = useState([]);
   const [menuControl, setMenuControl] = useState({
-    tableColor: false,
     tableIcon: false,
   });
   const [selectedAttachments, setSelectedAttachments] = useState([]);
@@ -558,7 +536,6 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     currentConversationNormalized,
     updateConversationById,
   } = useContext(ContactContext);
-  const { theme, handleChangeTheme } = useContext(ThemeContext);
   const currentUserId = userData?.userId || userData?._id || null;
   const currentUserDisplayName =
     userData?.displayName || userData?.username || "Ban";
@@ -587,6 +564,21 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     activeConversation?.avatarUrl ||
     activeConversation?.trustedAvatarUrl ||
     null;
+  const conversationBackgroundColor =
+    activeConversation?.backgroundColor || "#f4f7fb";
+  const conversationBackgroundImageUrl =
+    activeConversation?.backgroundImageUrl || "";
+  const conversationBackgroundStyle = conversationBackgroundImageUrl
+    ? {
+        backgroundImage: `url(${conversationBackgroundImageUrl})`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundRepeat: "no-repeat",
+        backgroundColor: "transparent",
+      }
+    : {
+        background: conversationBackgroundColor,
+      };
 
   const availableForwardConversations = useMemo(() => {
     const mergedConversations = [
@@ -760,10 +752,10 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 
       if (normalizedUserId && memberIdentityMap.has(normalizedUserId)) {
         const memberIdentity = memberIdentityMap.get(normalizedUserId);
-        return memberIdentity?.displayName || fallbackName || "Nguoi dung";
+        return memberIdentity?.displayName || fallbackName || "Người dùng";
       }
 
-      return fallbackName || "Nguoi dung";
+      return fallbackName || "Người dùng";
     },
     [currentUserDisplayName, currentUserId, memberIdentityMap]
   );
@@ -794,8 +786,8 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
           (senderId && String(senderId) === String(currentUserId)
             ? currentUserDisplayName
             : senderId
-            ? `Nguoi dung ${String(senderId).slice(0, 8)}`
-            : "Nguoi dung"),
+            ? `Người dùng ${String(senderId).slice(0, 8)}`
+            : "Người dùng"),
         avatarUrl:
           dtoAvatarUrl ||
           fallbackIdentity?.avatarUrl ||
@@ -928,7 +920,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     }
 
     if (!forwardingMessage?.canForward) {
-      setActionError("Tin nhan nay khong the chuyen tiep.");
+      setActionError("Tin nhắn này không thể chuyển tiếp.");
       return;
     }
 
@@ -937,7 +929,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     );
 
     if (!targetConversation) {
-      setActionError("Vui long chon cuoc tro chuyen de chuyen tiep.");
+      setActionError("Vui lòng chọn cuộc trò chuyện để chuyển tiếp.");
       return;
     }
 
@@ -1001,11 +993,11 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 
       clearForwardState();
       setForwardNotice(
-        `Da chuyen tiep toi ${getConversationDisplayName(targetConversation)}.`
+        `Đã chuyển tiếp tới ${getConversationDisplayName(targetConversation)}.`
       );
     } catch (error) {
       console.error("[WEB FORWARD ERROR]", error);
-      setActionError("Khong the chuyen tiep tin nhan nay.");
+      setActionError("Không thể chuyển tiếp tin nhắn này.");
     } finally {
       setIsForwarding(false);
     }
@@ -1585,11 +1577,6 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       });
   }, [backendConversationId, updateConversationById]);
 
-  const handleSetBackground = (backgroundColor) => {
-    handleChangeTheme(backgroundColor);
-    setMenuControl((prevState) => ({ ...prevState, tableColor: false }));
-  };
-
   const handleChangeMenuControl = (event) => {
     const name = event.target.getAttribute("name");
     if (!name) {
@@ -1652,7 +1639,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     pushTypingState(false);
 
     if (!backendConversationId) {
-      setActionError("Khong tim thay cuoc tro chuyen de gui tin nhan.");
+      setActionError("Không tìm thấy cuộc trò chuyện để gửi tin nhắn.");
       return;
     }
 
@@ -1695,10 +1682,10 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       console.error("Failed to send message:", error);
       setActionError(
         replyingToMessage
-          ? "Khong the gui tin nhan tra loi."
+          ? "Không thể gửi tin nhắn trả lời."
           : selectedAttachments.length > 0
-          ? "Khong the gui tep dinh kem."
-          : "Khong the gui tin nhan."
+          ? "Không thể gửi tệp đính kèm."
+          : "Không thể gửi tin nhắn."
       );
     } finally {
       setIsSending(false);
@@ -1805,7 +1792,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       handleCancelEditing();
     } catch (error) {
       console.error("Failed to edit message:", error);
-      setActionError("Khong the chinh sua tin nhan.");
+      setActionError("Không thể chỉnh sửa tin nhắn.");
     }
   };
 
@@ -1820,7 +1807,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       markMessageDeleted(messageId, new Date().toISOString());
     } catch (error) {
       console.error("Failed to delete message:", error);
-      setActionError("Khong the thu hoi tin nhan.");
+      setActionError("Không thể thu hồi tin nhắn.");
     }
   };
 
@@ -1830,7 +1817,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       removeMessageById(messageId);
     } catch (error) {
       console.error("Failed to hide message:", error);
-      setActionError("Khong the an tin nhan nay.");
+      setActionError("Không thể ẩn tin nhắn này.");
     }
   };
 
@@ -1840,7 +1827,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       removeMessageById(messageId);
     } catch (error) {
       console.error("Failed to remove message for current user:", error);
-      setActionError("Khong the xoa tin nhan tren may nay.");
+      setActionError("Không thể xóa tin nhắn trên máy này.");
     }
   };
 
@@ -1872,7 +1859,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       );
     } catch (error) {
       console.error("Failed to update reaction:", error);
-      setActionError("Khong the cap nhat cam xuc.");
+      setActionError("Không thể cập nhật cảm xúc.");
     }
   };
 
@@ -1903,7 +1890,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       );
     } catch (error) {
       console.error("Failed to update reaction:", error);
-      setActionError("Khong the cap nhat cam xuc.");
+      setActionError("Không thể cập nhật cảm xúc.");
     }
   };
 
@@ -2087,7 +2074,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     ? typingStatusText
     : activeConversation?.lastActive && activeConversation.lastActive !== "Active"
     ? activeConversation.lastActive
-    : "Dang hoat dong";
+    : "Đang hoạt động";
   console.log("[WEB TYPING RENDER]", {
     typingUsers,
     currentConversationId: backendConversationId,
@@ -2151,7 +2138,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
           <IoVideocamOutline className="icon-header" onClick={() => handleStartCall("VIDEO")} />
         </div>
       </div>
-      <div className="infor-container" style={{ backgroundColor: theme }}>
+      <div className="infor-container" style={conversationBackgroundStyle}>
         <div>
           <ul>
             {normalizedMessages.map((item, index) => {
@@ -2176,7 +2163,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                       String(item.replyTo.senderId) === String(currentUserId)
                         ? currentUserDisplayName
                         : memberIdentityMap.get(String(item.replyTo.senderId || ""))?.displayName) ||
-                      "Nguoi dung";
+                      "Người dùng";
 
                     console.log("[WEB REPLY SENDER]", {
                       conversationId: backendConversationId,
@@ -2193,7 +2180,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                   })()
                 : "";
               const replyPreviewText = !isDeleted && item.replyTo
-                ? truncateText(item.replyTo.contentPreview || "Tin nhan", 90)
+                ? truncateText(item.replyTo.contentPreview || "Tin nhắn", 90)
                 : "";
               const displayText = isDeleted
                 ? RECALLED_MESSAGE_PLACEHOLDER
@@ -2256,7 +2243,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                             type="button"
                             onClick={handleCancelEditing}
                           >
-                            Huy
+                            Hủy
                           </button>
                         </div>
                       </div>
@@ -2264,7 +2251,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                       <>
                         {item.forwarded && !isDeleted ? (
                           <div className="message-forwarded-preview">
-                            <p className="message-forwarded-label">Chuyen tiep</p>
+                            <p className="message-forwarded-label">Chuyển tiếp</p>
                             {forwardedFromSenderName ? (
                               <p className="message-forwarded-meta">
                                 tu {forwardedFromSenderName}
@@ -2275,7 +2262,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                         {!isDeleted && item.replyTo ? (
                           <div className="message-reply-preview">
                             <p className="message-reply-sender">
-                              {replyPreviewSenderName || "Tin nhan duoc tra loi"}
+                              {replyPreviewSenderName || "Tin nhắn duoc tra loi"}
                             </p>
                             <p className="message-reply-text">{replyPreviewText}</p>
                           </div>
@@ -2310,7 +2297,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                                 target="_blank"
                                 rel="noreferrer"
                               >
-                                {attachment.fileName || "Tep dinh kem"}
+                            {attachment.fileName || "Tệp đính kèm"}
                               </a>
                             ))}
                           </div>
@@ -2325,7 +2312,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                           </p>
                         ) : null}
                         {item.editedAt && !isDeleted ? (
-                          <p className="message-state-chip">Da chinh sua</p>
+                          <p className="message-state-chip">Đã chỉnh sửa</p>
                         ) : null}
                       </>
                     )}
@@ -2376,7 +2363,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                             type="button"
                             onClick={() => handleReplyToMessage(item)}
                           >
-                            Tra loi
+                            Trả lời
                           </button>
                         ) : null}
 
@@ -2384,7 +2371,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                           <button
                             className="message-action-menu-trigger"
                             type="button"
-                            aria-label="Mo tac vu tin nhan"
+                            aria-label="Mở tác vụ tin nhắn"
                             aria-expanded={String(openMessageMenuId) === String(item.id)}
                             onClick={() => handleToggleMessageMenu(item.id)}
                           >
@@ -2406,7 +2393,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                                   handleOpenForwardPicker(item);
                                 }}
                               >
-                                Chuyen tiep
+                                Chuyển tiếp
                               </button>
 
                               {canEdit ? (
@@ -2454,7 +2441,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                                   handleRemoveMessageForMe(item.id);
                                 }}
                               >
-                                Xoa cho toi
+                                Xóa cho tôi
                               </button>
                             </div>
                           ) : null}
@@ -2522,28 +2509,6 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
             <IoCameraOutline className="icon-header" />
             <MdOutlineContactMail className="icon-header" />
             <RiCalendarTodoFill className="icon-header" />
-            <div className="wrap-setbackground">
-              <TbBackground
-                name="tableColor"
-                onClick={handleChangeMenuControl}
-                className="icon-header"
-              />
-              {menuControl.tableColor ? (
-                <div className="set-background set-background-active">
-                  <ul className="ul-set-background flex">
-                    {codeBackground.map((value) => (
-                      <li
-                        key={value}
-                        onClick={() => handleSetBackground(value)}
-                        style={{ backgroundColor: value }}
-                      >
-                        &nbsp;
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-            </div>
           </div>
         </div>
         <form onSubmit={handleSendMess}>
@@ -2567,17 +2532,17 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
               <div className="composer-reply-banner">
                 <div className="composer-reply-text">
                   <p className="composer-reply-label">
-                    Tra loi {replyingToMessage.senderDisplayName || "tin nhan"}
+                    Trả lời {replyingToMessage.senderDisplayName || "tin nhắn"}
                   </p>
                   <p className="composer-reply-preview">
-                    {replyingToMessage.contentPreview || "Tin nhan"}
+                    {replyingToMessage.contentPreview || "Tin nhắn"}
                   </p>
                 </div>
                 <button
                   className="composer-reply-close"
                   type="button"
                   onClick={handleCancelReply}
-                  aria-label="Huy tra loi"
+                  aria-label="Hủy trả lời"
                 >
                   <IoMdClose />
                 </button>
@@ -2622,7 +2587,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                     </button>
                   ))
                 ) : (
-                  <p className="mention-suggestion-empty">Khong tim thay thanh vien</p>
+                  <p className="mention-suggestion-empty">Không tìm thấy thành viên</p>
                 )}
               </div>
             ) : null}
@@ -2667,16 +2632,16 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
             <div className="forward-picker-card" onClick={(event) => event.stopPropagation()}>
               <div className="forward-picker-header">
                 <div>
-                  <h3 className="forward-picker-title">Chuyen tiep tin nhan</h3>
+                  <h3 className="forward-picker-title">Chuyển tiếp tin nhắn</h3>
                   <p className="forward-picker-subtitle">
-                    {forwardingMessage?.previewText || "Chon cuoc tro chuyen de gui lai."}
+                    {forwardingMessage?.previewText || "Chọn cuộc trò chuyện để gửi lại."}
                   </p>
                 </div>
                 <button
                   className="message-action-btn subtle"
                   type="button"
                   onClick={handleCloseForwardPicker}
-                  aria-label="Dong chuyen tiep"
+                  aria-label="Đóng chuyển tiếp"
                 >
                   <IoMdClose />
                 </button>
@@ -2686,7 +2651,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                 <input
                   className="forward-picker-search-input"
                   type="text"
-                  placeholder="Tim cuoc tro chuyen"
+                  placeholder="Tìm cuộc trò chuyện"
                   value={forwardSearchQuery}
                   onChange={(event) => setForwardSearchQuery(event.target.value)}
                 />
@@ -2715,7 +2680,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                             <span className="forward-target-meta">
                               <strong>{conversationName}</strong>
                               <span>
-                                {conversation.lastMessage || "Cuoc tro chuyen san co"}
+                                {conversation.lastMessage || "Cuộc trò chuyện sẵn có"}
                               </span>
                             </span>
                           </button>
@@ -2725,7 +2690,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                   </ul>
                 ) : (
                   <p className="forward-picker-empty">
-                    Khong tim thay cuoc tro chuyen phu hop.
+                    Không tìm thấy cuộc trò chuyện phù hợp.
                   </p>
                 )}
               </div>
@@ -2735,7 +2700,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                   type="button"
                   onClick={handleCloseForwardPicker}
                 >
-                  Huy
+                  Hủy
                 </button>
                 <button
                   className="message-action-btn primary"
@@ -2743,7 +2708,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                   onClick={handleConfirmForward}
                   disabled={!forwardTargetConversationId || isForwarding}
                 >
-                  {isForwarding ? "Dang gui..." : "Gui"}
+                  {isForwarding ? "Đang gửi..." : "Gửi"}
                 </button>
               </div>
               {actionError ? (
@@ -2752,7 +2717,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
             </div>
           </div>
         ) : null}
-        {isSending ? <p className="composer-feedback-hint">Dang gui tin nhan...</p> : null}
+        {isSending ? <p className="composer-feedback-hint">Đang gửi tin nhắn...</p> : null}
         {forwardNotice ? <p className="composer-feedback-success">{forwardNotice}</p> : null}
         {!isForwardPickerOpen && actionError ? (
           <p className="composer-feedback-error">{actionError}</p>
@@ -2763,3 +2728,6 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 }
 
 export default memo(ContainerMess);
+
+
+

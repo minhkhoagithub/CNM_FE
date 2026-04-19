@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useContext, useRef, memo } from "react";
+﻿import React, { useEffect, useState, useContext, useRef, memo } from "react";
 import { UserContext } from "../../Context/UserContext";
 import { ContactContext } from "../../Context/ContactConext";
 import "../../resource/style/Chat/contact.css";
@@ -34,11 +34,11 @@ import {
 } from "../../services/chat/conversationApi";
 import { mapConversation } from "../../mappers/conversationMapper";
 
-export const LoiMoiKetBan = "Loi moi ket ban";
-export const LoiMoiVaoNhom = "Loi moi vao nhom";
-export const DanhSachBanBe = "Danh sach ban be";
-export const DanhSachNhom = "Danh sach nhom";
-export const DanhSachChan = "Danh sach chan";
+export const LoiMoiKetBan = "Lời mời kết bạn";
+export const LoiMoiVaoNhom = "Lời mời vào nhóm";
+export const DanhSachBanBe = "Danh sách bạn bè";
+export const DanhSachNhom = "Danh sách nhóm";
+export const DanhSachChan = "Danh sách chặn";
 
 // const mapSearchUserToUi = (item) => ({
 //   _id: item.userId,
@@ -216,13 +216,13 @@ const [friendSearch, setFriendSearch] = useState({
 const getFriendActionMeta = (relationshipStatus) => {
   switch (relationshipStatus) {
     case "FRIEND":
-      return { label: "Ban be", disabled: true };
+      return { label: "Bạn bè", disabled: true };
     case "REQUEST_SENT":
-      return { label: "Da gui loi moi", disabled: true };
+      return { label: "Đã gửi lời mời", disabled: true };
     case "REQUEST_RECEIVED":
-      return { label: "Da nhan loi moi", disabled: true };
+      return { label: "Đã nhận lời mời", disabled: true };
     default:
-      return { label: "Ket ban", disabled: false };
+      return { label: "Kết bạn", disabled: false };
   }
 };
 
@@ -673,7 +673,7 @@ const handleChangeSearchKeyword = (e) => {
       data: foundUser,
       state: foundUser.relationshipStatus,
       cancel: null,
-      unfriend: foundUser.relationshipStatus === "FRIEND" ? "Xoa ban be" : null,
+      unfriend: foundUser.relationshipStatus === "FRIEND" ? "Xóa bạn bè" : null,
       checkId: foundUser.userId,
     });
     return;
@@ -683,7 +683,7 @@ const handleChangeSearchKeyword = (e) => {
     username: "",
     show: false,
     data: null,
-    state: "Khong tim thay nguoi dung",
+    state: "Không tìm thấy người dùng",
     cancel: null,
     unfriend: null,
     checkId: null,
@@ -709,7 +709,7 @@ const handleChangeSearchKeyword = (e) => {
 //       data: foundUser,
 //       state: foundUser.relationshipStatus,
 //       cancel: null,
-//       unfriend: foundUser.relationshipStatus === "FRIEND" ? "Xoa ban be" : null,
+//       unfriend: foundUser.relationshipStatus === "FRIEND" ? "Xóa bạn bè" : null,
 //       checkId: foundUser.userId,
 //     });
 //     return;
@@ -719,7 +719,7 @@ const handleChangeSearchKeyword = (e) => {
 //     keyword: "",
 //     show: false,
 //     data: null,
-//     state: "Khong tim thay nguoi dung",
+//     state: "Không tìm thấy người dùng",
 //     cancel: null,
 //     unfriend: null,
 //     checkId: null,
@@ -734,7 +734,7 @@ const handleFindUsersForAddFriend = async () => {
       ...prevState,
       searched: true,
       results: [],
-      error: "Vui long nhap ten, username, ho ten hoac so dien thoai",
+      error: "Vui lòng nhập tên, username, họ tên hoặc số điện thoại",
     }));
     return;
   }
@@ -768,7 +768,7 @@ const handleFindUsersForAddFriend = async () => {
       loading: false,
       searched: true,
       results: [],
-      error: "Khong the tim kiem luc nay",
+      error: "Không thể tìm kiếm lúc này",
     }));
   }
 };
@@ -800,7 +800,7 @@ const handleFindUsersForAddFriend = async () => {
     return;
   }
 
-  if (state === "FRIEND" || state === "Xoa ban be") {
+  if (state === "FRIEND" || state === "Xóa bạn bè") {
     const response = await unfriendUserV2({ friendUserId: friendId });
     if (response.status === 200) {
       setDataUserPhone((prevState) => ({
@@ -846,7 +846,7 @@ const handleSendFriendRequestFromSearch = async (user) => {
   //         state: true,
   //         data: response.data,
   //         title: DanhSachBanBe,
-  //         count: `Ban be (${response.data?.length || 0})`,
+  //         count: `Bạn bè (${response.data?.length || 0})`,
   //       });
   //     }
   //   } else if (title === DanhSachNhom) {
@@ -866,7 +866,7 @@ const handleSendFriendRequestFromSearch = async (user) => {
   //         state: true,
   //         data: response.data,
   //         title: LoiMoiKetBan,
-  //         count: `Loi moi ket ban (${response.data?.length || 0})`,
+  //         count: `Lời mời kết bạn (${response.data?.length || 0})`,
   //       });
   //     }
   //   } else if (title === LoiMoiVaoNhom) {
@@ -876,7 +876,7 @@ const handleSendFriendRequestFromSearch = async (user) => {
   //         state: true,
   //         data: response.data,
   //         title: LoiMoiVaoNhom,
-  //         count: `Loi moi vao nhom (${response.data?.length || 0})`,
+  //         count: `Lời mời vao nhóm (${response.data?.length || 0})`,
   //       });
   //     }
   //   }
@@ -893,7 +893,7 @@ const handleSendFriendRequestFromSearch = async (user) => {
       state: true,
       data: friends,
       title: DanhSachBanBe,
-      count: `Ban be (${friends.length})`,
+      count: `Bạn bè (${friends.length})`,
     });
     return;
   }
@@ -908,7 +908,7 @@ const handleSendFriendRequestFromSearch = async (user) => {
   //     state: true,
   //     data: requests,
   //     title: LoiMoiKetBan,
-  //     count: `Loi moi ket ban (${requests.length})`,
+  //     count: `Lời mời kết bạn (${requests.length})`,
   //   });
   //   return;
   // }
@@ -924,7 +924,7 @@ const handleSendFriendRequestFromSearch = async (user) => {
     state: true,
     data: requests,
     title: LoiMoiKetBan,
-    count: `Loi moi ket ban (${requests.length})`,
+    count: `Lời mời kết bạn (${requests.length})`,
   });
   return;
 }
@@ -953,7 +953,7 @@ const handleSendFriendRequestFromSearch = async (user) => {
         state: true,
         data: groups,
         title: DanhSachNhom,
-        count: `Nhom (${groups.length})`,
+          count: `Nhóm (${groups.length})`,
       });
     } catch (error) {
       console.error("[WEB GROUP LIST SOURCE]", {
@@ -965,7 +965,7 @@ const handleSendFriendRequestFromSearch = async (user) => {
         state: true,
         data: [],
         title: DanhSachNhom,
-        count: "Nhom (0)",
+          count: "Nhóm (0)",
       });
     }
     return;
@@ -978,7 +978,7 @@ const handleSendFriendRequestFromSearch = async (user) => {
         state: true,
         data: response.data,
         title: LoiMoiVaoNhom,
-        count: `Loi moi vao nhom (${response.data?.length || 0})`,
+          count: `Lời mời vào nhóm (${response.data?.length || 0})`,
       });
     }
   }
@@ -1010,7 +1010,7 @@ const handleSendFriendRequestFromSearch = async (user) => {
                 type="text"
                 value={textSearch}
                 onChange={handleChangeTextSearch}
-                placeholder="Tim kiem"
+                placeholder="Tìm kiếm"
                 onClick={() => handleChangeIsSearch(true)}
               />
             </div>
@@ -1134,7 +1134,7 @@ const handleSendFriendRequestFromSearch = async (user) => {
                         ))}
                       </ul>
                       <div className="btn-find-friend flex" style={{ position: "relative" }}>
-                        <button onClick={() => handleShowAvatarGr(false)}>Huy</button>
+                        <button onClick={() => handleShowAvatarGr(false)}>Hủy</button>
                         <button
                           onClick={handleSaveAvatarGr}
                           style={{ backgroundColor: "#0068ff", color: "white" }}
@@ -1150,7 +1150,7 @@ const handleSendFriendRequestFromSearch = async (user) => {
                 <div className="screen-mask">
                   <div className="wrap-add wrap-add-group">
                     <div className="header-add-friend flex">
-                      <p>Tao nhom</p>
+              <p>Tạo nhóm</p>
                       <IoMdClose
                         className="btn-close"
                         onClick={() => handleShowAddGroup(false)}
@@ -1172,7 +1172,7 @@ const handleSendFriendRequestFromSearch = async (user) => {
                         <div className="input-number group">
                           <input
                             type="text"
-                            placeholder="Nhap ten nhom"
+                  placeholder="Nhập tên nhóm"
                             onChange={handleChangeNameGr}
                             value={dataCreateGr.username}
                           />
@@ -1205,7 +1205,7 @@ const handleSendFriendRequestFromSearch = async (user) => {
                         ))}
                       </div>
                       <div className="btn-find-friend flex">
-                        <button onClick={() => handleShowAddGroup(false)}>Huy</button>
+                        <button onClick={() => handleShowAddGroup(false)}>Hủy</button>
                         <button
                           onClick={handleCreateGroup}
                           style={{
@@ -1214,7 +1214,7 @@ const handleSendFriendRequestFromSearch = async (user) => {
                             color: "white",
                           }}
                         >
-                          Tao nhom
+                    Tạo nhóm
                           {dataCreateGr.listMember.length > 0
                             ? ` (${dataCreateGr.listMember.length})`
                             : ""}
@@ -1287,7 +1287,7 @@ const handleSendFriendRequestFromSearch = async (user) => {
                       ))
                     ) : (
                       <p style={{ margin: "0 20px 12px", color: "#7589a3" }}>
-                        Chua co lich su tim kiem
+                        Chưa có lịch sử tìm kiếm
                       </p>
                     )}
                   </div>
@@ -1361,3 +1361,6 @@ const handleSendFriendRequestFromSearch = async (user) => {
 }
 
 export default memo(MenuContact);
+
+
+
