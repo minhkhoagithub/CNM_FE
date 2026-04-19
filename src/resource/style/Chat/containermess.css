@@ -960,3 +960,233 @@
 .forward-picker-error {
   margin: 0;
 }
+
+.message-video-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.message-video-player {
+  width: min(360px, 100%);
+  max-height: 340px;
+  border-radius: 12px;
+  background: #000;
+}
+
+.poll-card {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid #dce4ef;
+  background: #f8fbff;
+}
+
+.poll-card-title {
+  margin: 0;
+  font-weight: 700;
+  color: #1f2d3d;
+}
+
+.poll-option-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  border: 1px solid #d4deea;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.poll-option-btn.selected {
+  border-color: #0a84ff;
+  background: #eaf4ff;
+}
+
+.poll-option-count {
+  color: #5b7088;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.poll-add-option-row {
+  display: flex;
+  gap: 8px;
+}
+
+.poll-add-option-row input {
+  flex: 1;
+  border: 1px solid #cfd8e6;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.poll-add-option-row button {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #0a84ff;
+  color: #fff;
+  cursor: pointer;
+}
+
+.poll-creator-card {
+  width: min(620px, 100%);
+}
+
+.poll-form-body {
+  display: grid;
+  gap: 12px;
+}
+
+.poll-question-input {
+  border: 1px solid #cfd8e6;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 15px;
+}
+
+.poll-options-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.poll-option-editor-row {
+  display: flex;
+  gap: 8px;
+}
+
+.poll-option-editor-row input {
+  flex: 1;
+  border: 1px solid #cfd8e6;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.poll-option-editor-row button {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #ffecec;
+  color: #bb2d2d;
+  cursor: pointer;
+}
+
+.poll-setting-list {
+  display: grid;
+  gap: 8px;
+}
+
+.poll-setting-list label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 14px;
+  color: #2e3f53;
+}
+
+.message-contact-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid #d7e2ee;
+  background: #fff;
+  cursor: pointer;
+}
+
+.message-contact-card img,
+.message-contact-avatar-placeholder {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #eef3f8;
+}
+
+.message-contact-meta {
+  display: grid;
+  min-width: 0;
+}
+
+.message-contact-meta p,
+.message-contact-meta span {
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.message-contact-meta p {
+  font-weight: 700;
+  color: #1f2d3d;
+}
+
+.message-contact-meta span {
+  font-size: 12px;
+  color: #6f8094;
+}
+
+.message-contact-action {
+  border: none;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.message-contact-action.primary {
+  background: #0a84ff;
+  color: #fff;
+}
+
+.message-contact-action.muted {
+  background: #eef3f8;
+  color: #5d7188;
+  cursor: not-allowed;
+}
+
+.message-contact-action.large {
+  min-width: 130px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.profile-preview-card {
+  width: min(420px, 100%);
+}
+
+.profile-preview-body {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 6px 0 10px;
+}
+
+.profile-preview-avatar {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.profile-preview-avatar-placeholder {
+  background: #eef3f8;
+}
+
+.profile-preview-body h4 {
+  margin: 6px 0 0;
+  font-size: 20px;
+}
+
+.profile-preview-body p {
+  margin: 0;
+  color: #5d7188;
+}

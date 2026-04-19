@@ -13,7 +13,7 @@ import { ContactContext } from "../../Context/ContactConext";
 import Icon from "./Icon";
 import { HiOutlineUserGroup } from "react-icons/hi2";
 import { CiSearch } from "react-icons/ci";
-import { IoVideocamOutline, IoCameraOutline, IoCallOutline } from "react-icons/io5";
+import { IoVideocamOutline, IoCameraOutline, IoCallOutline, IoBarChartOutline } from "react-icons/io5";
 import { AiOutlineLike, AiOutlinePicture, AiOutlineSend } from "react-icons/ai";
 import { IoMdClose, IoMdAttach,IoMdMore  } from "react-icons/io";
 import { MdOutlineContactMail } from "react-icons/md";
@@ -54,8 +54,12 @@ import {
   updateMessageReactionSummary,
   upsertMessageItem,
 } from "../../mappers/messageMapper";
+import { searchUsersV2, sendFriendRequestV2 } from "../../util/api";
 
 const REACTION_OPTIONS = ["LIKE", "LOVE", "WOW", "HAHA"];
+const POLL_CREATE_PREFIX = "[[POLL_CREATE]]";
+const POLL_VOTE_PREFIX = "[[POLL_VOTE]]";
+const POLL_ADD_OPTION_PREFIX = "[[POLL_ADD_OPTION]]";
 const TYPING_DEBOUNCE_MS = 400;
 const TYPING_IDLE_MS = 900;
 const REMOTE_TYPING_TIMEOUT_MS = 3000;
@@ -107,15 +111,104 @@ const formatTime = (value) => {
 };
 
 const isImageFile = (file) => String(file?.type || "").startsWith("image/");
+const isVideoFile = (file) => String(file?.type || "").startsWith("video/");
+const isVideoAttachment = (attachment) =>
+  String(attachment?.contentType || "").startsWith("video/") ||
+  String(attachment?.type || "").toUpperCase() === "VIDEO";
 
 const buildSelectedAttachment = (file, index) => ({
   id: `${file.name}-${file.size}-${file.lastModified}-${index}`,
   file,
   fileName: file.name,
   contentType: file.type || "",
-  previewUrl: isImageFile(file) ? URL.createObjectURL(file) : "",
+  previewUrl: isImageFile(file) || isVideoFile(file) ? URL.createObjectURL(file) : "",
   isImage: isImageFile(file),
+  isVideo: isVideoFile(file),
 });
+
+const parseSystemMessage = (content) => {
+  const normalizedContent = String(content || "").trim();
+
+  if (!normalizedContent) {
+    return null;
+  }
+
+  const matchers = [
+    { kind: "poll_create", prefix: POLL_CREATE_PREFIX },
+    { kind: "poll_vote", prefix: POLL_VOTE_PREFIX },
+    { kind: "poll_add_option", prefix: POLL_ADD_OPTION_PREFIX },
+  ];
+
+  for (const matcher of matchers) {
+    if (!normalizedContent.startsWith(matcher.prefix)) {
+      continue;
+    }
+
+    try {
+      return {
+        kind: matcher.kind,
+        payload: JSON.parse(normalizedContent.slice(matcher.prefix.length)),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+};
+
+const buildPollMessageContent = (kind, payload) => {
+  const serializedPayload = JSON.stringify(payload || {});
+  if (kind === "poll_create") {
+    return `${POLL_CREATE_PREFIX}${serializedPayload}`;
+  }
+  if (kind === "poll_vote") {
+    return `${POLL_VOTE_PREFIX}${serializedPayload}`;
+  }
+  return `${POLL_ADD_OPTION_PREFIX}${serializedPayload}`;
+};
+
+const normalizeIdentifierToken = (value) => String(value || "").trim().toLowerCase();
+const normalizePhoneToken = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/[\s.()-]/g, "")
+    .toLowerCase();
+
+const extractIdentifierToken = (text) => {
+  const normalizedText = String(text || "").trim();
+  if (!normalizedText) {
+    return "";
+  }
+
+  const emailMatch = normalizedText.match(
+    /^([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})$/i
+  );
+  if (emailMatch?.[1]) {
+    return normalizeIdentifierToken(emailMatch[1]);
+  }
+
+  const compactPhone = normalizedText.replace(/[\s.()-]/g, "");
+  if (/^\+?\d{8,15}$/.test(compactPhone)) {
+    return normalizeIdentifierToken(compactPhone);
+  }
+
+  return "";
+};
+
+const resolveFriendStatusLabel = (status) => {
+  const normalizedStatus = String(status || "").toUpperCase();
+  if (normalizedStatus === "FRIEND") {
+    return "Bạn bè";
+  }
+  if (normalizedStatus === "REQUEST_SENT") {
+    return "Đã gửi lời mời";
+  }
+  if (normalizedStatus === "REQUEST_RECEIVED") {
+    return "Đã nhận lời mời";
+  }
+  return "Kết bạn";
+};
 
 const applyLocalReactionChange = (message, nextReaction) => {
   const reactionMap = new Map(
@@ -538,6 +631,20 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     content: "",
     loading: false
   });
+  const [isPollComposerOpen, setIsPollComposerOpen] = useState(false);
+  const [isPollSubmitting, setIsPollSubmitting] = useState(false);
+  const [pollDraft, setPollDraft] = useState({
+    question: "",
+    options: ["", ""],
+    allowMultiple: true,
+    allowAddOption: true,
+    anonymousVotes: false,
+    hideResultsBeforeVote: false,
+  });
+  const [newPollOptionById, setNewPollOptionById] = useState({});
+  const [contactCardByToken, setContactCardByToken] = useState({});
+  const [selectedContactProfile, setSelectedContactProfile] = useState(null);
+  const [isSendingFriendRequest, setIsSendingFriendRequest] = useState(false);
   const forwardNoticeTimeoutRef = useRef(null);
   const { userData } = useContext(UserContext);
   const {
@@ -1698,6 +1805,123 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     event.target.value = "";
   };
 
+  const sendSystemMessage = useCallback(
+    async (kind, payload) => {
+      if (!backendConversationId) {
+        throw new Error("Conversation unavailable");
+      }
+
+      const response = await sendMessageV1({
+        conversationId: backendConversationId,
+        content: buildPollMessageContent(kind, payload),
+      });
+      const nextMessage = mapMessage(response);
+      upsertMessage(nextMessage);
+      updateConversationPreview({
+        messageText:
+          kind === "poll_create"
+            ? `Đã tạo bình chọn: ${String(payload?.question || "").trim()}`
+            : "Đã cập nhật bình chọn",
+        attachments: [],
+        updatedAt: nextMessage.editedAt || nextMessage.createdAt,
+      });
+      return nextMessage;
+    },
+    [backendConversationId, upsertMessage, updateConversationPreview]
+  );
+
+  const handleOpenPollComposer = () => {
+    setActionError("");
+    setIsPollComposerOpen(true);
+  };
+
+  const handleClosePollComposer = () => {
+    if (isPollSubmitting) {
+      return;
+    }
+
+    setIsPollComposerOpen(false);
+    setPollDraft({
+      question: "",
+      options: ["", ""],
+      allowMultiple: true,
+      allowAddOption: true,
+      anonymousVotes: false,
+      hideResultsBeforeVote: false,
+    });
+  };
+
+  const handlePollOptionChange = (index, value) => {
+    setPollDraft((prevState) => ({
+      ...prevState,
+      options: prevState.options.map((option, optionIndex) =>
+        optionIndex === index ? value : option
+      ),
+    }));
+  };
+
+  const handleCreatePoll = useCallback(async () => {
+    if (!backendConversationId || !activeConversation?.id || isPollSubmitting) {
+      return;
+    }
+
+    const question = pollDraft.question.trim();
+    const options = pollDraft.options
+      .map((option) => option.trim())
+      .filter(Boolean);
+
+    if (!question) {
+      setActionError("Vui lòng nhập câu hỏi bình chọn.");
+      return;
+    }
+
+    if (options.length < 2) {
+      setActionError("Bình chọn cần ít nhất 2 phương án.");
+      return;
+    }
+
+    const pollId = `poll-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const payload = {
+      pollId,
+      question,
+      options: options.map((text, index) => ({
+        id: `${pollId}-opt-${index + 1}`,
+        text,
+      })),
+      allowMultiple: Boolean(pollDraft.allowMultiple),
+      allowAddOption: Boolean(pollDraft.allowAddOption),
+      anonymousVotes: Boolean(pollDraft.anonymousVotes),
+      hideResultsBeforeVote: Boolean(pollDraft.hideResultsBeforeVote),
+      creatorId: currentUserId,
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      setIsPollSubmitting(true);
+      setActionError("");
+      await sendSystemMessage("poll_create", payload);
+      handleClosePollComposer();
+    } catch (error) {
+      console.error("Failed to create poll:", error);
+      setActionError("Không thể tạo bình chọn lúc này.");
+    } finally {
+      setIsPollSubmitting(false);
+    }
+  }, [
+    activeConversation?.id,
+    backendConversationId,
+    currentUserId,
+    handleClosePollComposer,
+    isPollSubmitting,
+    pollDraft.allowAddOption,
+    pollDraft.allowMultiple,
+    pollDraft.anonymousVotes,
+    pollDraft.hideResultsBeforeVote,
+    pollDraft.options,
+    pollDraft.question,
+    sendSystemMessage,
+  ]);
+
   const handleRemoveSelectedAttachment = (attachmentId) => {
     setSelectedAttachments((prevState) => {
       const targetAttachment = prevState.find((attachment) => attachment.id === attachmentId);
@@ -2014,6 +2238,293 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   };
 
   const normalizedMessages = useMemo(() => normalizeMessageList(messages), [messages]);
+  const pollStateById = useMemo(() => {
+    const nextPollStateById = new Map();
+
+    normalizedMessages.forEach((message) => {
+      const systemMessage = parseSystemMessage(message?.content);
+      if (!systemMessage?.kind || !systemMessage.payload) {
+        return;
+      }
+
+      if (systemMessage.kind === "poll_create") {
+        const payload = systemMessage.payload;
+        const pollId = String(payload.pollId || "");
+        if (!pollId) {
+          return;
+        }
+
+        nextPollStateById.set(pollId, {
+          pollId,
+          createMessageId: message?.id || null,
+          question: String(payload.question || "").trim(),
+          options: Array.isArray(payload.options)
+            ? payload.options
+                .map((option) => ({
+                  id: String(option?.id || ""),
+                  text: String(option?.text || "").trim(),
+                }))
+                .filter((option) => option.id && option.text)
+            : [],
+          settings: {
+            allowMultiple: Boolean(payload.allowMultiple),
+            allowAddOption: Boolean(payload.allowAddOption),
+            anonymousVotes: Boolean(payload.anonymousVotes),
+            hideResultsBeforeVote: Boolean(payload.hideResultsBeforeVote),
+          },
+          votesByUserId: {},
+        });
+      }
+
+      if (systemMessage.kind === "poll_vote") {
+        const payload = systemMessage.payload;
+        const pollId = String(payload.pollId || "");
+        const voterId = String(payload.voterId || "");
+        const selectedOptionIds = Array.isArray(payload.selectedOptionIds)
+          ? payload.selectedOptionIds.map((value) => String(value || "")).filter(Boolean)
+          : [];
+        const existingPoll = nextPollStateById.get(pollId);
+        if (!existingPoll || !voterId) {
+          return;
+        }
+
+        existingPoll.votesByUserId = {
+          ...existingPoll.votesByUserId,
+          [voterId]: selectedOptionIds,
+        };
+      }
+
+      if (systemMessage.kind === "poll_add_option") {
+        const payload = systemMessage.payload;
+        const pollId = String(payload.pollId || "");
+        const optionId = String(payload.optionId || "");
+        const optionText = String(payload.optionText || "").trim();
+        const existingPoll = nextPollStateById.get(pollId);
+        if (!existingPoll || !optionId || !optionText) {
+          return;
+        }
+
+        if (!existingPoll.options.some((option) => option.id === optionId)) {
+          existingPoll.options = [
+            ...existingPoll.options,
+            { id: optionId, text: optionText },
+          ];
+        }
+      }
+    });
+
+    return nextPollStateById;
+  }, [normalizedMessages]);
+  const displayMessages = useMemo(
+    () =>
+      normalizedMessages.filter((message) => {
+        const systemMessage = parseSystemMessage(message?.content);
+        return !systemMessage || systemMessage.kind === "poll_create";
+      }),
+    [normalizedMessages]
+  );
+  const pollStateByCreateMessageId = useMemo(() => {
+    const nextMap = new Map();
+    pollStateById.forEach((pollState) => {
+      if (pollState?.createMessageId) {
+        nextMap.set(String(pollState.createMessageId), pollState);
+      }
+    });
+    return nextMap;
+  }, [pollStateById]);
+
+  const handleVotePoll = useCallback(
+    async (pollId, optionId) => {
+      const pollState = pollStateById.get(String(pollId));
+      if (!pollState || !currentUserId || !optionId || isSending) {
+        return;
+      }
+
+      const currentSelection = Array.isArray(pollState.votesByUserId?.[String(currentUserId)])
+        ? pollState.votesByUserId[String(currentUserId)]
+        : [];
+      const hasSelected = currentSelection.includes(optionId);
+      const nextSelection = pollState.settings.allowMultiple
+        ? hasSelected
+          ? currentSelection.filter((id) => id !== optionId)
+          : [...currentSelection, optionId]
+        : hasSelected
+        ? []
+        : [optionId];
+
+      try {
+        await sendSystemMessage("poll_vote", {
+          pollId,
+          voterId: currentUserId,
+          selectedOptionIds: nextSelection,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error("Failed to vote poll:", error);
+        setActionError("Không thể gửi phiếu bầu.");
+      }
+    },
+    [currentUserId, isSending, pollStateById, sendSystemMessage]
+  );
+
+  const handleAddPollOption = useCallback(
+    async (pollId) => {
+      const pollState = pollStateById.get(String(pollId));
+      const optionText = String(newPollOptionById[pollId] || "").trim();
+      if (!pollState || !pollState.settings.allowAddOption || !optionText) {
+        return;
+      }
+
+      const optionId = `${pollId}-ext-${Date.now()}`;
+      try {
+        await sendSystemMessage("poll_add_option", {
+          pollId,
+          optionId,
+          optionText,
+          actorUserId: currentUserId,
+          createdAt: new Date().toISOString(),
+        });
+        setNewPollOptionById((prevState) => ({
+          ...prevState,
+          [pollId]: "",
+        }));
+      } catch (error) {
+        console.error("Failed to add poll option:", error);
+        setActionError("Không thể thêm phương án bình chọn.");
+      }
+    },
+    [currentUserId, newPollOptionById, pollStateById, sendSystemMessage]
+  );
+
+  const handleSendFriendRequestFromCard = useCallback(
+    async (token, card) => {
+      const targetUserId = card?.userId;
+      if (!targetUserId || isSendingFriendRequest) {
+        return;
+      }
+
+      try {
+        setIsSendingFriendRequest(true);
+        await sendFriendRequestV2({ receiverId: targetUserId });
+        setContactCardByToken((prevState) => {
+          if (token) {
+            return {
+              ...prevState,
+              [token]: {
+                ...(prevState[token] || card),
+                relationshipStatus: "REQUEST_SENT",
+              },
+            };
+          }
+
+          const nextState = { ...prevState };
+          Object.keys(nextState).forEach((entryToken) => {
+            const entry = nextState[entryToken];
+            if (String(entry?.userId || "") === String(targetUserId)) {
+              nextState[entryToken] = {
+                ...entry,
+                relationshipStatus: "REQUEST_SENT",
+              };
+            }
+          });
+          return nextState;
+        });
+        setSelectedContactProfile((prevState) =>
+          prevState && String(prevState.userId) === String(targetUserId)
+            ? { ...prevState, relationshipStatus: "REQUEST_SENT" }
+            : prevState
+        );
+      } catch (error) {
+        console.error("Failed to send friend request from message card:", error);
+        setActionError("Không thể gửi lời mời kết bạn.");
+      } finally {
+        setIsSendingFriendRequest(false);
+      }
+    },
+    [isSendingFriendRequest]
+  );
+
+  useEffect(() => {
+    const tokens = new Set();
+    displayMessages.forEach((message) => {
+      const systemMessage = parseSystemMessage(message?.content);
+      if (systemMessage) {
+        return;
+      }
+      const token = extractIdentifierToken(message?.content);
+      if (token) {
+        tokens.add(token);
+      }
+    });
+
+    const unresolvedTokens = Array.from(tokens).filter(
+      (token) => contactCardByToken[token] === undefined
+    );
+    if (!unresolvedTokens.length) {
+      return;
+    }
+
+    let isUnmounted = false;
+    unresolvedTokens.forEach((token) => {
+      searchUsersV2({ keyword: token })
+        .then((response) => {
+          if (isUnmounted) {
+            return;
+          }
+
+          const users = Array.isArray(response?.data) ? response.data : [];
+          const normalizedToken = normalizeIdentifierToken(token);
+          const normalizedPhone = normalizePhoneToken(token);
+          const matchedUser =
+            users.find((user) => {
+              const userEmail = normalizeIdentifierToken(user?.email);
+              const userPhone = normalizePhoneToken(user?.phone);
+              return (
+                (userEmail && userEmail === normalizedToken) ||
+                (userPhone && userPhone === normalizedPhone)
+              );
+            }) ||
+            users.find(
+              (user) =>
+                String(user?.userId || user?.id || user?._id || "") !==
+                String(currentUserId || "")
+            ) ||
+            users[0] ||
+            null;
+          setContactCardByToken((prevState) => ({
+            ...prevState,
+            [token]: matchedUser
+              ? {
+                  userId: matchedUser.userId || matchedUser.id || matchedUser._id || null,
+                  displayName:
+                    matchedUser.displayName ||
+                    matchedUser.username ||
+                    matchedUser.phone ||
+                    "Người dùng",
+                  username: matchedUser.username || "",
+                  phone: matchedUser.phone || "",
+                  email: matchedUser.email || "",
+                  avatarUrl: matchedUser.avatarUrl || matchedUser.avatar || "",
+                  relationshipStatus: matchedUser.relationshipStatus || "NONE",
+                }
+              : null,
+          }));
+        })
+        .catch(() => {
+          if (isUnmounted) {
+            return;
+          }
+          setContactCardByToken((prevState) => ({
+            ...prevState,
+            [token]: null,
+          }));
+        });
+    });
+
+    return () => {
+      isUnmounted = true;
+    };
+  }, [contactCardByToken, currentUserId, displayMessages]);
   useEffect(() => {
     if (activeConversation?.type !== "group" || !backendConversationId || !currentUserId) {
       return undefined;
@@ -2318,7 +2829,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       <div className="infor-container" style={conversationBackgroundStyle}>
         <div>
           <ul>
-            {(backendConversationId === "AI_ASSISTANT" ? aiMessages : normalizedMessages).map((item, index) => {
+            {(backendConversationId === "AI_ASSISTANT" ? aiMessages : displayMessages).map((item, index) => {
               const isMine = item.senderId === currentUserId;
               const isAi = item.senderId === 'AI';
 
@@ -2338,10 +2849,20 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
               }
 
               const isDeleted = Boolean(item.deletedAt);
-              const visibleAttachments = isDeleted ? [] : (item.attachments || []);
-              const imageAttachments = visibleAttachments.filter(attachment => attachment && isImageAttachment(attachment));
+              const systemMessage = parseSystemMessage(item?.content);
+              const pollState = item?.id
+                ? pollStateByCreateMessageId.get(String(item.id)) || null
+                : null;
+              const visibleAttachments = isDeleted
+                ? []
+                : Array.isArray(item.attachments)
+                ? item.attachments
+                : [];
+              const imageAttachments = visibleAttachments.filter(isImageAttachment);
+              const videoAttachments = visibleAttachments.filter(isVideoAttachment);
               const fileAttachments = visibleAttachments.filter(
-                (attachment) => attachment && !isImageAttachment(attachment)
+                (attachment) =>
+                  !isImageAttachment(attachment) && !isVideoAttachment(attachment)
               );
               const canEdit =
                 isMine && !isDeleted && !visibleAttachments.length && Boolean(item.content);
@@ -2378,7 +2899,12 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                 : "";
               const displayText = isDeleted
                 ? RECALLED_MESSAGE_PLACEHOLDER
+                : systemMessage?.kind === "poll_create"
+                ? ""
                 : item.content;
+              const contactToken =
+                !isDeleted && !systemMessage ? extractIdentifierToken(item?.content) : "";
+              const contactCard = contactToken ? contactCardByToken[contactToken] : null;
               const renderedDisplayText = renderMentionAwareText(displayText, {
                 enabled: activeConversation?.type === "group" && !isDeleted,
                 conversationId: backendConversationId,
@@ -2402,7 +2928,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 
               return (
                 <li
-                  ref={index === normalizedMessages.length - 1 ? scrollRef : null}
+                  ref={index === displayMessages.length - 1 ? scrollRef : null}
                   key={item.id || `${item.createdAt}-${index}`}
                   className={`wrap-text-mess ${isMine ? "my-mess" : ""} ${
                     item.deletedAt ? "message-row-deleted" : ""
@@ -2486,6 +3012,23 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                             ))}
                           </ul>
                         )}
+                        {videoAttachments.length > 0 && (
+                          <div className="message-video-list">
+                            {videoAttachments.map((attachment) => (
+                              <video
+                                className="message-video-player"
+                                key={attachment.id || attachment.url}
+                                controls
+                                preload="metadata"
+                              >
+                                <source
+                                  src={attachment.url}
+                                  type={attachment.contentType || "video/mp4"}
+                                />
+                              </video>
+                            ))}
+                          </div>
+                        )}
                         {fileAttachments.length > 0 && (
                           <div className="message-attachment-list">
                             {fileAttachments.map((attachment) => (
@@ -2509,6 +3052,131 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                           >
                             {renderedDisplayText}
                           </p>
+                        ) : null}
+                        {!isDeleted && pollState ? (
+                          <div className="poll-card">
+                            <p className="poll-card-title">{pollState.question || "Bình chọn"}</p>
+                            {pollState.options.map((option) => {
+                              const votesByUserId = pollState.votesByUserId || {};
+                              const totalVotes = Object.values(votesByUserId).reduce(
+                                (total, selections) =>
+                                  total + (Array.isArray(selections) ? selections.length : 0),
+                                0
+                              );
+                              const optionVoteCount = Object.values(votesByUserId).reduce(
+                                (total, selections) =>
+                                  total +
+                                  (Array.isArray(selections) &&
+                                  selections.includes(option.id)
+                                    ? 1
+                                    : 0),
+                                0
+                              );
+                              const votedOptions = Array.isArray(
+                                votesByUserId[String(currentUserId)]
+                              )
+                                ? votesByUserId[String(currentUserId)]
+                                : [];
+                              const hasVotedThisOption = votedOptions.includes(option.id);
+                              const hasVoted = votedOptions.length > 0;
+                              const canRevealResult =
+                                !pollState.settings.hideResultsBeforeVote || hasVoted;
+                              const ratio =
+                                totalVotes > 0
+                                  ? Math.round((optionVoteCount / totalVotes) * 100)
+                                  : 0;
+
+                              return (
+                                <button
+                                  type="button"
+                                  className={`poll-option-btn ${
+                                    hasVotedThisOption ? "selected" : ""
+                                  }`}
+                                  key={option.id}
+                                  onClick={() => handleVotePoll(pollState.pollId, option.id)}
+                                >
+                                  <span>{option.text}</span>
+                                  {canRevealResult ? (
+                                    <span className="poll-option-count">
+                                      {optionVoteCount} ({ratio}%)
+                                    </span>
+                                  ) : (
+                                    <span className="poll-option-count">Ẩn kết quả</span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                            {pollState.settings.allowAddOption ? (
+                              <div className="poll-add-option-row">
+                                <input
+                                  type="text"
+                                  value={newPollOptionById[pollState.pollId] || ""}
+                                  placeholder="Thêm phương án"
+                                  onChange={(event) =>
+                                    setNewPollOptionById((prevState) => ({
+                                      ...prevState,
+                                      [pollState.pollId]: event.target.value,
+                                    }))
+                                  }
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddPollOption(pollState.pollId)}
+                                >
+                                  Thêm
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {!isDeleted && contactToken && contactCard ? (
+                          <div
+                            className="message-contact-card"
+                            onClick={() => setSelectedContactProfile(contactCard)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                setSelectedContactProfile(contactCard);
+                              }
+                            }}
+                          >
+                            {contactCard.avatarUrl ? (
+                              <img src={contactCard.avatarUrl} alt={contactCard.displayName} />
+                            ) : (
+                              <div className="message-contact-avatar-placeholder" />
+                            )}
+                            <div className="message-contact-meta">
+                              <p>{contactCard.displayName}</p>
+                              <span>{contactCard.username || contactCard.phone || contactToken}</span>
+                            </div>
+                            {String(contactCard.userId || "") !== String(currentUserId || "") ? (
+                              <button
+                                type="button"
+                                className={`message-contact-action ${
+                                  String(contactCard.relationshipStatus || "").toUpperCase() === "NONE"
+                                    ? "primary"
+                                    : "muted"
+                                }`}
+                                disabled={
+                                  isSendingFriendRequest ||
+                                  String(contactCard.relationshipStatus || "").toUpperCase() !==
+                                    "NONE"
+                                }
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleSendFriendRequestFromCard(contactToken, contactCard);
+                                }}
+                              >
+                                {isSendingFriendRequest &&
+                                String(contactCard.relationshipStatus || "").toUpperCase() ===
+                                  "NONE"
+                                  ? "Đang gửi..."
+                                  : resolveFriendStatusLabel(contactCard.relationshipStatus)}
+                              </button>
+                            ) : null}
+                          </div>
                         ) : null}
                         {item.editedAt && !isDeleted ? (
                           <p className="message-state-chip">Đã chỉnh sửa</p>
@@ -2668,7 +3336,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                       </p>
                     ) : null}
 
-                    {index === normalizedMessages.length - 1 ? (
+                    {index === displayMessages.length - 1 ? (
                       <div className="time-mess">
                         <p>
                           {formatTime(item.editedAt || item.createdAt)}
@@ -2716,6 +3384,9 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
             <IoMdAttach className="icon-header" onClick={handleFilePickerOpen} />
             <IoCameraOutline className="icon-header" />
             <MdOutlineContactMail className="icon-header" />
+            {activeConversation?.type === "group" ? (
+              <IoBarChartOutline className="icon-header" onClick={handleOpenPollComposer} />
+            ) : null}
             <RiCalendarTodoFill className="icon-header" />
           </div>
         </div>
@@ -2761,6 +3432,8 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                 <li key={attachment.id} className="selected-attachment-card">
                   {attachment.isImage ? (
                     <img src={attachment.previewUrl} alt={attachment.fileName} />
+                  ) : attachment.isVideo ? (
+                    <video src={attachment.previewUrl} controls muted />
                   ) : (
                     <div className="selected-attachment-file">
                       {attachment.fileName}
@@ -2929,6 +3602,216 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
         {forwardNotice ? <p className="composer-feedback-success">{forwardNotice}</p> : null}
         {!isForwardPickerOpen && actionError ? (
           <p className="composer-feedback-error">{actionError}</p>
+        ) : null}
+        {isPollComposerOpen ? (
+          <div className="forward-picker-overlay" onClick={handleClosePollComposer}>
+            <div className="forward-picker-card poll-creator-card" onClick={(event) => event.stopPropagation()}>
+              <div className="forward-picker-header">
+                <div>
+                  <h3 className="forward-picker-title">Tạo bình chọn mới</h3>
+                  <p className="forward-picker-subtitle">
+                    Tạo bình chọn trong nhóm để mọi người cùng tham gia.
+                  </p>
+                </div>
+                <button
+                  className="message-action-btn subtle"
+                  type="button"
+                  onClick={handleClosePollComposer}
+                >
+                  <IoMdClose />
+                </button>
+              </div>
+              <div className="poll-form-body">
+                <input
+                  className="poll-question-input"
+                  type="text"
+                  placeholder="Đặt câu hỏi bình chọn"
+                  value={pollDraft.question}
+                  onChange={(event) =>
+                    setPollDraft((prevState) => ({
+                      ...prevState,
+                      question: event.target.value,
+                    }))
+                  }
+                />
+                <div className="poll-options-editor">
+                  {pollDraft.options.map((option, index) => (
+                    <div className="poll-option-editor-row" key={`poll-option-${index}`}>
+                      <input
+                        type="text"
+                        value={option}
+                        placeholder={`Phương án ${index + 1}`}
+                        onChange={(event) => handlePollOptionChange(index, event.target.value)}
+                      />
+                      {pollDraft.options.length > 2 ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPollDraft((prevState) => ({
+                              ...prevState,
+                              options: prevState.options.filter((_, optionIndex) => optionIndex !== index),
+                            }))
+                          }
+                        >
+                          Xóa
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="message-action-btn subtle"
+                    onClick={() =>
+                      setPollDraft((prevState) => ({
+                        ...prevState,
+                        options: [...prevState.options, ""],
+                      }))
+                    }
+                  >
+                    Thêm phương án
+                  </button>
+                </div>
+                <div className="poll-setting-list">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={pollDraft.allowMultiple}
+                      onChange={(event) =>
+                        setPollDraft((prevState) => ({
+                          ...prevState,
+                          allowMultiple: event.target.checked,
+                        }))
+                      }
+                    />
+                    Chọn nhiều phương án
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={pollDraft.allowAddOption}
+                      onChange={(event) =>
+                        setPollDraft((prevState) => ({
+                          ...prevState,
+                          allowAddOption: event.target.checked,
+                        }))
+                      }
+                    />
+                    Có thể thêm phương án
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={pollDraft.anonymousVotes}
+                      onChange={(event) =>
+                        setPollDraft((prevState) => ({
+                          ...prevState,
+                          anonymousVotes: event.target.checked,
+                        }))
+                      }
+                    />
+                    Ẩn người bình chọn
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={pollDraft.hideResultsBeforeVote}
+                      onChange={(event) =>
+                        setPollDraft((prevState) => ({
+                          ...prevState,
+                          hideResultsBeforeVote: event.target.checked,
+                        }))
+                      }
+                    />
+                    Ẩn kết quả khi chưa bình chọn
+                  </label>
+                </div>
+              </div>
+              <div className="forward-picker-actions">
+                <button className="message-action-btn subtle" type="button" onClick={handleClosePollComposer}>
+                  Hủy
+                </button>
+                <button
+                  className="message-action-btn primary"
+                  type="button"
+                  onClick={handleCreatePoll}
+                  disabled={isPollSubmitting}
+                >
+                  {isPollSubmitting ? "Đang tạo..." : "Tạo"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {selectedContactProfile ? (
+          <div
+            className="forward-picker-overlay"
+            onClick={() => setSelectedContactProfile(null)}
+          >
+            <div
+              className="forward-picker-card profile-preview-card"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="forward-picker-header">
+                <div>
+                  <h3 className="forward-picker-title">Trang cá nhân</h3>
+                  <p className="forward-picker-subtitle">
+                    Xem thông tin người dùng từ danh thiếp trong đoạn chat.
+                  </p>
+                </div>
+                <button
+                  className="message-action-btn subtle"
+                  type="button"
+                  onClick={() => setSelectedContactProfile(null)}
+                >
+                  <IoMdClose />
+                </button>
+              </div>
+              <div className="profile-preview-body">
+                {selectedContactProfile.avatarUrl ? (
+                  <img
+                    src={selectedContactProfile.avatarUrl}
+                    alt={selectedContactProfile.displayName}
+                    className="profile-preview-avatar"
+                  />
+                ) : (
+                  <div className="profile-preview-avatar profile-preview-avatar-placeholder" />
+                )}
+                <h4>{selectedContactProfile.displayName}</h4>
+                <p>{selectedContactProfile.username || "Không có username"}</p>
+                <p>{selectedContactProfile.phone || selectedContactProfile.email || ""}</p>
+                {String(selectedContactProfile.userId || "") !== String(currentUserId || "") ? (
+                  <button
+                    type="button"
+                    className={`message-contact-action large ${
+                      String(selectedContactProfile.relationshipStatus || "").toUpperCase() ===
+                      "NONE"
+                        ? "primary"
+                        : "muted"
+                    }`}
+                    disabled={
+                      isSendingFriendRequest ||
+                      String(selectedContactProfile.relationshipStatus || "").toUpperCase() !==
+                        "NONE"
+                    }
+                    onClick={() =>
+                      handleSendFriendRequestFromCard(
+                        normalizeIdentifierToken(
+                          selectedContactProfile.email || selectedContactProfile.phone || ""
+                        ),
+                        selectedContactProfile
+                      )
+                    }
+                  >
+                    {isSendingFriendRequest &&
+                    String(selectedContactProfile.relationshipStatus || "").toUpperCase() ===
+                      "NONE"
+                      ? "Đang gửi..."
+                      : resolveFriendStatusLabel(selectedContactProfile.relationshipStatus)}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
         ) : null}
       </div>
 

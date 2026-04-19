@@ -29,6 +29,7 @@ import {
 } from "../../services/chat/conversationApi";
 import { fetchConversationSharedAttachments } from "./conversationMedia";
 import { getFriendsV2 } from "../../util/api";
+import { uploadAttachmentV1 } from "../../services/chat/messageApi";
 
 const NOTIFICATION_OPTIONS = [
   { value: "ALL", label: "Tất cả" },
@@ -165,6 +166,8 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
   const [settingsError, setSettingsError] = useState("");
   const [isSavingCustomName, setIsSavingCustomName] = useState(false);
   const [isSavingAvatar, setIsSavingAvatar] = useState(false);
+  const [isUploadingAvatarFile, setIsUploadingAvatarFile] = useState(false);
+  const groupAvatarFileInputRef = useRef(null);
   const [isUpdatingPreference, setIsUpdatingPreference] = useState(false);
   const [isUpdatingMembers, setIsUpdatingMembers] = useState(false);
   const [isBackgroundPanelOpen, setIsBackgroundPanelOpen] = useState(false);
@@ -786,6 +789,34 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     }
   };
 
+  const handleUploadGroupAvatarFile = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file || !conversationId || !canUpdateGroupAvatar) {
+      event.target.value = "";
+      return;
+    }
+
+    setSettingsError("");
+    setIsUploadingAvatarFile(true);
+
+    try {
+      const uploadResult = await uploadAttachmentV1(file);
+      const uploadedUrl = String(uploadResult?.url || "").trim();
+      if (!uploadedUrl) {
+        throw new Error("Thiếu URL ảnh sau khi tải lên.");
+      }
+      setAvatarUrlDraft(uploadedUrl);
+    } catch (error) {
+      console.error("Failed to upload group avatar file:", error);
+      setSettingsError(
+        getApiErrorMessage(error, "Không thể tải ảnh nhóm lên máy chủ.")
+      );
+    } finally {
+      event.target.value = "";
+      setIsUploadingAvatarFile(false);
+    }
+  };
+
   const refreshConversationsAfterGroupAction = async (response, action) => {
     if (response?.id) {
       upsertConversation(response, { source: `group-${action}` });
@@ -1169,7 +1200,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
         {!sharedAttachmentState.loading && !sharedAttachmentState.error ? (
           <div className="mess-infor-shared-section">
             <div className="mess-infor-shared-section-header">
-              <p>Anh</p>
+              <p>Ảnh</p>
               <span>{sharedAttachmentState.images.length}</span>
             </div>
             {sharedAttachmentState.images.length ? (
@@ -1201,7 +1232,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
         {!sharedAttachmentState.loading && !sharedAttachmentState.error ? (
           <div className="mess-infor-shared-section">
             <div className="mess-infor-shared-section-header">
-              <p>Tep</p>
+              <p>Tệp</p>
               <span>{sharedAttachmentState.files.length}</span>
             </div>
             {sharedAttachmentState.files.length ? (
@@ -1290,22 +1321,40 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                 }}
               >
                 <input
-                  type="text"
-                  value={avatarUrlDraft}
-                  onChange={(event) => setAvatarUrlDraft(event.target.value)}
-                  placeholder="URL ảnh đại diện nhóm"
-                  style={{
-                    padding: "9px 10px",
-                    borderRadius: 8,
-                    border: "1px solid #d6dbe1",
-                    fontSize: 13,
-                  }}
+                  ref={groupAvatarFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={handleUploadGroupAvatarFile}
                 />
+                <button
+                  type="button"
+                  onClick={() => groupAvatarFileInputRef.current?.click()}
+                  disabled={isUploadingAvatarFile}
+                  style={{
+                    border: "1px solid #d6dbe1",
+                    borderRadius: 8,
+                    padding: "9px 10px",
+                    backgroundColor: "white",
+                    color: "#1f2d3d",
+                    fontWeight: 600,
+                    cursor: isUploadingAvatarFile ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {isUploadingAvatarFile ? "Đang tải ảnh..." : "Chọn ảnh từ máy"}
+                </button>
+                {avatarUrlDraft.trim() &&
+                avatarUrlDraft.trim() !== String(avatarUrl || "").trim() ? (
+                  <span style={{ fontSize: 12, color: "#2f6fed" }}>
+                    Đã chọn ảnh mới, nhấn Cập nhật ảnh nhóm để lưu.
+                  </span>
+                ) : null}
                 <button
                   type="button"
                   onClick={handleSaveGroupAvatar}
                   disabled={
                     isSavingAvatar ||
+                    isUploadingAvatarFile ||
                     !avatarUrlDraft.trim() ||
                     avatarUrlDraft.trim() === String(avatarUrl || "").trim()
                   }
@@ -1315,6 +1364,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                     padding: "9px 10px",
                     backgroundColor:
                       isSavingAvatar ||
+                      isUploadingAvatarFile ||
                       !avatarUrlDraft.trim() ||
                       avatarUrlDraft.trim() === String(avatarUrl || "").trim()
                         ? "#9bbdf4"
@@ -1323,6 +1373,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                     fontWeight: 600,
                     cursor:
                       isSavingAvatar ||
+                      isUploadingAvatarFile ||
                       !avatarUrlDraft.trim() ||
                       avatarUrlDraft.trim() === String(avatarUrl || "").trim()
                         ? "not-allowed"
