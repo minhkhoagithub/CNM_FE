@@ -43,7 +43,7 @@ class CallService {
     this._onStateChange = onStateChange;
     this._onRemoteVideoToggle = onRemoteVideoToggle;
     this._callType = (type || 'VIDEO').toUpperCase(); // Chuẩn hóa thành VIDEO/VOICE
-    
+
     // Reset state cũ
     this._producers.clear();
     this._consumers.clear();
@@ -51,7 +51,7 @@ class CallService {
 
     // [v22] Thêm khoảng nghỉ để SFU dọn dẹp tài nguyên cũ
     await new Promise(r => setTimeout(r, 500));
-    
+
     // 1. Gọi backend → nhận callId, channel (roomId), sfuUrl
     const { callId, channel, sfuUrl } = await initiateCallApi(calleeId, type);
     this._activeCallId = callId;
@@ -226,14 +226,14 @@ class CallService {
       console.log('[CallService] Creating singleton Mediasoup Device...');
       this._device = new Device();
     }
-    
+
     if (!this._device.loaded) {
       console.log('[CallService] Loading capabilities into Device...');
       await this._device.load({ routerRtpCapabilities });
     } else {
       console.log('[CallService] Device already loaded, reusing...');
     }
- 
+
     // 3. Tạo Sẵn Transport (Quan trọng: Phải làm TRƯỚC khi Join để không lỡ nhịp video tín hiệu từ server)
     console.log('[CallService] Pre-creating transports...');
     await this._createSendTransport();
@@ -441,7 +441,7 @@ class CallService {
       const videoTrack = this._localStream?.getVideoTracks()[0];
       if (videoTrack) {
         console.log(`[CallService] Producing video... State: ${videoTrack.readyState}`);
-        const videoProducer = await this._sendTransport.produce({ 
+        const videoProducer = await this._sendTransport.produce({
           track: videoTrack,
           encodings: [
             { maxBitrate: 100000 },
@@ -462,7 +462,7 @@ class CallService {
     // TRÁNH RACE CONDITION: Đợi RecvTransport sẵn sàng
     let retryCount = 0;
     while (!this._recvTransport && retryCount < 10) {
-      console.log(`[CallService] RecvTransport not ready (Attempt ${retryCount+1}/10), waiting 500ms...`);
+      console.log(`[CallService] RecvTransport not ready (Attempt ${retryCount + 1}/10), waiting 500ms...`);
       await new Promise(res => setTimeout(res, 500));
       retryCount++;
     }
@@ -490,7 +490,7 @@ class CallService {
     } catch (err) {
       console.error('[CallService] ❌ Failed to resume consumer:', err);
     }
-    
+
     // Web: track.enabled mặc định là true, nhưng ta ép lại lần nữa
     if (consumer.track) consumer.track.enabled = true;
 
@@ -517,7 +517,7 @@ class CallService {
             }
           }
         });
-      } catch (e) {}
+      } catch (e) { }
     }, 2000);
   }
 
