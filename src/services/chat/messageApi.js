@@ -63,6 +63,11 @@ export const removeMessageForMeV1 = async (messageId) => {
   return unwrapResponseData(response);
 };
 
+export const pinMessageV1 = async (messageId, payload) => {
+  const response = await chatHttpClient.patch(`/messages/${messageId}/pin`, payload);
+  return unwrapResponseData(response);
+};
+
 export const uploadAttachmentV1 = async (file) => {
   const formData = new FormData();
   formData.append("file", file);

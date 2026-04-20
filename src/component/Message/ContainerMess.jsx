@@ -26,6 +26,7 @@ import {
   getConversationMessages,
   hideMessageV1,
   markConversationSeen,
+  pinMessageV1,
   removeReactionV1,
   removeMessageForMeV1,
   sendMessageV1,
@@ -791,6 +792,7 @@ const renderMentionAwareText = (text, { enabled, messageId, conversationId } = {
 
 function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   const scrollRef = useRef(null);
+  const messageScrollContainerRef = useRef(null);
   const inputMessage = useRef(null);
   const composerSelectionRef = useRef(null);
   const imageInputRef = useRef(null);
@@ -822,6 +824,8 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   const [isForwarding, setIsForwarding] = useState(false);
   const [forwardNotice, setForwardNotice] = useState("");
   const [openMessageMenuId, setOpenMessageMenuId] = useState(null);
+  const [pinningMessageId, setPinningMessageId] = useState(null);
+  const [isPinnedListExpanded, setIsPinnedListExpanded] = useState(false);
   const [aiMessages, setAiMessages] = useState([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [summaryState, setSummaryState] = useState({
@@ -1065,6 +1069,24 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 
     return matches;
   }, [backendConversationId, mentionCandidates, mentionState.open, mentionState.query]);
+  const currentConversationMemberRole = useMemo(() => {
+    if (!currentUserId) {
+      return "MEMBER";
+    }
+
+    const currentMember = conversationMembers.find(
+      (member) => String(member?.userId || "") === String(currentUserId)
+    );
+
+    return String(currentMember?.role || "MEMBER").toUpperCase();
+  }, [conversationMembers, currentUserId]);
+  const canManagePinnedMessages = useMemo(() => {
+    if (activeConversation?.type !== "group") {
+      return true;
+    }
+
+    return ["OWNER", "ADMIN"].includes(currentConversationMemberRole);
+  }, [activeConversation?.type, currentConversationMemberRole]);
   const renderAvatar = (avatarUrl, className = "", alt = "") =>
     avatarUrl ? (
       <img className={className} src={avatarUrl} alt={alt} />
@@ -1714,7 +1736,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 
       try {
         const response = await getConversationMessages(backendConversationId, {
-          size: 50,
+          size: 200,
         });
         const page = mapMessagePage(response, {
           conversationId: backendConversationId,
@@ -2371,6 +2393,29 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     }
   };
 
+  const handleTogglePinMessage = useCallback(
+    async (message) => {
+      if (!message?.id || !canManagePinnedMessages) {
+        return;
+      }
+
+      const nextPinned = !message?.pinnedAt;
+      setPinningMessageId(String(message.id));
+
+      try {
+        const response = await pinMessageV1(message.id, { pinned: nextPinned });
+        upsertMessage(mapMessage(response));
+        handleCloseMessageMenu();
+      } catch (error) {
+        console.error("Failed to update pin state:", error);
+        setActionError(nextPinned ? "Không thể ghim tin nhắn." : "Không thể bỏ ghim tin nhắn.");
+      } finally {
+        setPinningMessageId(null);
+      }
+    },
+    [canManagePinnedMessages, handleCloseMessageMenu, upsertMessage]
+  );
+
   const handleRemoveMessageForMe = async (messageId) => {
     try {
       await removeMessageForMeV1(messageId);
@@ -2969,6 +3014,124 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     () => resolveTypingStatusText(typingUsers, activeConversation?.type),
     [activeConversation?.type, typingUsers]
   );
+  const pinnedMessages = useMemo(
+    () =>
+      normalizedMessages
+        .filter((message) => Boolean(message?.pinnedAt) && !message?.deletedAt)
+        .sort(
+          (leftMessage, rightMessage) =>
+            new Date(rightMessage.pinnedAt || 0).getTime() -
+            new Date(leftMessage.pinnedAt || 0).getTime()
+        ),
+    [normalizedMessages]
+  );
+  const newestPinnedMessage = pinnedMessages[0] || null;
+  const extraPinnedCount = Math.max(0, pinnedMessages.length - 1);
+  const resolvePinnedMessagePreview = useCallback((message) => {
+    if (!message) {
+      return "Tin nhắn";
+    }
+
+    if (message.content) {
+      return truncateText(message.content, 120);
+    }
+
+    const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+    return createAttachmentPreviewText("", attachments) || "Tin nhắn";
+  }, []);
+  const handleJumpToMessage = useCallback((messageId) => {
+    if (!messageId) {
+      return;
+    }
+
+    const containerElement = messageScrollContainerRef.current;
+    const targetElement = document.getElementById(`message-row-${messageId}`);
+    if (!containerElement || !targetElement) {
+      return;
+    }
+
+    const containerRect = containerElement.getBoundingClientRect();
+    const targetRect = targetElement.getBoundingClientRect();
+    const targetTopInContainer =
+      targetRect.top - containerRect.top + containerElement.scrollTop;
+    const nextScrollTop = Math.max(targetTopInContainer - 16, 0);
+
+    containerElement.scrollTo({
+      behavior: "smooth",
+      top: nextScrollTop,
+    });
+  }, []);
+  useEffect(() => {
+    if (!pinnedMessages.length) {
+      setIsPinnedListExpanded(false);
+    }
+  }, [pinnedMessages.length]);
+  const pinnedPanelNode =
+    pinnedMessages.length > 0 ? (
+      <div className="pinned-panel" onClick={(event) => event.stopPropagation()}>
+        <div className="pinned-panel-head">
+          <p className="pinned-panel-title">
+            {isPinnedListExpanded
+              ? `Danh sách ghim (${pinnedMessages.length})`
+              : "Tin nhắn"}
+          </p>
+          <div className="pinned-panel-actions">
+            {extraPinnedCount > 0 && !isPinnedListExpanded ? (
+              <button
+                type="button"
+                className="pinned-panel-toggle"
+                onClick={() => setIsPinnedListExpanded(true)}
+              >
+                +{extraPinnedCount} ghim
+              </button>
+            ) : null}
+            {isPinnedListExpanded ? (
+              <button
+                type="button"
+                className="pinned-panel-toggle"
+                onClick={() => setIsPinnedListExpanded(false)}
+              >
+                Thu gọn
+              </button>
+            ) : null}
+          </div>
+        </div>
+        {isPinnedListExpanded ? (
+          <div className="pinned-panel-list">
+            {pinnedMessages.map((message) => {
+              const senderIdentity = resolveMessageSenderIdentity(message);
+              const messagePreview = resolvePinnedMessagePreview(message);
+
+              return (
+                <button
+                  key={`pinned-${message.id}`}
+                  type="button"
+                  className="pinned-panel-item"
+                  onClick={() => handleJumpToMessage(message.id)}
+                >
+                  <span className="pinned-panel-item-label">Tin nhắn</span>
+                  <span className="pinned-panel-item-preview">
+                    {senderIdentity.displayName}: {messagePreview}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : newestPinnedMessage ? (
+          <button
+            type="button"
+            className="pinned-panel-item pinned-panel-item-single"
+            onClick={() => handleJumpToMessage(newestPinnedMessage.id)}
+          >
+            <span className="pinned-panel-item-label">Tin nhắn</span>
+            <span className="pinned-panel-item-preview">
+              {resolveMessageSenderIdentity(newestPinnedMessage).displayName}:{" "}
+              {resolvePinnedMessagePreview(newestPinnedMessage)}
+            </span>
+          </button>
+        ) : null}
+      </div>
+    ) : null;
   const statusHint = typingStatusText
     ? typingStatusText
     : activeConversation?.lastActive && activeConversation.lastActive !== "Active"
@@ -3095,8 +3258,13 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
           )}
         </div>
       </div>
-      <div className="infor-container" style={conversationBackgroundStyle}>
+      <div
+        className="infor-container"
+        style={conversationBackgroundStyle}
+        ref={messageScrollContainerRef}
+      >
         <div>
+          {pinnedPanelNode}
           <ul>
             {(backendConversationId === "AI_ASSISTANT" ? aiMessages : displayMessages).map((item, index) => {
               const isMine = item.senderId === currentUserId;
@@ -3137,6 +3305,10 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                 isMine && !isDeleted && !visibleAttachments.length && Boolean(item.content);
               const canDelete = isMine && !isDeleted;
               const canReply = Boolean(item.id) && !isDeleted;
+              const isPinned = Boolean(item.pinnedAt);
+              const canTogglePin = Boolean(item.id) && !isDeleted && canManagePinnedMessages;
+              const isPinningThisMessage =
+                String(pinningMessageId || "") === String(item.id || "");
               const forwardDraft = buildForwardDraft(item);
               const canForwardMessage = forwardDraft.canForward;
               const replyPreviewSenderName = !isDeleted && item.replyTo
@@ -3207,6 +3379,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                 <li
                   ref={index === displayMessages.length - 1 ? scrollRef : null}
                   key={item.id || `${item.createdAt}-${index}`}
+                  id={item.id ? `message-row-${item.id}` : undefined}
                   className={`wrap-text-mess ${isMine ? "my-mess" : ""} ${
                     item.deletedAt ? "message-row-deleted" : ""
                   } flex`}
@@ -3527,6 +3700,9 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                         {item.editedAt && !isDeleted ? (
                           <p className="message-state-chip">Đã chỉnh sửa</p>
                         ) : null}
+                        {isPinned && !isDeleted ? (
+                          <p className="message-state-chip">Đã ghim</p>
+                        ) : null}
                       </>
                     )}
                     {!isDeleted && (
@@ -3608,6 +3784,20 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                               >
                                 Chuyển tiếp
                               </button>
+                              {canTogglePin ? (
+                                <button
+                                  className="message-action-menu-item"
+                                  type="button"
+                                  disabled={isPinningThisMessage}
+                                  onClick={() => handleTogglePinMessage(item)}
+                                >
+                                  {isPinningThisMessage
+                                    ? "Đang xử lý..."
+                                    : isPinned
+                                    ? "Bỏ ghim"
+                                    : "Ghim"}
+                                </button>
+                              ) : null}
 
                               {canEdit ? (
                                 <button
