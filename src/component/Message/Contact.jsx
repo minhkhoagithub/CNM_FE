@@ -25,6 +25,7 @@ import {
   updateConversationMuteV1,
   updateConversationPinV1,
 } from "../../services/chat/conversationApi";
+import { uploadAttachmentV1 } from "../../services/chat/messageApi";
 import { mapConversation } from "../../mappers/conversationMapper";
 import "../../resource/style/AddressBook/menuContact.css";
 import {
@@ -128,6 +129,8 @@ function Contact({
     listMember: [],
     showAvt: false,
     avatar: null,
+    avatarFile: null,
+    avatarPreview: "",
   });
   const [friendOptions, setFriendOptions] = useState([]);
   const [friendOptionsState, setFriendOptionsState] = useState({
@@ -138,6 +141,7 @@ function Contact({
   });
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [createGroupError, setCreateGroupError] = useState("");
+  const groupAvatarInputRef = useRef(null);
   const listAvatarGr = [
     "https://res.zaloapp.com/pc/avt_group/1_family.jpg",
     "https://res.zaloapp.com/pc/avt_group/2_family.jpg",
@@ -612,6 +616,7 @@ const storeLocal = (value) => {
       });
       const createdConversationId = response?.id;
       const selectedAvatarUrl = String(dataCreateGr.avatar || "").trim();
+      const selectedAvatarFile = dataCreateGr.avatarFile || null;
       const selectedMembers = friendOptions
         .filter((friend) =>
           participantIds.some(
@@ -669,17 +674,28 @@ const storeLocal = (value) => {
         avatarUrl: nextConversation?.avatarUrl || "",
       });
 
-      if (createdConversationId && selectedAvatarUrl) {
-        console.log("[WEB GROUP AVATAR FOLLOWUP]", {
+      if (createdConversationId && (selectedAvatarFile || selectedAvatarUrl)) {
+        console.log("[GROUP AVATAR UPLOAD]", {
+          source: "web-message-create",
           status: "submitting",
           conversationId: createdConversationId,
-          avatarUrlLength: selectedAvatarUrl.length,
+          uploadMode: selectedAvatarFile ? "file" : "url",
         });
 
         try {
+          let resolvedAvatarUrl = selectedAvatarUrl;
+          if (selectedAvatarFile) {
+            const uploadResult = await uploadAttachmentV1(selectedAvatarFile);
+            resolvedAvatarUrl = String(uploadResult?.url || "").trim();
+          }
+
+          if (!resolvedAvatarUrl) {
+            throw new Error("Missing uploaded avatar URL");
+          }
+
           const avatarResponse = await updateConversationAvatarV1(
             createdConversationId,
-            selectedAvatarUrl
+            resolvedAvatarUrl
           );
           const avatarConversationPayload = Array.isArray(avatarResponse?.members)
             ? avatarResponse
@@ -703,7 +719,8 @@ const storeLocal = (value) => {
               ? nextConversation.members.length
               : 0,
           });
-          console.log("[WEB GROUP AVATAR FOLLOWUP]", {
+          console.log("[GROUP AVATAR UPLOAD]", {
+            source: "web-message-create",
             status: "success",
             conversationId: createdConversationId,
             avatarUrl: nextConversation?.avatarUrl || "",
@@ -715,7 +732,8 @@ const storeLocal = (value) => {
             avatarUrl: nextConversation?.avatarUrl || "",
           });
         } catch (avatarError) {
-          console.error("[WEB GROUP AVATAR FOLLOWUP]", {
+          console.error("[GROUP AVATAR UPLOAD]", {
+            source: "web-message-create",
             status: "failed",
             conversationId: createdConversationId,
             error: avatarError,
@@ -733,6 +751,8 @@ const storeLocal = (value) => {
         listMember: [],
         showAvt: false,
         avatar: null,
+        avatarFile: null,
+        avatarPreview: "",
       });
     } catch (error) {
       console.error("[WEB GROUP CREATE SUBMIT]", error);
@@ -754,19 +774,65 @@ const storeLocal = (value) => {
   };
 
   const handleChoiceAvatarGr = (value) => {
+    console.log("[GROUP AVATAR PICK]", {
+      source: "web-message-create",
+      mode: "preset",
+      value,
+    });
     setDataCreateGr((prevState) => {
       return {
         ...prevState,
         avatar: value,
+        avatarFile: null,
+        avatarPreview: value,
       };
     });
   };
 
   const handleChangURl = (e) => {
+    const nextValue = e.target.value;
     setDataCreateGr((prevState) => {
       return {
         ...prevState,
-        avatar: e.target.value,
+        avatar: nextValue,
+        avatarFile: null,
+        avatarPreview: nextValue,
+      };
+    });
+  };
+
+  const handleGroupAvatarFilePick = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+    console.log("[GROUP AVATAR PICK]", {
+      source: "web-message-create",
+      mode: "file",
+      fileName: file.name,
+      fileSize: file.size,
+      contentType: file.type,
+    });
+    setDataCreateGr((prevState) => {
+      return {
+        ...prevState,
+        avatar: null,
+        avatarFile: file,
+        avatarPreview: previewUrl,
+      };
+    });
+  };
+
+  const handleRemoveGroupAvatar = () => {
+    setDataCreateGr((prevState) => {
+      return {
+        ...prevState,
+        avatar: null,
+        avatarFile: null,
+        avatarPreview: "",
       };
     });
   };
@@ -1223,10 +1289,17 @@ const isCreateGroupSubmitDisabled =
                       />
                     </div>
                     <div className="add-by-phone">
+                      <input
+                        ref={groupAvatarInputRef}
+                        type="file"
+                        accept="image/*"
+                        hidden
+                        onChange={handleGroupAvatarFilePick}
+                      />
                       <div className="phone-group flex">
-                        {dataCreateGr.avatar ? (
+                        {dataCreateGr.avatarPreview || dataCreateGr.avatar ? (
                           <img
-                            src={dataCreateGr.avatar}
+                            src={dataCreateGr.avatarPreview || dataCreateGr.avatar}
                             onClick={() => handleShowAvatarGr(true)}
                           />
                         ) : (
@@ -1243,6 +1316,22 @@ const isCreateGroupSubmitDisabled =
                             value={dataCreateGr.username}
                           />
                         </div>
+                      </div>
+                      <div
+                        className="flex"
+                        style={{ gap: 8, marginTop: 10, alignItems: "center" }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => groupAvatarInputRef.current?.click()}
+                        >
+                          Chọn ảnh
+                        </button>
+                        {dataCreateGr.avatarPreview || dataCreateGr.avatar ? (
+                          <button type="button" onClick={handleRemoveGroupAvatar}>
+                            Gỡ ảnh
+                          </button>
+                        ) : null}
                       </div>
                       <div className="input-number-group">
                         <CiSearch className="icon-search" />

@@ -824,6 +824,22 @@
   font-size: 18px;
 }
 
+.message-action-menu-trigger {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.18s ease, visibility 0.18s ease,
+    background-color 0.18s ease;
+}
+
+.message-action-row:hover .message-action-menu-trigger,
+.message-action-row:focus-within .message-action-menu-trigger,
+.message-actions-menu[data-open="true"] .message-action-menu-trigger {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
 .message-reaction-trigger {
   z-index: 2;
 }
@@ -915,6 +931,47 @@
 .message-action-menu-trigger:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.call-log-bubble {
+  min-width: 220px;
+  max-width: 340px;
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+}
+
+.call-log-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.call-log-icon {
+  font-size: 18px;
+}
+
+.call-log-title,
+.call-log-subtitle,
+.call-log-duration {
+  margin: 0;
+}
+
+.call-log-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #203347;
+}
+
+.call-log-subtitle,
+.call-log-duration {
+  font-size: 13px;
+  color: #5e7389;
+}
+
+.call-log-action {
+  justify-self: flex-start;
+  margin-top: 2px;
 }
 
 .message-action-btn,

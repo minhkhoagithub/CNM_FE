@@ -36,7 +36,6 @@ import {
 } from "../../services/chat/messageApi";
 import chatRealtimeService from "../../services/chat/chatRealtimeService";
 import { askAi, getChatSummary } from "../../services/ai/aiApi";
-import GroupCallMessageItem from "../Call/GroupCallMessageItem";
 import { initiateGroupCallApi } from "../../services/call/groupCallApi";
 import groupCallService from "../../services/call/GroupCallService";
 import {
@@ -115,6 +114,49 @@ const formatTime = (value) => {
 
 const isImageFile = (file) => String(file?.type || "").startsWith("image/");
 const isVideoFile = (file) => String(file?.type || "").startsWith("video/");
+
+const formatCallDuration = (value) => {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return "";
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
+};
+
+const resolveCallLogTitle = (callLog) => {
+  const normalizedType = String(callLog?.callType || "VOICE").toUpperCase();
+  const normalizedStatus = String(callLog?.callStatus || "ENDED").toUpperCase();
+  const isVideo = normalizedType === "VIDEO";
+
+  if (normalizedStatus === "MISSED") {
+    return isVideo ? "Cuộc gọi video nhỡ" : "Cuộc gọi nhỡ";
+  }
+
+  return isVideo ? "Cuộc gọi video" : "Cuộc gọi thoại";
+};
+
+const resolveCallLogSubtitle = (callLog, currentUserId, fallbackName) => {
+  const normalizedStatus = String(callLog?.callStatus || "ENDED").toUpperCase();
+  const isCaller = String(callLog?.callerId || "") === String(currentUserId || "");
+  const actorLabel = isCaller ? "Bạn" : fallbackName || "Người kia";
+
+  if (normalizedStatus === "MISSED") {
+    return isCaller ? `${fallbackName || "Người kia"} đã bỏ lỡ cuộc gọi` : `${actorLabel} đã gọi`;
+  }
+
+  if (normalizedStatus === "REJECTED") {
+    return isCaller ? `${fallbackName || "Người kia"} đã từ chối cuộc gọi` : "Bạn đã từ chối cuộc gọi";
+  }
+
+  if (normalizedStatus === "STARTED") {
+    return `${callLog?.initiatorName || actorLabel} đã bắt đầu cuộc gọi`;
+  }
+
+  return isCaller ? "Bạn đã gọi" : `${actorLabel} đã gọi`;
+};
 
 const buildSelectedAttachment = (file, index) => ({
   id: `${file.name}-${file.size}-${file.lastModified}-${index}`,
@@ -881,6 +923,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 
     return null;
   }, [contactData, currentConversationNormalized, selectedConversationId]);
+  const isConversationDisbanded = Boolean(activeConversation?.isDisbanded);
 
   // Listener cho sự kiện mở tóm tắt AI từ Sidebar
   useEffect(() => {
@@ -1381,7 +1424,11 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 
   const pushTypingState = useCallback(
     async (isTyping) => {
-      if (!backendConversationId || backendConversationId === "AI_ASSISTANT") {
+      if (
+        !backendConversationId ||
+        backendConversationId === "AI_ASSISTANT" ||
+        isConversationDisbanded
+      ) {
         return;
       }
 
@@ -1400,7 +1447,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
         await sendTypingState(backendConversationId, isTyping);
       } catch {}
     },
-    [backendConversationId]
+    [backendConversationId, isConversationDisbanded]
   );
 
   const captureComposerSelection = useCallback(() => {
@@ -1462,7 +1509,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
         : closeMentionState()
     );
 
-    if (!backendConversationId) {
+    if (!backendConversationId || isConversationDisbanded) {
       return;
     }
 
@@ -1489,7 +1536,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
         pushTypingState(false);
       }, TYPING_IDLE_MS);
     }
-  }, [activeConversation?.type, backendConversationId, pushTypingState]);
+  }, [activeConversation?.type, backendConversationId, isConversationDisbanded, pushTypingState]);
 
   const insertEmojiIntoComposer = useCallback(
     (emoji) => {
@@ -2242,6 +2289,11 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       return;
     }
 
+    if (isConversationDisbanded) {
+      setActionError("Nhóm đã được giải tán.");
+      return;
+    }
+
     setIsSending(true);
 
     // Xử lý gửi tin nhắn cho AI Assistant
@@ -2497,6 +2549,11 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   };
 
   const handleReactionClick = async (message) => {
+    if (isConversationDisbanded) {
+      setActionError("Nhóm đã được giải tán.");
+      return;
+    }
+
     try {
       console.log("[WEB REACTION]", {
         messageId: message.id,
@@ -2529,6 +2586,11 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   };
 
   const handleQuickReaction = async (message, reactionType) => {
+    if (isConversationDisbanded) {
+      setActionError("Nhóm đã được giải tán.");
+      return;
+    }
+
     try {
       console.log("[WEB REACTION]", {
         messageId: message.id,
@@ -2558,6 +2620,78 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       setActionError("Không thể cập nhật cảm xúc.");
     }
   };
+
+  const handleJoinGroupCallFromLog = useCallback(
+    (callLog) => {
+      if (!callLog?.groupCallId) {
+        return;
+      }
+
+      window.dispatchEvent(
+        new CustomEvent("group-call-join-request", {
+          detail: {
+            ...callLog,
+            conversationId: backendConversationId,
+            callType: callLog.callType || callLog.raw?.type || "VOICE",
+          },
+        })
+      );
+    },
+    [backendConversationId]
+  );
+
+  const renderCallLogMessage = useCallback(
+    (item, index) => {
+      const callLog = item.callLog || null;
+      if (!callLog) {
+        return null;
+      }
+
+      const isVideo = String(callLog.callType || "VOICE").toUpperCase() === "VIDEO";
+      const callDuration = formatCallDuration(callLog.durationSeconds);
+      const fallbackName =
+        callLog.initiatorName ||
+        item.senderDisplayName ||
+        getConversationDisplayName(activeConversation);
+
+      console.log("[CALL LOG RENDER]", {
+        source: "web",
+        messageId: item.id || null,
+        conversationId: backendConversationId,
+        callType: callLog.callType,
+        callStatus: callLog.callStatus,
+        durationSeconds: callLog.durationSeconds,
+        callerId: callLog.callerId,
+      });
+
+      return (
+        <li key={item.id || index}>
+          <div className={`wrap-mess ${item.senderId === currentUserId ? "me" : "you"}`}>
+            <div className="detail-mess call-log-bubble">
+              <div className="call-log-header">
+                <span className="call-log-icon">{isVideo ? "📹" : "📞"}</span>
+                <p className="call-log-title">{resolveCallLogTitle(callLog)}</p>
+              </div>
+              <p className="call-log-subtitle">
+                {resolveCallLogSubtitle(callLog, currentUserId, fallbackName)}
+              </p>
+              {callDuration ? <p className="call-log-duration">⏱ {callDuration}</p> : null}
+              {callLog.groupCallId && activeConversation?.type === "group" ? (
+                <button
+                  className="message-action-btn subtle call-log-action"
+                  type="button"
+                  onClick={() => handleJoinGroupCallFromLog(callLog)}
+                >
+                  Tham gia
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </li>
+      );
+    },
+    [activeConversation, backendConversationId, currentUserId, handleJoinGroupCallFromLog]
+  );
 
   const normalizedMessages = useMemo(() => normalizeMessageList(messages), [messages]);
   const pollStateById = useMemo(() => {
@@ -3459,19 +3593,11 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
               const isMine = item.senderId === currentUserId;
               const isAi = item.senderId === 'AI';
 
-              // Render Group Call Log (Tin nhắn thông báo cuộc gọi)
-              if (item.type === 'CALL_LOG') {
-                return (
-                  <GroupCallMessageItem 
-                    key={item.id || index}
-                    message={item}
-                    isMine={isMine}
-                    onJoin={(callData) => {
-                      // Gửi event để Zalo.jsx xử lý việc tham gia cuộc gọi
-                      window.dispatchEvent(new CustomEvent('group-call-join-request', { detail: callData }));
-                    }}
-                  />
-                );
+              if (item.isCallLog && !Boolean(item.deletedAt)) {
+                const callLogNode = renderCallLogMessage(item, index);
+                if (callLogNode) {
+                  return callLogNode;
+                }
               }
 
               const isDeleted = Boolean(item.deletedAt);
@@ -3949,13 +4075,19 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                           </button>
                         ) : null}
 
-                        <div className="message-actions-menu">
+                        <div
+                          className="message-actions-menu"
+                          data-open={String(openMessageMenuId) === String(item.id)}
+                        >
                           <button
                             className="message-action-menu-trigger"
                             type="button"
                             aria-label="Mở tác vụ tin nhắn"
                             aria-expanded={String(openMessageMenuId) === String(item.id)}
-                            onClick={() => handleToggleMessageMenu(item.id)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleToggleMessageMenu(item.id);
+                            }}
                           >
                             <IoMdMore />
                           </button>
@@ -3982,7 +4114,10 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                                   className="message-action-menu-item"
                                   type="button"
                                   disabled={isPinningThisMessage}
-                                  onClick={() => handleTogglePinMessage(item)}
+                                  onClick={() => {
+                                    handleCloseMessageMenu();
+                                    handleTogglePinMessage(item);
+                                  }}
                                 >
                                   {isPinningThisMessage
                                     ? "Đang xử lý..."
@@ -4231,7 +4366,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
               }}
             >
               <div
-                contentEditable
+                contentEditable={!isConversationDisbanded}
                 suppressContentEditableWarning
                 spellCheck="false"
                 className="contentEditable"
@@ -4250,11 +4385,18 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                 style={{
                   color: "rgb(107 173 223)",
                   backgroundColor: "#dff3ff",
-                  opacity: isSending ? 0.6 : 1,
+                  opacity: isSending || isConversationDisbanded ? 0.6 : 1,
                 }}
-                onClick={handleSendMess}
+                onClick={isConversationDisbanded ? undefined : handleSendMess}
               />
-              <AiOutlineLike className="icon-header" onClick={(event) => handleSendMess(event, true)} />
+              <AiOutlineLike
+                className="icon-header"
+                onClick={
+                  isConversationDisbanded
+                    ? undefined
+                    : (event) => handleSendMess(event, true)
+                }
+              />
             </div>
           </div>
         </form>
@@ -4352,6 +4494,9 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
         {forwardNotice ? <p className="composer-feedback-success">{forwardNotice}</p> : null}
         {!isForwardPickerOpen && actionError ? (
           <p className="composer-feedback-error">{actionError}</p>
+        ) : null}
+        {isConversationDisbanded ? (
+          <p className="composer-feedback-error">Nhóm đã được giải tán</p>
         ) : null}
         {isPollComposerOpen ? (
           <div className="forward-picker-overlay" onClick={handleClosePollComposer}>
