@@ -32,6 +32,7 @@ import {
   getConversations,
   updateConversationAvatarV1,
 } from "../../services/chat/conversationApi";
+import { uploadAttachmentV1 } from "../../services/chat/messageApi";
 import { mapConversation } from "../../mappers/conversationMapper";
 
 export const LoiMoiKetBan = "Lời mời kết bạn";
@@ -231,7 +232,10 @@ const getFriendActionMeta = (relationshipStatus) => {
     listMember: [],
     showAvt: false,
     avatar: null,
+    avatarFile: null,
+    avatarPreview: "",
   });
+  const groupAvatarInputRef = useRef(null);
   const [friendOptions, setFriendOptions] = useState([]);
   const [createGroupError, setCreateGroupError] = useState("");
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
@@ -543,30 +547,41 @@ const handleShowAddFriend = (value) => {
       upsertConversation(nextConversation);
 
       const selectedAvatarUrl = String(dataCreateGr.avatar || "").trim();
-      if (response?.id && selectedAvatarUrl) {
-        console.log("[WEB GROUP AVATAR FOLLOWUP]", {
-          source: "address-book-create",
+      const selectedAvatarFile = dataCreateGr.avatarFile || null;
+      if (response?.id && (selectedAvatarFile || selectedAvatarUrl)) {
+        console.log("[GROUP AVATAR UPLOAD]", {
+          source: "web-address-book-create",
           status: "submitting",
           conversationId: response.id,
-          avatarUrlLength: selectedAvatarUrl.length,
+          uploadMode: selectedAvatarFile ? "file" : "url",
         });
 
         try {
+          let resolvedAvatarUrl = selectedAvatarUrl;
+          if (selectedAvatarFile) {
+            const uploadResult = await uploadAttachmentV1(selectedAvatarFile);
+            resolvedAvatarUrl = String(uploadResult?.url || "").trim();
+          }
+
+          if (!resolvedAvatarUrl) {
+            throw new Error("Missing uploaded avatar URL");
+          }
+
           const avatarResponse = await updateConversationAvatarV1(
             response.id,
-            selectedAvatarUrl
+            resolvedAvatarUrl
           );
           nextConversation = mapConversation(avatarResponse);
           upsertConversation(nextConversation);
-          console.log("[WEB GROUP AVATAR FOLLOWUP]", {
-            source: "address-book-create",
+          console.log("[GROUP AVATAR UPLOAD]", {
+            source: "web-address-book-create",
             status: "success",
             conversationId: response.id,
             avatarUrl: nextConversation?.avatarUrl || "",
           });
         } catch (avatarError) {
-          console.error("[WEB GROUP AVATAR FOLLOWUP]", {
-            source: "address-book-create",
+          console.error("[GROUP AVATAR UPLOAD]", {
+            source: "web-address-book-create",
             status: "failed",
             conversationId: response.id,
             error: avatarError,
@@ -595,6 +610,8 @@ const handleShowAddFriend = (value) => {
       listMember: [],
       showAvt: false,
       avatar: null,
+      avatarFile: null,
+      avatarPreview: "",
     });
   };
 
@@ -606,16 +623,58 @@ const handleShowAddFriend = (value) => {
   };
 
   const handleChoiceAvatarGr = (value) => {
+    console.log("[GROUP AVATAR PICK]", {
+      source: "web-address-book-create",
+      mode: "preset",
+      value,
+    });
     setDataCreateGr((prevState) => ({
       ...prevState,
       avatar: value,
+      avatarFile: null,
+      avatarPreview: value,
     }));
   };
 
   const handleChangURl = (e) => {
+    const nextValue = e.target.value;
     setDataCreateGr((prevState) => ({
       ...prevState,
-      avatar: e.target.value,
+      avatar: nextValue,
+      avatarFile: null,
+      avatarPreview: nextValue,
+    }));
+  };
+
+  const handleGroupAvatarFilePick = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+    console.log("[GROUP AVATAR PICK]", {
+      source: "web-address-book-create",
+      mode: "file",
+      fileName: file.name,
+      fileSize: file.size,
+      contentType: file.type,
+    });
+    setDataCreateGr((prevState) => ({
+      ...prevState,
+      avatar: null,
+      avatarFile: file,
+      avatarPreview: previewUrl,
+    }));
+  };
+
+  const handleRemoveGroupAvatar = () => {
+    setDataCreateGr((prevState) => ({
+      ...prevState,
+      avatar: null,
+      avatarFile: null,
+      avatarPreview: "",
     }));
   };
 
@@ -1188,10 +1247,17 @@ const handleSendFriendRequestFromSearch = async (user) => {
                       />
                     </div>
                     <div className="add-by-phone">
+                      <input
+                        ref={groupAvatarInputRef}
+                        type="file"
+                        accept="image/*"
+                        hidden
+                        onChange={handleGroupAvatarFilePick}
+                      />
                       <div className="phone-group flex">
-                        {dataCreateGr.avatar ? (
+                        {dataCreateGr.avatarPreview || dataCreateGr.avatar ? (
                           <img
-                            src={dataCreateGr.avatar}
+                            src={dataCreateGr.avatarPreview || dataCreateGr.avatar}
                             onClick={() => handleShowAvatarGr(true)}
                           />
                         ) : (
@@ -1208,6 +1274,22 @@ const handleSendFriendRequestFromSearch = async (user) => {
                             value={dataCreateGr.username}
                           />
                         </div>
+                      </div>
+                      <div
+                        className="flex"
+                        style={{ gap: 8, marginTop: 10, alignItems: "center" }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => groupAvatarInputRef.current?.click()}
+                        >
+                          Chọn ảnh
+                        </button>
+                        {dataCreateGr.avatarPreview || dataCreateGr.avatar ? (
+                          <button type="button" onClick={handleRemoveGroupAvatar}>
+                            Gỡ ảnh
+                          </button>
+                        ) : null}
                       </div>
                       <div className="list-contact">
                         {friendOptions.map((item) => (

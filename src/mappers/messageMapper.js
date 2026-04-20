@@ -457,6 +457,75 @@ const getAttachmentFileExtension = (attachment) => {
   return fileName.split(".").pop() || "";
 };
 
+const CALL_LOG_TYPES = new Set(["CALL_LOG", "CALL", "SYSTEM_CALL"]);
+
+const parseDurationSeconds = (value) => {
+  const normalizedValue = Number(value);
+  return Number.isFinite(normalizedValue) && normalizedValue > 0
+    ? Math.floor(normalizedValue)
+    : null;
+};
+
+const parseCallLog = (message) => {
+  const normalizedType = String(message?.type || "").toUpperCase();
+  if (!CALL_LOG_TYPES.has(normalizedType)) {
+    return null;
+  }
+
+  let payload = {};
+  if (typeof message?.content === "string" && message.content.trim()) {
+    try {
+      payload = JSON.parse(message.content);
+    } catch {
+      payload = {};
+    }
+  }
+
+  const callType = pickFirstText(
+    payload?.callType,
+    payload?.type,
+    message?.callType,
+    message?.raw?.callType
+  )
+    .toUpperCase()
+    .trim();
+  const callStatus = pickFirstText(
+    payload?.status,
+    payload?.callStatus,
+    message?.status,
+    message?.raw?.status
+  )
+    .toUpperCase()
+    .trim();
+
+  return {
+    raw: payload,
+    callType: callType || "VOICE",
+    callStatus: callStatus || (payload?.groupCallId ? "STARTED" : "ENDED"),
+    durationSeconds: parseDurationSeconds(
+      payload?.durationSeconds ?? payload?.duration
+    ),
+    callerId:
+      pickFirstText(
+        payload?.callerId,
+        payload?.senderId,
+        message?.callerId,
+        message?.senderId
+      ) || null,
+    groupCallId: payload?.groupCallId || null,
+    channel: payload?.channel || null,
+    sfuUrl: payload?.sfuUrl || null,
+    initiatorName:
+      pickFirstText(
+        payload?.initiatorName,
+        payload?.callerName,
+        message?.senderDisplayName
+      ) || null,
+    conversationType:
+      pickFirstText(payload?.conversationType).toUpperCase() || null,
+  };
+};
+
 export const isImageAttachment = (attachment) => {
   const contentType = String(attachment?.contentType || "").toLowerCase();
   const attachmentType = String(attachment?.type || "").toUpperCase();
@@ -505,6 +574,7 @@ export const mapMessage = (message) => {
   const readReceipts = isDeleted
     ? { seenByUserIds: [], seenByUsers: [], source: "deleted" }
     : mapReadReceipts(message);
+  const callLog = isDeleted ? null : parseCallLog(message);
 
   if (isDeleted) {
     console.log("[WEB RECALL MAP]", {
@@ -539,6 +609,17 @@ export const mapMessage = (message) => {
         message?.sender?.avatar
       ) || null,
   });
+  if (callLog) {
+    console.log("[CALL LOG MAP]", {
+      source: "web-message",
+      messageId: message?.id ?? null,
+      conversationId: message?.conversationId ?? null,
+      callType: callLog.callType,
+      callStatus: callLog.callStatus,
+      durationSeconds: callLog.durationSeconds,
+      callerId: callLog.callerId,
+    });
+  }
 
   return {
     id: message?.id || null,
@@ -572,6 +653,12 @@ export const mapMessage = (message) => {
     seenByUsers: readReceipts.seenByUsers,
     readReceiptSource: readReceipts.source,
     type: message?.type || "TEXT",
+    isCallLog: Boolean(callLog),
+    callType: callLog?.callType || null,
+    callStatus: callLog?.callStatus || null,
+    durationSeconds: callLog?.durationSeconds || null,
+    callerId: callLog?.callerId || null,
+    callLog,
     pinnedAt: isDeleted ? null : message?.pinnedAt || null,
     createdAt: message?.createdAt || null,
     editedAt: isDeleted ? null : message?.editedAt || null,
@@ -601,6 +688,12 @@ export const mapMessage = (message) => {
       seenByUserIds: readReceipts.seenByUserIds,
       seenByUsers: readReceipts.seenByUsers,
       readReceiptSource: readReceipts.source,
+      isCallLog: Boolean(callLog),
+      callType: callLog?.callType || null,
+      callStatus: callLog?.callStatus || null,
+      durationSeconds: callLog?.durationSeconds || null,
+      callerId: callLog?.callerId || null,
+      callLog,
     },
   };
 };

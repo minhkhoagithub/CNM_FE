@@ -564,6 +564,9 @@ export const normalizeConversationInput = (conversation, options = {}) => {
     conversation,
     rawConversation
   );
+  const isDisbanded = Boolean(
+    conversation?.isDisbanded ?? rawConversation?.isDisbanded
+  );
 
   return {
     id: conversation?.id || rawConversation?.id || null,
@@ -587,6 +590,7 @@ export const normalizeConversationInput = (conversation, options = {}) => {
     notificationLevel:
       conversation?.notificationLevel || rawConversation?.notificationLevel || "ALL",
     customName,
+    isDisbanded,
     backgroundColor,
     backgroundImageUrl,
     peerUserId: trustedIdentity.peerUserId,

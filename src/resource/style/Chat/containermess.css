@@ -933,6 +933,47 @@
   cursor: not-allowed;
 }
 
+.call-log-bubble {
+  min-width: 220px;
+  max-width: 340px;
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+}
+
+.call-log-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.call-log-icon {
+  font-size: 18px;
+}
+
+.call-log-title,
+.call-log-subtitle,
+.call-log-duration {
+  margin: 0;
+}
+
+.call-log-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #203347;
+}
+
+.call-log-subtitle,
+.call-log-duration {
+  font-size: 13px;
+  color: #5e7389;
+}
+
+.call-log-action {
+  justify-self: flex-start;
+  margin-top: 2px;
+}
+
 .message-action-btn,
 .message-reaction-btn {
   border: none;

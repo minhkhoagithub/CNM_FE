@@ -267,6 +267,18 @@ export const ContactProvider = ({ children }) => {
     }
 
     if (payload.status === "DELETED") {
+      if (payload.isDisbanded) {
+        console.log("[GROUP DISBAND]", {
+          source: "web-conversation-status",
+          conversationId: payload.conversationId,
+        });
+        updateConversationById(payload.conversationId, {
+          isDisbanded: true,
+          lastMessage: "Nhóm đã được giải tán",
+        });
+        return;
+      }
+
       logConversationState("write/statusDeleted", {
         conversationId: payload.conversationId,
       });
