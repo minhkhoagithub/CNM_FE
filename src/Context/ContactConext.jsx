@@ -306,6 +306,12 @@ export const ContactProvider = ({ children }) => {
     }
 
     if (String(event.payload?.type || "").toUpperCase() === "GROUP") {
+      console.log("[GROUP RENAME SYNC]", {
+        source: "web-conversation-updated",
+        conversationId: event.payload?.id,
+        displayName: event.payload?.displayName,
+        name: event.payload?.name,
+      });
       console.log("[WEB PHASE2 CANONICAL UPSERT]", {
         kind: "conversation",
         conversationId: event.payload?.id,
