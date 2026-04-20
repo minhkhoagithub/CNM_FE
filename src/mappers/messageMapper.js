@@ -2,7 +2,7 @@
   id: attachment?.id || null,
   url: attachment?.url || "",
   storageKey: attachment?.storageKey || null,
-  fileName: attachment?.fileName || "",
+  fileName: attachment?.fileName || attachment?.name || "",
   contentType: attachment?.contentType || "",
   fileSize: attachment?.fileSize || 0,
   type: attachment?.type || null,
@@ -446,11 +446,39 @@ const mapReplyInfo = (replyTo) => {
   };
 };
 
-export const isImageAttachment = (attachment) => {
-  const contentType = attachment?.contentType || "";
-  const attachmentType = attachment?.type || "";
+const getAttachmentFileExtension = (attachment) => {
+  const fileName = String(attachment?.fileName || attachment?.name || "")
+    .trim()
+    .toLowerCase();
+  if (!fileName.includes(".")) {
+    return "";
+  }
 
-  return contentType.startsWith("image/") || attachmentType === "IMAGE";
+  return fileName.split(".").pop() || "";
+};
+
+export const isImageAttachment = (attachment) => {
+  const contentType = String(attachment?.contentType || "").toLowerCase();
+  const attachmentType = String(attachment?.type || "").toUpperCase();
+  const ext = getAttachmentFileExtension(attachment);
+
+  return (
+    contentType.startsWith("image/") ||
+    attachmentType === "IMAGE" ||
+    ["gif", "jpg", "jpeg", "png", "webp", "bmp", "svg", "heic", "heif"].includes(ext)
+  );
+};
+
+export const isVideoAttachment = (attachment) => {
+  const contentType = String(attachment?.contentType || "").toLowerCase();
+  const attachmentType = String(attachment?.type || "").toUpperCase();
+  const ext = getAttachmentFileExtension(attachment);
+
+  return (
+    contentType.startsWith("video/") ||
+    attachmentType === "VIDEO" ||
+    ["mp4", "mov", "m4v", "webm", "mkv", "avi", "wmv", "flv", "3gp"].includes(ext)
+  );
 };
 
 const resolveDeletedAt = (message) =>

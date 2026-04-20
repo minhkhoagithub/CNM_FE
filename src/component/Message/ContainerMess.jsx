@@ -42,6 +42,7 @@ import {
   createReplyPreviewText,
   createAttachmentPreviewText,
   isImageAttachment,
+  isVideoAttachment,
   mapMessage,
   mapMessagePage,
   markMessageAsDeleted,
@@ -112,9 +113,6 @@ const formatTime = (value) => {
 
 const isImageFile = (file) => String(file?.type || "").startsWith("image/");
 const isVideoFile = (file) => String(file?.type || "").startsWith("video/");
-const isVideoAttachment = (attachment) =>
-  String(attachment?.contentType || "").startsWith("video/") ||
-  String(attachment?.type || "").toUpperCase() === "VIDEO";
 
 const buildSelectedAttachment = (file, index) => ({
   id: `${file.name}-${file.size}-${file.lastModified}-${index}`,
@@ -208,6 +206,137 @@ const resolveFriendStatusLabel = (status) => {
     return "Đã nhận lời mời";
   }
   return "Kết bạn";
+};
+
+const URL_IN_TEXT_PATTERN =
+  /((?:https?:\/\/)?(?:www\.)?(?:discord\.gg|discord(?:app)?\.com|youtu\.be|youtube\.com|(?:[a-z0-9-]+\.)+[a-z]{2,})(?:\/[^\s<>"'`]*)?)/gi;
+
+const extractFirstUrlFromText = (text) => {
+  const normalizedText = String(text || "").trim();
+  if (!normalizedText) {
+    return "";
+  }
+
+  const matcher = new RegExp(URL_IN_TEXT_PATTERN);
+  const match = matcher.exec(normalizedText);
+  return match?.[1] || "";
+};
+
+const normalizeUrlForPreview = (url) => {
+  try {
+    const rawUrl = String(url || "").trim();
+    if (!rawUrl) {
+      return "";
+    }
+
+    const candidateUrl = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
+    const parsed = new URL(candidateUrl);
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return "";
+  }
+};
+
+const trimUrlToken = (token) => String(token || "").replace(/[)\],.!?;:]+$/g, "");
+
+const normalizePreviewTitle = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+
+const renderLinkifiedText = (text, keyPrefix) => {
+  const rawText = String(text || "");
+  if (!rawText) {
+    return rawText;
+  }
+
+  const matcher = new RegExp(URL_IN_TEXT_PATTERN);
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+  let linkIndex = 0;
+
+  while ((match = matcher.exec(rawText)) !== null) {
+    const fullMatch = match[0] || "";
+    const rawUrl = match[1] || "";
+    const matchIndex = match.index;
+    const normalizedUrl = normalizeUrlForPreview(trimUrlToken(rawUrl));
+
+    if (!normalizedUrl) {
+      continue;
+    }
+
+    if (matchIndex > lastIndex) {
+      parts.push(rawText.slice(lastIndex, matchIndex));
+    }
+
+    parts.push(
+      <a
+        key={`${keyPrefix}-url-${linkIndex}`}
+        href={normalizedUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="message-inline-link"
+        onClick={(event) => event.stopPropagation()}
+      >
+        {fullMatch}
+      </a>
+    );
+
+    lastIndex = matchIndex + fullMatch.length;
+    linkIndex += 1;
+  }
+
+  if (lastIndex < rawText.length) {
+    parts.push(rawText.slice(lastIndex));
+  }
+
+  return parts.length ? parts : rawText;
+};
+
+const resolveAttachmentTypeMeta = (attachment) => {
+  const contentType = String(attachment?.contentType || "").toLowerCase();
+  const fileName = String(attachment?.fileName || attachment?.name || "").toLowerCase();
+  const ext = fileName.includes(".") ? fileName.split(".").pop() || "" : "";
+
+  if (contentType.startsWith("application/pdf") || ext === "pdf") {
+    return { icon: "📄", label: "PDF" };
+  }
+  if (
+    contentType.includes("word") ||
+    ["doc", "docx", "odt", "rtf"].includes(ext)
+  ) {
+    return { icon: "📝", label: "DOC" };
+  }
+  if (
+    contentType.includes("spreadsheet") ||
+    contentType.includes("excel") ||
+    ["xls", "xlsx", "csv", "ods"].includes(ext)
+  ) {
+    return { icon: "📊", label: "XLS" };
+  }
+  if (
+    contentType.includes("presentation") ||
+    ["ppt", "pptx", "odp"].includes(ext)
+  ) {
+    return { icon: "📽", label: "PPT" };
+  }
+  if (
+    contentType.startsWith("text/") ||
+    ["txt", "md", "json", "xml", "yml", "yaml", "log"].includes(ext)
+  ) {
+    return { icon: "📃", label: "TXT" };
+  }
+  if (
+    contentType.includes("zip") ||
+    ["zip", "rar", "7z", "tar", "gz"].includes(ext)
+  ) {
+    return { icon: "🗜", label: "ZIP" };
+  }
+
+  return { icon: "📎", label: (ext || "FILE").slice(0, 6).toUpperCase() };
 };
 
 const applyLocalReactionChange = (message, nextReaction) => {
@@ -425,6 +554,71 @@ const normalizeMentionHandle = (value) =>
 const getNestedValue = (value, path) =>
   path.reduce((currentValue, key) => currentValue?.[key], value);
 
+const resolveMessageLinkUrl = (message, linkPreviewByUrl = {}) => {
+  const contentUrl = normalizeUrlForPreview(extractFirstUrlFromText(message?.content));
+  if (contentUrl) {
+    return contentUrl;
+  }
+
+  const raw = message?.raw || {};
+  const candidatePaths = [
+    ["originalLinkUrl"],
+    ["metadata", "url"],
+    ["metadata", "link"],
+    ["metadata", "linkUrl"],
+    ["metadata", "originalLinkUrl"],
+    ["metadata", "sourceUrl"],
+    ["metadata", "targetUrl"],
+    ["metadata", "originalUrl"],
+    ["metadata", "canonicalUrl"],
+    ["metadata", "previewUrl"],
+    ["metadata", "linkPreview", "url"],
+    ["metadata", "linkPreview", "originalUrl"],
+    ["metadata", "linkPreview", "targetUrl"],
+    ["linkPreview", "url"],
+    ["linkPreview", "originalUrl"],
+    ["link", "url"],
+    ["url"],
+    ["sourceUrl"],
+    ["targetUrl"],
+  ];
+
+  for (const path of candidatePaths) {
+    const value = getNestedValue(raw, path);
+    if (typeof value !== "string" || !value.trim()) {
+      continue;
+    }
+
+    const normalizedUrl = normalizeUrlForPreview(extractFirstUrlFromText(value) || value);
+    if (normalizedUrl) {
+      return normalizedUrl;
+    }
+  }
+
+  const normalizedMessageTitle = normalizePreviewTitle(message?.content);
+  if (!normalizedMessageTitle) {
+    return "";
+  }
+
+  for (const [storedUrl, preview] of Object.entries(linkPreviewByUrl || {})) {
+    if (!preview) {
+      continue;
+    }
+
+    const normalizedPreviewTitle = normalizePreviewTitle(preview?.title);
+    if (!normalizedPreviewTitle || normalizedPreviewTitle !== normalizedMessageTitle) {
+      continue;
+    }
+
+    const normalizedPreviewUrl = normalizeUrlForPreview(preview?.url || storedUrl);
+    if (normalizedPreviewUrl) {
+      return normalizedPreviewUrl;
+    }
+  }
+
+  return "";
+};
+
 const resolveMemberUsername = (member) => {
   const usernamePaths = [
     ["username"],
@@ -540,7 +734,7 @@ const resolveActiveMentionQuery = (text, caretOffset) => {
 
 const renderMentionAwareText = (text, { enabled, messageId, conversationId } = {}) => {
   if (!enabled || !text) {
-    return text;
+    return renderLinkifiedText(text, `${messageId || "msg"}-plain`);
   }
 
   const messageText = String(text);
@@ -573,7 +767,7 @@ const renderMentionAwareText = (text, { enabled, messageId, conversationId } = {
   });
 
   if (!matches.length) {
-    return text;
+    return renderLinkifiedText(text, `${messageId || "msg"}-nomention`);
   }
 
   if (lastIndex < messageText.length) {
@@ -587,7 +781,11 @@ const renderMentionAwareText = (text, { enabled, messageId, conversationId } = {
     mentions: matches,
   });
 
-  return parts;
+  return parts.flatMap((part, index) =>
+    typeof part === "string"
+      ? renderLinkifiedText(part, `${messageId || "msg"}-part-${index}`)
+      : part
+  );
 };
 
 
@@ -643,6 +841,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   });
   const [newPollOptionById, setNewPollOptionById] = useState({});
   const [contactCardByToken, setContactCardByToken] = useState({});
+  const [linkPreviewByUrl, setLinkPreviewByUrl] = useState({});
   const [selectedContactProfile, setSelectedContactProfile] = useState(null);
   const [isSendingFriendRequest, setIsSendingFriendRequest] = useState(false);
   const forwardNoticeTimeoutRef = useRef(null);
@@ -1999,18 +2198,26 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     }
 
     try {
+      const linkUrl = normalizeUrlForPreview(extractFirstUrlFromText(messageText));
       const uploadedAttachments = selectedAttachments.length
         ? await Promise.all(
             selectedAttachments.map((attachment) => uploadAttachmentV1(attachment.file))
           )
         : [];
-
-      const response = await sendMessageV1({
+      const isLinkTextMessage = Boolean(linkUrl && messageText && uploadedAttachments.length === 0);
+      const sendPayload = {
         conversationId: backendConversationId,
         ...(messageText ? { content: messageText } : {}),
         ...(uploadedAttachments.length ? { attachments: uploadedAttachments } : {}),
         ...(replyingToMessage?.id ? { replyToMessageId: replyingToMessage.id } : {}),
-      });
+      };
+
+      if (isLinkTextMessage) {
+        sendPayload.originalLinkUrl = linkUrl;
+        sendPayload.messageType = "TEXT";
+      }
+
+      const response = await sendMessageV1(sendPayload);
 
       const nextMessage = mapMessage(response);
       upsertMessage(nextMessage);
@@ -2525,6 +2732,68 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       isUnmounted = true;
     };
   }, [contactCardByToken, currentUserId, displayMessages]);
+
+  useEffect(() => {
+    const urls = new Set();
+    displayMessages.forEach((message) => {
+      const systemMessage = parseSystemMessage(message?.content);
+      if (systemMessage) {
+        return;
+      }
+      const normalizedUrl = resolveMessageLinkUrl(message, linkPreviewByUrl);
+      if (normalizedUrl) {
+        urls.add(normalizedUrl);
+      }
+    });
+
+    const unresolvedUrls = Array.from(urls).filter(
+      (url) => linkPreviewByUrl[url] === undefined
+    );
+    if (!unresolvedUrls.length) {
+      return;
+    }
+
+    let isUnmounted = false;
+    unresolvedUrls.forEach((targetUrl) => {
+      fetch(`https://jsonlink.io/api/extract?url=${encodeURIComponent(targetUrl)}`)
+        .then((response) => response.json())
+        .then((payload) => {
+          if (isUnmounted) {
+            return;
+          }
+
+          setLinkPreviewByUrl((prevState) => ({
+            ...prevState,
+            [targetUrl]: {
+              title: payload?.title || "",
+              description: payload?.description || "",
+              image: payload?.images?.[0] || payload?.image || "",
+              url: payload?.url || targetUrl,
+              host: (() => {
+                try {
+                  return new URL(targetUrl).hostname;
+                } catch {
+                  return targetUrl;
+                }
+              })(),
+            },
+          }));
+        })
+        .catch(() => {
+          if (isUnmounted) {
+            return;
+          }
+          setLinkPreviewByUrl((prevState) => ({
+            ...prevState,
+            [targetUrl]: null,
+          }));
+        });
+    });
+
+    return () => {
+      isUnmounted = true;
+    };
+  }, [displayMessages, linkPreviewByUrl]);
   useEffect(() => {
     if (activeConversation?.type !== "group" || !backendConversationId || !currentUserId) {
       return undefined;
@@ -2905,6 +3174,14 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
               const contactToken =
                 !isDeleted && !systemMessage ? extractIdentifierToken(item?.content) : "";
               const contactCard = contactToken ? contactCardByToken[contactToken] : null;
+              const messageLinkUrl =
+                !isDeleted && !systemMessage
+                  ? resolveMessageLinkUrl(item, linkPreviewByUrl)
+                  : "";
+              const messageLinkPreview = messageLinkUrl
+                ? linkPreviewByUrl[messageLinkUrl]
+                : null;
+              const hasLinkInDisplayText = Boolean(extractFirstUrlFromText(displayText));
               const renderedDisplayText = renderMentionAwareText(displayText, {
                 enabled: activeConversation?.type === "group" && !isDeleted,
                 conversationId: backendConversationId,
@@ -3031,17 +3308,25 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                         )}
                         {fileAttachments.length > 0 && (
                           <div className="message-attachment-list">
-                            {fileAttachments.map((attachment) => (
-                              <a
-                                className="message-file-link"
-                                key={attachment.id || attachment.url}
-                                href={attachment.url}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                            {attachment.fileName || "Tệp đính kèm"}
-                              </a>
-                            ))}
+                            {fileAttachments.map((attachment) => {
+                              const fileMeta = resolveAttachmentTypeMeta(attachment);
+                              return (
+                                <a
+                                  className="message-file-link"
+                                  key={attachment.id || attachment.url}
+                                  href={attachment.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  <span className="message-file-type-badge">
+                                    {fileMeta.icon} {fileMeta.label}
+                                  </span>
+                                  <span className="message-file-name">
+                                    {attachment.fileName || "Tệp đính kèm"}
+                                  </span>
+                                </a>
+                              );
+                            })}
                           </div>
                         )}
                         {displayText ? (
@@ -3050,8 +3335,69 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                               isDeleted ? "message-text-deleted" : ""
                             }`}
                           >
-                            {renderedDisplayText}
+                            {!isDeleted && messageLinkUrl && !hasLinkInDisplayText ? (
+                              <a
+                                href={messageLinkUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="message-inline-link message-inline-link-title"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                {renderedDisplayText}
+                              </a>
+                            ) : (
+                              renderedDisplayText
+                            )}
                           </p>
+                        ) : null}
+                        {!isDeleted && messageLinkUrl ? (
+                          <div className="message-link-preview-card">
+                            {messageLinkPreview?.image ? (
+                              <a
+                                href={messageLinkUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="message-link-preview-image-link"
+                              >
+                                <img
+                                  className="message-link-preview-image"
+                                  src={messageLinkPreview.image}
+                                  alt={messageLinkPreview.title || "Link preview"}
+                                />
+                              </a>
+                            ) : null}
+                            <div className="message-link-preview-meta">
+                              <a
+                                className="message-link-preview-title message-link-preview-title-link"
+                                href={messageLinkUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {messageLinkPreview?.title || messageLinkUrl}
+                              </a>
+                              <p className="message-link-preview-desc">
+                                {messageLinkPreview?.description ||
+                                  messageLinkPreview?.host ||
+                                  messageLinkUrl}
+                              </p>
+                              <a
+                                className="message-link-preview-open"
+                                href={messageLinkUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                Mở liên kết
+                              </a>
+                              <a
+                                className="message-link-preview-raw"
+                                href={messageLinkUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {messageLinkUrl}
+                              </a>
+                            </div>
+                          </div>
                         ) : null}
                         {!isDeleted && pollState ? (
                           <div className="poll-card">
@@ -3436,7 +3782,13 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                     <video src={attachment.previewUrl} controls muted />
                   ) : (
                     <div className="selected-attachment-file">
-                      {attachment.fileName}
+                      <span className="selected-attachment-file-badge">
+                        {resolveAttachmentTypeMeta(attachment).icon}{" "}
+                        {resolveAttachmentTypeMeta(attachment).label}
+                      </span>
+                      <span className="selected-attachment-file-name">
+                        {attachment.fileName}
+                      </span>
                     </div>
                   )}
                   <p onClick={() => handleRemoveSelectedAttachment(attachment.id)}>
