@@ -24,6 +24,7 @@ import {
   deleteMessageV1,
   editMessageV1,
   getConversationMessages,
+  getMessageContextV1,
   hideMessageV1,
   markConversationSeen,
   pinMessageV1,
@@ -826,6 +827,12 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   const [openMessageMenuId, setOpenMessageMenuId] = useState(null);
   const [pinningMessageId, setPinningMessageId] = useState(null);
   const [isPinnedListExpanded, setIsPinnedListExpanded] = useState(false);
+  const [isContextMode, setIsContextMode] = useState(false);
+  const [contextLatestMessageId, setContextLatestMessageId] = useState(null);
+  const [newMessagesSinceContext, setNewMessagesSinceContext] = useState(0);
+  const [isNearBottom, setIsNearBottom] = useState(true);
+  const [highlightedMessageId, setHighlightedMessageId] = useState(null);
+  const [isLoadingContext, setIsLoadingContext] = useState(false);
   const [aiMessages, setAiMessages] = useState([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [summaryState, setSummaryState] = useState({
@@ -1614,14 +1621,46 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       updateMessageReactionSummary(prevMessages, messageId, reactions, myReaction)
     );
   }, []);
+  const scrollToBottom = useCallback((behavior = "smooth") => {
+    const containerElement = messageScrollContainerRef.current;
+    if (!containerElement) {
+      return;
+    }
+
+    containerElement.scrollTo({
+      top: containerElement.scrollHeight,
+      behavior,
+    });
+  }, []);
 
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
   useEffect(() => {
-    scrollRef.current?.scrollIntoView({ block: "end" });
-  }, [messages]);
+    if (!isContextMode && isNearBottom) {
+      scrollToBottom("auto");
+    }
+  }, [isContextMode, isNearBottom, messages, scrollToBottom]);
+
+  useEffect(() => {
+    const containerElement = messageScrollContainerRef.current;
+    if (!containerElement) {
+      return undefined;
+    }
+
+    const handleScroll = () => {
+      const distanceToBottom =
+        containerElement.scrollHeight - containerElement.scrollTop - containerElement.clientHeight;
+      setIsNearBottom(distanceToBottom <= 80);
+    };
+
+    handleScroll();
+    containerElement.addEventListener("scroll", handleScroll);
+    return () => {
+      containerElement.removeEventListener("scroll", handleScroll);
+    };
+  }, [backendConversationId, messages.length]);
 
   useEffect(() => {
     selectedAttachmentsRef.current = selectedAttachments;
@@ -1690,6 +1729,11 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     setReplyingToMessage(null);
     setOpenMessageMenuId(null);
     setMentionState(closeMentionState());
+    setIsContextMode(false);
+    setContextLatestMessageId(null);
+    setNewMessagesSinceContext(0);
+    setHighlightedMessageId(null);
+    setIsNearBottom(true);
     clearForwardState();
     typingStateRef.current = false;
     if (typingDebounceTimeoutRef.current) {
@@ -1743,6 +1787,9 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
           currentUserId,
         });
         setMessages(page.items);
+        setIsContextMode(false);
+        setContextLatestMessageId(page.items.length ? page.items[page.items.length - 1].id : null);
+        setNewMessagesSinceContext(0);
         await markConversationSeen(backendConversationId);
         console.log("[WEB PHASE2 UNREAD SYNC]", {
           source: "initial-message-fetch",
@@ -1797,7 +1844,29 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
             return;
           }
 
-          if (event.type === "MESSAGE_CREATED" || event.type === "MESSAGE_UPDATED") {
+          if (event.type === "MESSAGE_CREATED") {
+            const mappedMessage = mapMessage(event.payload);
+            const messageId = mappedMessage?.id || event.payload?.id;
+            const isAlreadyVisible = messagesRef.current.some(
+              (message) => String(message?.id || "") === String(messageId || "")
+            );
+
+            if (isContextMode && !isAlreadyVisible) {
+              setNewMessagesSinceContext((prevCount) => prevCount + 1);
+              if (messageId) {
+                setContextLatestMessageId(messageId);
+              }
+              return;
+            }
+
+            upsertMessage(mappedMessage);
+            if (messageId) {
+              setContextLatestMessageId(messageId);
+            }
+            return;
+          }
+
+          if (event.type === "MESSAGE_UPDATED") {
             upsertMessage(mapMessage(event.payload));
             return;
           }
@@ -1841,6 +1910,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   }, [
     backendConversationId,
     currentUserId,
+    isContextMode,
     markMessageDeleted,
     syncMessageReactionSummary,
     upsertMessage,
@@ -3039,28 +3109,147 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     const attachments = Array.isArray(message.attachments) ? message.attachments : [];
     return createAttachmentPreviewText("", attachments) || "Tin nhắn";
   }, []);
-  const handleJumpToMessage = useCallback((messageId) => {
+  const scrollMessageIntoView = useCallback((messageId, options = {}) => {
     if (!messageId) {
-      return;
+      return false;
     }
 
     const containerElement = messageScrollContainerRef.current;
     const targetElement = document.getElementById(`message-row-${messageId}`);
     if (!containerElement || !targetElement) {
-      return;
+      return false;
     }
 
     const containerRect = containerElement.getBoundingClientRect();
     const targetRect = targetElement.getBoundingClientRect();
     const targetTopInContainer =
       targetRect.top - containerRect.top + containerElement.scrollTop;
-    const nextScrollTop = Math.max(targetTopInContainer - 16, 0);
+    const offsetTop = options.offsetTop ?? 16;
+    const nextScrollTop = Math.max(targetTopInContainer - offsetTop, 0);
 
     containerElement.scrollTo({
-      behavior: "smooth",
+      behavior: options.behavior || "smooth",
       top: nextScrollTop,
     });
+    return true;
   }, []);
+  const flashMessageHighlight = useCallback((messageId) => {
+    if (!messageId) {
+      return;
+    }
+
+    setHighlightedMessageId(String(messageId));
+    window.setTimeout(() => {
+      setHighlightedMessageId((prevState) =>
+        String(prevState || "") === String(messageId) ? null : prevState
+      );
+    }, 1600);
+  }, []);
+  const loadMessageContextAndJump = useCallback(
+    async (messageId) => {
+      if (!backendConversationId || !messageId) {
+        return false;
+      }
+
+      setIsLoadingContext(true);
+      setActionError("");
+
+      try {
+        const contextResponse = await getMessageContextV1(backendConversationId, {
+          messageId,
+          range: 50,
+        });
+        const contextItems = Array.isArray(contextResponse?.items)
+          ? contextResponse.items.map(mapMessage)
+          : [];
+        setMessages(contextItems);
+        setIsContextMode(true);
+        setContextLatestMessageId(contextResponse?.latestMessageId || null);
+        setNewMessagesSinceContext(0);
+
+        const anchorMessageId = contextResponse?.anchorMessageId || messageId;
+        window.setTimeout(() => {
+          const found = scrollMessageIntoView(anchorMessageId, { behavior: "auto", offsetTop: 24 });
+          if (found) {
+            flashMessageHighlight(anchorMessageId);
+          }
+        }, 0);
+        return true;
+      } catch (error) {
+        console.error("Failed to load message context:", error);
+        setActionError("Không thể tải ngữ cảnh tin nhắn đã ghim.");
+        return false;
+      } finally {
+        setIsLoadingContext(false);
+      }
+    },
+    [backendConversationId, flashMessageHighlight, scrollMessageIntoView]
+  );
+  const handleJumpToMessage = useCallback(
+    async (messageId) => {
+      const found = scrollMessageIntoView(messageId, { behavior: "smooth", offsetTop: 24 });
+      if (found) {
+        flashMessageHighlight(messageId);
+        return;
+      }
+
+      await loadMessageContextAndJump(messageId);
+    },
+    [flashMessageHighlight, loadMessageContextAndJump, scrollMessageIntoView]
+  );
+  const handleBackToLatest = useCallback(async () => {
+    if (!backendConversationId || backendConversationId === "AI_ASSISTANT") {
+      return;
+    }
+
+    if (!isContextMode) {
+      scrollToBottom("smooth");
+      return;
+    }
+
+    setIsLoadingContext(true);
+    setActionError("");
+    try {
+      const response = await getConversationMessages(backendConversationId, {
+        size: 50,
+      });
+      const page = mapMessagePage(response, {
+        conversationId: backendConversationId,
+        currentUserId,
+      });
+      setMessages(page.items);
+      setIsContextMode(false);
+      setContextLatestMessageId(page.items.length ? page.items[page.items.length - 1].id : null);
+      setNewMessagesSinceContext(0);
+      window.setTimeout(() => scrollToBottom("auto"), 0);
+    } catch (error) {
+      console.error("Failed to load latest messages:", error);
+      setActionError("Không thể quay lại tin nhắn hiện tại.");
+    } finally {
+      setIsLoadingContext(false);
+    }
+  }, [backendConversationId, currentUserId, isContextMode, scrollToBottom]);
+  const showReturnToLatestButton = isContextMode || !isNearBottom;
+  useEffect(() => {
+    if (!isContextMode && newMessagesSinceContext > 0) {
+      setNewMessagesSinceContext(0);
+    }
+  }, [isContextMode, newMessagesSinceContext]);
+  useEffect(() => {
+    if (!isContextMode || !contextLatestMessageId) {
+      return;
+    }
+
+    const hasLatestInCurrentList = normalizedMessages.some(
+      (message) => String(message?.id || "") === String(contextLatestMessageId)
+    );
+    if (!hasLatestInCurrentList) {
+      return;
+    }
+
+    setIsContextMode(false);
+    setNewMessagesSinceContext(0);
+  }, [contextLatestMessageId, isContextMode, normalizedMessages]);
   useEffect(() => {
     if (!pinnedMessages.length) {
       setIsPinnedListExpanded(false);
@@ -3381,6 +3570,10 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                   key={item.id || `${item.createdAt}-${index}`}
                   id={item.id ? `message-row-${item.id}` : undefined}
                   className={`wrap-text-mess ${isMine ? "my-mess" : ""} ${
+                    String(highlightedMessageId || "") === String(item.id || "")
+                      ? "message-row-highlighted"
+                      : ""
+                  } ${
                     item.deletedAt ? "message-row-deleted" : ""
                   } flex`}
                 >
@@ -3900,6 +4093,21 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
           </ul>
         </div>
       </div>
+      {showReturnToLatestButton ? (
+        <button
+          type="button"
+          className="jump-latest-btn"
+          onClick={handleBackToLatest}
+          disabled={isLoadingContext}
+          title="Về tin nhắn hiện tại"
+        >
+          <span className="jump-latest-btn-arrow">⌄⌄</span>
+          {isContextMode ? <span>Về hiện tại</span> : null}
+          {newMessagesSinceContext > 0 ? (
+            <span className="jump-latest-btn-badge">+{newMessagesSinceContext}</span>
+          ) : null}
+        </button>
+      ) : null}
       <div className="footer-chat">
         <div className="chat-input flex">
           <div className="flex">

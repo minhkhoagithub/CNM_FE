@@ -18,6 +18,20 @@ export const sendMessageV1 = async (payload) => {
   return unwrapResponseData(response);
 };
 
+export const getMessageContextV1 = async (
+  conversationId,
+  { messageId, range = 50 } = {}
+) => {
+  const response = await chatHttpClient.get(`/messages/${conversationId}/context`, {
+    params: {
+      messageId,
+      range,
+    },
+  });
+
+  return unwrapResponseData(response);
+};
+
 export const markConversationSeen = async (conversationId) => {
   const response = await chatHttpClient.patch(`/messages/mark-seen/${conversationId}`);
   return unwrapResponseData(response);
