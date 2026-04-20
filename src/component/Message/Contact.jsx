@@ -587,8 +587,12 @@ const storeLocal = (value) => {
       return;
     }
 
-    if (participantIds.length < 1) {
-      setCreateGroupError("Vui lòng chọn ít nhất 1 thành viên.");
+    if (participantIds.length < 2) {
+      console.log("[GROUP VALIDATION]", {
+        source: "web-message-create",
+        participantCount: participantIds.length,
+      });
+      setCreateGroupError("Vui lòng chọn ít nhất 2 thành viên.");
       return;
     }
 
@@ -921,7 +925,7 @@ const handleClearRecentSearch = () => {
 const isCreateGroupSubmitDisabled =
   isCreatingGroup ||
   !String(dataCreateGr.username || "").trim() ||
-  dataCreateGr.listMember.length < 1;
+  dataCreateGr.listMember.length < 2;
 
   return (
     <>

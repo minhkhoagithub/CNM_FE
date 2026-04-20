@@ -233,9 +233,50 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     activeConversation?.backgroundImageUrl || "";
   const isGroupConversation = activeConversation?.type === "group";
   const currentUserId = userData?.userId || userData?._id || null;
+  const nicknameStorageKey =
+    currentUserId && conversationId
+      ? `group-member-nicknames:${currentUserId}:${conversationId}`
+      : null;
+  const [memberNicknames, setMemberNicknames] = useState({});
+  const [nicknameDrafts, setNicknameDrafts] = useState({});
+
+  useEffect(() => {
+    if (!nicknameStorageKey) {
+      setMemberNicknames({});
+      setNicknameDrafts({});
+      return;
+    }
+
+    try {
+      const stored = localStorage.getItem(nicknameStorageKey);
+      const parsed = stored ? JSON.parse(stored) : {};
+      setMemberNicknames(parsed && typeof parsed === "object" ? parsed : {});
+      setNicknameDrafts(parsed && typeof parsed === "object" ? parsed : {});
+    } catch (error) {
+      console.error("[GROUP MEMBER MAP]", {
+        source: "web-nickname-load",
+        conversationId,
+        error,
+      });
+      setMemberNicknames({});
+      setNicknameDrafts({});
+    }
+  }, [conversationId, nicknameStorageKey]);
+
   const normalizedMembers = useMemo(
-    () => (Array.isArray(activeConversation?.members) ? activeConversation.members : []),
-    [activeConversation?.members]
+    () =>
+      (Array.isArray(activeConversation?.members)
+        ? activeConversation.members
+        : []
+      ).map((member) => {
+        const nickname = memberNicknames[String(member.userId)] || member.nickname || "";
+        return {
+          ...member,
+          nickname,
+          displayName: nickname || member.displayName,
+        };
+      }),
+    [activeConversation?.members, memberNicknames]
   );
   const currentUserMember = useMemo(
     () =>
@@ -257,7 +298,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
       return;
     }
 
-    console.log("[WEB PHASE2 ROLE RESOLVE]", {
+    console.log("[GROUP ROLE CHECK]", {
       source: "message-info-role-state",
       conversationId,
       memberCount: normalizedMembers.length,
@@ -278,7 +319,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     isGroupConversation,
     normalizedMembers,
   ]);
-  const canAddMember = isGroupConversation && currentUserCanManageMembers;
+  const canAddMember = isGroupConversation && Boolean(currentUserMember);
   const canUpdateGroupAvatar = isGroupConversation && currentUserCanManageMembers;
   const canCloseConversation = isGroupConversation && currentUserIsOwner;
   const canLeaveGroup =
@@ -345,7 +386,7 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
       return;
     }
 
-    console.log("[WEB PHASE2 ROLE RESOLVE]", {
+    console.log("[GROUP ROLE CHECK]", {
       conversationId,
       currentUserId,
       currentUserRole,
@@ -893,6 +934,47 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
       );
     } finally {
       setIsUpdatingMembers(false);
+    }
+  };
+
+  const handleSaveMemberNickname = (memberUserId) => {
+    if (!nicknameStorageKey || !memberUserId) {
+      return;
+    }
+
+    const normalizedUserId = String(memberUserId);
+    const nextNickname = String(nicknameDrafts[normalizedUserId] || "").trim();
+    const nextNicknames = {
+      ...memberNicknames,
+    };
+
+    if (nextNickname) {
+      nextNicknames[normalizedUserId] = nextNickname;
+    } else {
+      delete nextNicknames[normalizedUserId];
+    }
+
+    try {
+      localStorage.setItem(nicknameStorageKey, JSON.stringify(nextNicknames));
+      setMemberNicknames(nextNicknames);
+      setNicknameDrafts((prevState) => ({
+        ...prevState,
+        [normalizedUserId]: nextNickname,
+      }));
+      console.log("[GROUP MEMBER MAP]", {
+        source: "web-nickname-save",
+        conversationId,
+        memberUserId: normalizedUserId,
+        hasNickname: Boolean(nextNickname),
+      });
+    } catch (error) {
+      console.error("[GROUP MEMBER MAP]", {
+        source: "web-nickname-save",
+        conversationId,
+        memberUserId: normalizedUserId,
+        error,
+      });
+      setSettingsError("Không thể lưu biệt danh thành viên trên thiết bị này.");
     }
   };
 
@@ -1634,11 +1716,52 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                               )}
                               <div>
                                 <p style={{ margin: 0, fontWeight: 500 }}>
-                                  {member.displayName}
+                                  {member.nickname || member.displayName}
                                 </p>
                                 <p style={{ margin: 0, fontSize: 12, color: "#7589a3" }}>
                                   {isCurrentUser ? "Ban" : member.userId} • {member.role || "MEMBER"}
                                 </p>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    gap: 6,
+                                    marginTop: 6,
+                                    alignItems: "center",
+                                  }}
+                                >
+                                  <input
+                                    type="text"
+                                    value={nicknameDrafts[String(member.userId)] || ""}
+                                    onChange={(event) =>
+                                      setNicknameDrafts((prevState) => ({
+                                        ...prevState,
+                                        [String(member.userId)]: event.target.value,
+                                      }))
+                                    }
+                                    placeholder="Biệt danh"
+                                    style={{
+                                      width: 120,
+                                      padding: "5px 8px",
+                                      borderRadius: 8,
+                                      border: "1px solid #d6dbe1",
+                                      fontSize: 12,
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveMemberNickname(member.userId)}
+                                    style={{
+                                      border: "none",
+                                      borderRadius: 8,
+                                      padding: "5px 8px",
+                                      backgroundColor: "#e5efff",
+                                      cursor: "pointer",
+                                      fontSize: 12,
+                                    }}
+                                  >
+                                    Lưu
+                                  </button>
+                                </div>
                               </div>
                             </div>
                             {!isCurrentUser && hasMemberActions ? (

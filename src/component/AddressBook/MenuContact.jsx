@@ -233,6 +233,8 @@ const getFriendActionMeta = (relationshipStatus) => {
     avatar: null,
   });
   const [friendOptions, setFriendOptions] = useState([]);
+  const [createGroupError, setCreateGroupError] = useState("");
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const listAvatarGr = [
     "https://res.zaloapp.com/pc/avt_group/1_family.jpg",
     "https://res.zaloapp.com/pc/avt_group/2_family.jpg",
@@ -486,6 +488,7 @@ const handleShowAddFriend = (value) => {
 
 
   const handleShowAddGroup = (value) => {
+    setCreateGroupError("");
     setAddUser((prevState) => ({
       ...prevState,
       group: value,
@@ -493,6 +496,7 @@ const handleShowAddFriend = (value) => {
   };
 
   const handleAddMember = (value) => {
+    setCreateGroupError("");
     setDataCreateGr((prevState) => {
       const exists = prevState.listMember.includes(value);
       return {
@@ -505,13 +509,35 @@ const handleShowAddFriend = (value) => {
   };
 
   const handleCreateGroup = async () => {
-    handleShowAddGroup(false);
+    if (isCreatingGroup) {
+      return;
+    }
+
+    const groupName = String(dataCreateGr.username || "").trim();
+    const participantIds = dataCreateGr.listMember.filter(Boolean);
+
+    if (!groupName) {
+      setCreateGroupError("Vui lòng nhập tên nhóm.");
+      return;
+    }
+
+    if (participantIds.length < 2) {
+      console.log("[GROUP VALIDATION]", {
+        source: "web-address-book-create",
+        participantCount: participantIds.length,
+      });
+      setCreateGroupError("Vui lòng chọn ít nhất 2 thành viên.");
+      return;
+    }
+
+    setCreateGroupError("");
+    setIsCreatingGroup(true);
 
     try {
       const response = await createConversationV1({
         type: "GROUP",
-        name: dataCreateGr.username,
-        participantIds: dataCreateGr.listMember,
+        name: groupName,
+        participantIds,
       });
       let nextConversation = mapConversation(response);
       upsertConversation(nextConversation);
@@ -557,8 +583,13 @@ const handleShowAddFriend = (value) => {
       handleChangeContact(nextConversation);
     } catch (error) {
       console.error("Failed to create group conversation:", error);
+      setCreateGroupError("Không thể tạo nhóm. Vui lòng thử lại.");
+      return;
+    } finally {
+      setIsCreatingGroup(false);
     }
 
+    handleShowAddGroup(false);
     setDataCreateGr({
       username: "",
       listMember: [],
@@ -1204,14 +1235,43 @@ const handleSendFriendRequestFromSearch = async (user) => {
                           </li>
                         ))}
                       </div>
+                      {createGroupError ? (
+                        <p className="contact-feedback-error">
+                          {createGroupError}
+                        </p>
+                      ) : null}
+                      {isCreatingGroup ? (
+                        <p className="contact-feedback-error">Đang tạo nhóm...</p>
+                      ) : null}
                       <div className="btn-find-friend flex">
-                        <button onClick={() => handleShowAddGroup(false)}>Hủy</button>
+                        <button
+                          onClick={() => handleShowAddGroup(false)}
+                          disabled={isCreatingGroup}
+                        >
+                          Hủy
+                        </button>
                         <button
                           onClick={handleCreateGroup}
+                          disabled={
+                            isCreatingGroup ||
+                            !String(dataCreateGr.username || "").trim() ||
+                            dataCreateGr.listMember.length < 2
+                          }
                           style={{
-                            backgroundColor: "#0068ff",
+                            backgroundColor:
+                              isCreatingGroup ||
+                              !String(dataCreateGr.username || "").trim() ||
+                              dataCreateGr.listMember.length < 2
+                                ? "#9bbdf4"
+                                : "#0068ff",
                             width: "125px",
                             color: "white",
+                            cursor:
+                              isCreatingGroup ||
+                              !String(dataCreateGr.username || "").trim() ||
+                              dataCreateGr.listMember.length < 2
+                                ? "not-allowed"
+                                : "pointer",
                           }}
                         >
                     Tạo nhóm
