@@ -3949,13 +3949,19 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                           </button>
                         ) : null}
 
-                        <div className="message-actions-menu">
+                        <div
+                          className="message-actions-menu"
+                          data-open={String(openMessageMenuId) === String(item.id)}
+                        >
                           <button
                             className="message-action-menu-trigger"
                             type="button"
                             aria-label="Mở tác vụ tin nhắn"
                             aria-expanded={String(openMessageMenuId) === String(item.id)}
-                            onClick={() => handleToggleMessageMenu(item.id)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleToggleMessageMenu(item.id);
+                            }}
                           >
                             <IoMdMore />
                           </button>
@@ -3982,7 +3988,10 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                                   className="message-action-menu-item"
                                   type="button"
                                   disabled={isPinningThisMessage}
-                                  onClick={() => handleTogglePinMessage(item)}
+                                  onClick={() => {
+                                    handleCloseMessageMenu();
+                                    handleTogglePinMessage(item);
+                                  }}
                                 >
                                   {isPinningThisMessage
                                     ? "Đang xử lý..."

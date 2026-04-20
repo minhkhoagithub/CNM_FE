@@ -824,6 +824,22 @@
   font-size: 18px;
 }
 
+.message-action-menu-trigger {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.18s ease, visibility 0.18s ease,
+    background-color 0.18s ease;
+}
+
+.message-action-row:hover .message-action-menu-trigger,
+.message-action-row:focus-within .message-action-menu-trigger,
+.message-actions-menu[data-open="true"] .message-action-menu-trigger {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
 .message-reaction-trigger {
   z-index: 2;
 }
