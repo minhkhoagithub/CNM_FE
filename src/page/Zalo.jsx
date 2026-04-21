@@ -54,11 +54,16 @@ export default function Zalo() {
 
     localStorage.setItem("isLogin", "false");
     localStorage.removeItem("userProfile");
-    localStorage.removeItem("deviceId");
     setChat(false);
     setUserData(null);
     navigate("/auth/login");
   }, [navigate, setUserData]);
+
+  useEffect(() => {
+    if (userData?.userId || userData?._id) {
+      setChat(true);
+    }
+  }, [userData]);
 
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -78,15 +83,18 @@ export default function Zalo() {
           } else {
             localStorage.setItem("isLogin", "false");
             localStorage.removeItem("userProfile");
+            setUserData(null);
             setChat(false);
           }
         } else {
+          setUserData(null);
           setChat(false);
         }
       } catch (err) {
         console.error("Fetch user profile error:", err);
         localStorage.setItem("isLogin", "false");
         localStorage.removeItem("userProfile");
+        setUserData(null);
         setChat(false);
       } finally {
         setIsLoadding(false);

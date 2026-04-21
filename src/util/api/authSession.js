@@ -9,7 +9,6 @@ let authFailureHandled = false;
 const clearWebSessionStorage = () => {
   localStorage.setItem("isLogin", "false");
   localStorage.removeItem("userProfile");
-  localStorage.removeItem("deviceId");
   setChatUserId(null);
 };
 

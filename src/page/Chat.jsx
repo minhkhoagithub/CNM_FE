@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext, memo, useRef, useCallback } from "react";
+﻿import React, { useState, useEffect, useContext, memo, useRef, useCallback } from "react";
 import { UserContext } from "../Context/UserContext";
 import { FiUser } from "react-icons/fi";
 import "../resource/style/Chat/chat.css";
@@ -9,6 +9,7 @@ import Clod from "../component/Cloud/Cloud";
 import ToolBox from "../component/ToolBox/ToolBox";
 import Setting from "../component/Setting/Setting";
 import DeviceManager from "../component/Setting/DeviceManager";
+import { changePassword, verifyCurrentPassword } from "../util/api";
 import mess from "../resource/svg/chat/chat.svg";
 import addressbook from "../resource/svg/chat/addressbook.svg";
 import todo from "../resource/svg/chat/todo.svg";
@@ -31,6 +32,10 @@ function Chat({ handleLogout, onConversationSelect }) {
     newPassword: "",
     confirmPassword: ""
   });
+  const [changePasswordStep, setChangePasswordStep] = useState(1);
+  const [changePasswordToken, setChangePasswordToken] = useState("");
+  const [changePasswordLoading, setChangePasswordLoading] = useState(false);
+  const [changePasswordMessage, setChangePasswordMessage] = useState("");
 
   const topMenu = [mess, addressbook, todo];
   const bottomMenu = [cloud, toolbox, setting];
@@ -110,23 +115,94 @@ function Chat({ handleLogout, onConversationSelect }) {
     }));
   };
 
-  const handleChangePassword = () => {
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      alert("Mật khẩu xác nhận không khớp!");
-      return;
-    }
-    if (passwordData.newPassword.length < 6) {
-      alert("Mật khẩu mới phải có ít nhất 6 ký tự!");
-      return;
-    }
-    // TODO: Call API to change password
-    alert("Đổi mật khẩu thành công!");
+  const resetChangePasswordFlow = useCallback(() => {
     setPasswordData({
       oldPassword: "",
       newPassword: "",
-      confirmPassword: ""
+      confirmPassword: "",
     });
+    setChangePasswordStep(1);
+    setChangePasswordToken("");
+    setChangePasswordLoading(false);
+    setChangePasswordMessage("");
+  }, []);
+
+  const openChangePasswordFlow = () => {
+    resetChangePasswordFlow();
+    setAccountSubSection("changePassword");
+  };
+
+  const closeChangePasswordFlow = () => {
+    resetChangePasswordFlow();
     setAccountSubSection(null);
+  };
+
+  const handleVerifyCurrentPassword = async () => {
+    if (!passwordData.oldPassword.trim()) {
+      setChangePasswordMessage("Vui lòng nhập mật khẩu hiện tại.");
+      return;
+    }
+
+    setChangePasswordLoading(true);
+    setChangePasswordMessage("");
+
+    try {
+      const response = await verifyCurrentPassword({
+        currentPassword: passwordData.oldPassword,
+      });
+      const payload = response?.data?.data ?? response?.data ?? {};
+
+      if (!payload?.changePasswordToken) {
+        throw new Error("Không nhận được mã xác thực đổi mật khẩu.");
+      }
+
+      setChangePasswordToken(payload.changePasswordToken);
+      setChangePasswordStep(2);
+      setChangePasswordMessage("Xác thực thành công. Vui lòng nhập mật khẩu mới.");
+    } catch (error) {
+      setChangePasswordMessage("Mật khẩu hiện tại không đúng hoặc đã xảy ra lỗi.");
+    } finally {
+      setChangePasswordLoading(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!passwordData.newPassword || !passwordData.confirmPassword) {
+      setChangePasswordMessage("Vui lòng nhập đầy đủ thông tin.");
+      return;
+    }
+
+    if (passwordData.newPassword.length < 6) {
+      setChangePasswordMessage("Mật khẩu mới phải có ít nhất 6 ký tự.");
+      return;
+    }
+
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      setChangePasswordMessage("Mật khẩu xác nhận không khớp.");
+      return;
+    }
+
+    if (!changePasswordToken) {
+      setChangePasswordMessage("Phiên xác thực đã hết hạn. Vui lòng xác thực lại.");
+      setChangePasswordStep(1);
+      return;
+    }
+
+    setChangePasswordLoading(true);
+    setChangePasswordMessage("");
+
+    try {
+      await changePassword({
+        changePasswordToken,
+        newPassword: passwordData.newPassword,
+      });
+      alert("Đổi mật khẩu thành công.");
+      closeChangePasswordFlow();
+    } catch (error) {
+      setChangePasswordMessage("Đổi mật khẩu thất bại. Vui lòng thử lại.");
+    } finally {
+      setChangePasswordLoading(false);
+    }
   };
 
   return (
@@ -286,47 +362,132 @@ function Chat({ handleLogout, onConversationSelect }) {
                       {!accountSubSection && (
                         <>
                           <div className="settings-option">
-                            <p className="change-password-link" onClick={() => setAccountSubSection("changePassword")}>Đổi mật khẩu</p>
+                            <p className="change-password-link" onClick={openChangePasswordFlow}>
+                              Đổi mật khẩu
+                            </p>
                           </div>
                         </>
                       )}
                       {accountSubSection === "changePassword" && (
                         <div className="account-subsection">
-                          <button className="btn-back" onClick={() => setAccountSubSection(null)}>← Quay lại</button>
+                          <button className="btn-back" onClick={closeChangePasswordFlow}>
+                            ← Quay lại
+                          </button>
                           <h4>Đổi mật khẩu</h4>
-                          <div className="form-group">
-                            <label>Mật khẩu hiện tại</label>
-                            <input 
-                              type="password" 
-                              name="oldPassword"
-                              value={passwordData.oldPassword}
-                              onChange={handlePasswordChange}
-                              placeholder="Nhập mật khẩu hiện tại"
-                            />
+
+                          <p className="change-password-intro">
+                            {changePasswordStep === 1
+                              ? "Xác nhận mật khẩu hiện tại để tiếp tục."
+                              : "Đặt mật khẩu mới để tăng cường bảo mật."}
+                          </p>
+
+                          <div className="change-password-steps">
+                            <div className="change-password-step-item">
+                              <span
+                                className={`change-password-step-dot ${
+                                  changePasswordStep === 1 ? "active" : ""
+                                }`}
+                              >
+                                1
+                              </span>
+                              <span
+                                className={`change-password-step-label ${
+                                  changePasswordStep === 1 ? "active" : ""
+                                }`}
+                              >
+                                Xác thực
+                              </span>
+                            </div>
+                            <div className="change-password-step-line" />
+                            <div className="change-password-step-item">
+                              <span
+                                className={`change-password-step-dot ${
+                                  changePasswordStep === 2 ? "active" : ""
+                                }`}
+                              >
+                                2
+                              </span>
+                              <span
+                                className={`change-password-step-label ${
+                                  changePasswordStep === 2 ? "active" : ""
+                                }`}
+                              >
+                                Mật khẩu mới
+                              </span>
+                            </div>
                           </div>
-                          <div className="form-group">
-                            <label>Mật khẩu mới</label>
-                            <input 
-                              type="password"
-                              name="newPassword"
-                              value={passwordData.newPassword}
-                              onChange={handlePasswordChange}
-                              placeholder="Nhập mật khẩu mới"
-                            />
-                          </div>
-                          <div className="form-group">
-                            <label>Xác nhận mật khẩu mới</label>
-                            <input 
-                              type="password"
-                              name="confirmPassword"
-                              value={passwordData.confirmPassword}
-                              onChange={handlePasswordChange}
-                              placeholder="Xác nhận mật khẩu mới"
-                            />
-                          </div>
+
+                          {changePasswordStep === 1 ? (
+                            <div className="form-group">
+                              <label>Mật khẩu hiện tại</label>
+                              <input
+                                type="password"
+                                name="oldPassword"
+                                value={passwordData.oldPassword}
+                                onChange={handlePasswordChange}
+                                placeholder="Nhập mật khẩu hiện tại"
+                              />
+                            </div>
+                          ) : (
+                            <>
+                              <div className="form-group">
+                                <label>Mật khẩu mới</label>
+                                <input
+                                  type="password"
+                                  name="newPassword"
+                                  value={passwordData.newPassword}
+                                  onChange={handlePasswordChange}
+                                  placeholder="Nhập mật khẩu mới"
+                                />
+                              </div>
+                              <div className="form-group">
+                                <label>Xác nhận mật khẩu mới</label>
+                                <input
+                                  type="password"
+                                  name="confirmPassword"
+                                  value={passwordData.confirmPassword}
+                                  onChange={handlePasswordChange}
+                                  placeholder="Nhập lại mật khẩu mới"
+                                />
+                              </div>
+                            </>
+                          )}
+
+                          {changePasswordMessage ? (
+                            <div
+                              className={`change-password-message ${
+                                changePasswordStep === 2 &&
+                                !changePasswordLoading &&
+                                changePasswordMessage.includes("thành công")
+                                  ? "success"
+                                  : "error"
+                              }`}
+                            >
+                              {changePasswordMessage}
+                            </div>
+                          ) : null}
+
                           <div className="subsection-footer">
-                            <button className="btn-cancel" onClick={() => setAccountSubSection(null)}>Hủy</button>
-                            <button className="btn-confirm" onClick={handleChangePassword}>Đổi mật khẩu</button>
+                            <button className="btn-cancel" onClick={closeChangePasswordFlow}>
+                              Hủy
+                            </button>
+                            {changePasswordStep === 1 ? (
+                              <button
+                                className="btn-confirm"
+                                onClick={handleVerifyCurrentPassword}
+                                disabled={changePasswordLoading}
+                              >
+                                {changePasswordLoading ? "Đang xác thực..." : "Xác thực"}
+                              </button>
+                            ) : (
+                              <button
+                                className="btn-confirm"
+                                onClick={handleChangePassword}
+                                disabled={changePasswordLoading}
+                              >
+                                {changePasswordLoading ? "Đang cập nhật..." : "Đổi mật khẩu"}
+                              </button>
+                            )}
                           </div>
                         </div>
                       )}
@@ -346,3 +507,4 @@ function Chat({ handleLogout, onConversationSelect }) {
 }
 
 export default memo(Chat);
+
