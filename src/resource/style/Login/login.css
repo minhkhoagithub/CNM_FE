@@ -2,6 +2,9 @@
 .text-center {
   text-align: center;
 }
+.textcenter {
+  text-align: center;
+}
 .mb-20 {
   margin-bottom: 20px;
 }
@@ -80,6 +83,7 @@
 .login-title-container p {
   font-size: 18px;
   line-height: 30px;
+  color: #4b5563;
 }
 
 .login-form-login {
@@ -175,10 +179,11 @@
 }
 .login-introduce-footer p {
   font-size: 13px;
-  font-weight: 700;
-  opacity: 0.5;
+  font-weight: 600;
+  opacity: 0.8;
   margin-top: 25px;
   text-align: center;
+  line-height: 1.45;
 }
 .login-form-login-account {
   padding-top: 30px;
@@ -186,12 +191,14 @@
 }
 .login-form-login-account .state-login {
   position: absolute;
-  color: red;
+  color: #dc2626;
   font-size: 13px;
   left: 50%;
-  top: 145px;
+  top: 148px;
   right: 50%;
-  width: 217px;
+  width: 290px;
+  text-align: center;
+  line-height: 1.4;
   transform: translate(-50%, -50%);
 }
 .login-form-login-account .icon-login {

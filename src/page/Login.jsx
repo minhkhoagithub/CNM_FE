@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from "react";
+﻿import React, { useContext, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import FingerprintJS from "@fingerprintjs/fingerprintjs";
 import QRCode from "qrcode";
@@ -13,6 +13,9 @@ import {
   getCurrentUser,
   userLogin,
 } from "../util/api";
+
+const extractPayload = (response) =>
+  response?.data?.data ?? response?.data ?? response ?? null;
 
 const getWebDeviceInfo = async () => {
   try {
@@ -72,7 +75,7 @@ export default function Login({ handleChangeStateChat }) {
               className={`${activeQr ? "login-header-login-active" : ""}`}
               onClick={() => setActiveQr(true)}
             >
-              với mã qr
+              với mã QR
             </p>
             <p
               className={`${activeQr ? "" : "login-header-login-active"}`}
@@ -120,7 +123,7 @@ function LoginQr() {
 
         const deviceInfo = await getWebDeviceInfo();
         const response = await createDeviceLoginRequest(deviceInfo);
-        const payload = response.data?.data;
+        const payload = extractPayload(response);
 
         if (!payload?.approvalId || !payload?.qrContent) {
           throw new Error("Không nhận được dữ liệu QR hợp lệ từ hệ thống.");
@@ -165,19 +168,27 @@ function LoginQr() {
     }
 
     let isMounted = true;
+    let transientErrorCount = 0;
 
     const pollStatus = async () => {
       try {
         const response = await checkDeviceLoginStatus(approvalId);
-        const payload = response.data?.data;
-        const status = payload?.status;
+        const payload = extractPayload(response);
+        const status = String(payload?.status || "").toUpperCase();
 
         if (!isMounted || !status) {
           return;
         }
 
         if (status === "PENDING") {
+          transientErrorCount = 0;
           setStatusMessage("Đã tạo mã QR. Chờ điện thoại xác nhận đăng nhập.");
+          return;
+        }
+
+        if (status === "APPROVED") {
+          transientErrorCount = 0;
+          setStatusMessage("Đã được phê duyệt. Đang hoàn tất đăng nhập...");
           return;
         }
 
@@ -195,9 +206,19 @@ function LoginQr() {
 
         if (status === "COMPLETED") {
           setStatusMessage("Đăng nhập thành công. Đang chuyển vào Zalo Web...");
+          const fallbackUserId = String(payload?.requestedByUserId || payload?.userId || "").trim();
+
+          if (fallbackUserId) {
+            const fallbackUser = { userId: fallbackUserId };
+            localStorage.setItem("isLogin", "true");
+            localStorage.setItem("userProfile", JSON.stringify(fallbackUser));
+            setUserData(fallbackUser);
+            navigate("/");
+            return;
+          }
 
           const currentUserResponse = await getCurrentUser();
-          const currentUser = currentUserResponse?.data || currentUserResponse;
+          const currentUser = extractPayload(currentUserResponse);
 
           localStorage.setItem("isLogin", "true");
           localStorage.setItem("userProfile", JSON.stringify(currentUser || {}));
@@ -209,11 +230,17 @@ function LoginQr() {
           return;
         }
 
-        setErrorMessage(
-          error.response?.data?.message ||
-            error.message ||
-            "Không thể kiểm tra trạng thái đăng nhập.",
-        );
+        transientErrorCount += 1;
+        if (transientErrorCount >= 10) {
+          setErrorMessage(
+            error.response?.data?.message ||
+              error.message ||
+              "Không thể kiểm tra trạng thái đăng nhập.",
+          );
+          return;
+        }
+
+        setStatusMessage("Đang đợi xác nhận từ thiết bị...");
       }
     };
 
@@ -310,19 +337,27 @@ function LoginAccount({ handleChangeStateChat }) {
     }
 
     let active = true;
+    let transientErrorCount = 0;
 
     const pollApprovalStatus = async () => {
       try {
         const response = await checkDeviceLoginStatus(pendingApprovalId);
-        const payload = response.data?.data;
-        const status = payload?.status;
+        const payload = extractPayload(response);
+        const status = String(payload?.status || "").toUpperCase();
 
         if (!active || !status) {
           return;
         }
 
         if (status === "PENDING") {
+          transientErrorCount = 0;
           setStateLogin("Đã gửi yêu cầu phê duyệt tới thiết bị cũ.");
+          return;
+        }
+
+        if (status === "APPROVED") {
+          transientErrorCount = 0;
+          setStateLogin("Đã được phê duyệt. Đang hoàn tất đăng nhập...");
           return;
         }
 
@@ -339,8 +374,20 @@ function LoginAccount({ handleChangeStateChat }) {
         }
 
         if (status === "COMPLETED") {
+          const fallbackUserId = String(payload?.requestedByUserId || payload?.userId || "").trim();
+          if (fallbackUserId) {
+            const fallbackUser = { userId: fallbackUserId };
+            localStorage.setItem("isLogin", "true");
+            localStorage.setItem("userProfile", JSON.stringify(fallbackUser));
+            setUserData(fallbackUser);
+            setStateLogin("");
+            setPendingApprovalId("");
+            navigate("/");
+            return;
+          }
+
           const currentUserResponse = await getCurrentUser();
-          const currentUser = currentUserResponse?.data || currentUserResponse;
+          const currentUser = extractPayload(currentUserResponse);
 
           localStorage.setItem("isLogin", "true");
           localStorage.setItem("userProfile", JSON.stringify(currentUser || {}));
@@ -354,12 +401,18 @@ function LoginAccount({ handleChangeStateChat }) {
           return;
         }
 
-        setPendingApprovalId("");
-        setStateLogin(
-          error.response?.data?.message ||
-            error.message ||
-            "Không thể kiểm tra trạng thái phê duyệt.",
-        );
+        transientErrorCount += 1;
+        if (transientErrorCount >= 10) {
+          setPendingApprovalId("");
+          setStateLogin(
+            error.response?.data?.message ||
+              error.message ||
+              "Không thể kiểm tra trạng thái phê duyệt.",
+          );
+          return;
+        }
+
+        setStateLogin("Đang đợi xác nhận từ thiết bị cũ...");
       }
     };
 
@@ -388,7 +441,7 @@ function LoginAccount({ handleChangeStateChat }) {
         deviceName: value.deviceName,
       });
 
-      const payload = response?.data?.data;
+      const payload = extractPayload(response);
 
       if (payload?.status === "PENDING_APPROVAL" && payload?.approvalId) {
         setPendingApprovalId(payload.approvalId);
@@ -408,7 +461,7 @@ function LoginAccount({ handleChangeStateChat }) {
       const errorMessage =
         error.response?.data?.message ||
         error.response?.data?.error ||
-        "Tài khoản hoặc mật khẩu không đúng";
+        "Tài khoản hoặc mật khẩu không đúng.";
 
       setStateLogin(errorMessage);
     }
