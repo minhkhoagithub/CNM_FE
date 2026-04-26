@@ -1,4 +1,4 @@
-﻿import React, {
+import React, {
   memo,
   useCallback,
   useContext,
@@ -2666,8 +2666,18 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 
       return (
         <li key={item.id || index}>
-          <div className={`wrap-mess ${item.senderId === currentUserId ? "me" : "you"}`}>
+          <div className={`wrap-text-mess flex ${item.senderId === currentUserId ? "my-mess" : "you-mess"}`}>
+            {item.senderId !== currentUserId && (
+              <img
+                src={item.senderAvatarUrl || "https://cdn-icons-png.flaticon.com/512/149/149071.png"}
+                alt={fallbackName}
+                style={{ width: 40, height: 40, borderRadius: "50%", marginRight: 10 }}
+              />
+            )}
             <div className="detail-mess call-log-bubble">
+              {item.senderId !== currentUserId && activeConversation?.type === "group" && (
+                <p className="name-mess">{fallbackName}</p>
+              )}
               <div className="call-log-header">
                 <span className="call-log-icon">{isVideo ? "📹" : "📞"}</span>
                 <p className="call-log-title">{resolveCallLogTitle(callLog)}</p>
@@ -2678,11 +2688,12 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
               {callDuration ? <p className="call-log-duration">⏱ {callDuration}</p> : null}
               {callLog.groupCallId && activeConversation?.type === "group" ? (
                 <button
-                  className="message-action-btn subtle call-log-action"
+                  className="message-action-btn primary call-log-action"
                   type="button"
                   onClick={() => handleJoinGroupCallFromLog(callLog)}
+                  style={{ marginTop: '8px', width: '100%', borderRadius: '8px' }}
                 >
-                  Tham gia
+                  Tham gia cuộc gọi
                 </button>
               ) : null}
             </div>

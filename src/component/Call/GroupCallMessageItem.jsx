@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BsCameraVideoFill, BsTelephoneFill, BsTelephoneXFill } from 'react-icons/bs';
 import { getGroupCallStatusApi, joinGroupCallApi } from '../../services/call/groupCallApi';
+import WebSocketService from '../../services/WebSocketService';
 import './GroupCallMessageItem.css';
 
 /**
@@ -33,7 +34,19 @@ function GroupCallMessageItem({ groupCallId, callType, initiatorName, conversati
       }
     };
     checkStatus();
-    return () => { cancelled = true; };
+
+    // Lắng nghe sự kiện kết thúc từ WebSocket để cập nhật UI bong bóng chat ngay lập tức
+    const handleGroupCallEnded = (payload) => {
+      if (payload?.groupCallId === groupCallId || payload?.id === groupCallId) {
+        setStatus('ENDED');
+      }
+    };
+    WebSocketService.on('group-call-ended', handleGroupCallEnded);
+
+    return () => { 
+      cancelled = true; 
+      WebSocketService.off('group-call-ended', handleGroupCallEnded);
+    };
   }, [groupCallId]);
 
   const handleJoin = async () => {

@@ -11,7 +11,7 @@ import IncomingCallModal from "../component/Call/IncomingCallModal";
 import OutgoingCallModal from "../component/Call/OutgoingCallModal";
 import callService from "../services/call/CallService";
 import groupCallService from "../services/call/GroupCallService";
-import { initiateGroupCallApi, leaveGroupCallApi } from "../services/call/groupCallApi";
+import { initiateGroupCallApi, leaveGroupCallApi, getGroupCallStatusApi } from "../services/call/groupCallApi";
 import GroupCallRoom from "../component/Call/GroupCallRoom";
 
 export default function Zalo() {
@@ -236,9 +236,29 @@ export default function Zalo() {
     WebSocketService.on('group-call-ended', handleGroupCallEnded);
 
     // Lắng nghe sự kiện từ ContainerMess gửi lên (CustomEvent)
-    const handleJoinRequest = (e) => {
+    const handleJoinRequest = async (e) => {
       console.log('[Zalo] 👥 JOIN Request from Message:', e.detail);
-      setGroupCallData(e.detail);
+      const callLog = e.detail;
+      
+      if (callLog?.groupCallId) {
+        try {
+          const statusInfo = await getGroupCallStatusApi(callLog.groupCallId);
+          // Kiểm tra nếu cuộc gọi đã kết thúc hoặc không tồn tại
+          if (!statusInfo || statusInfo.status === 'ENDED' || statusInfo.isEnded) {
+            alert('Cuộc gọi này đã kết thúc hoặc không còn tồn tại.');
+            return;
+          }
+          // Cập nhật lại dữ liệu tươi mới từ API (channel, sfuUrl...)
+          setGroupCallData({ ...callLog, ...statusInfo });
+        } catch (err) {
+          console.error('[Zalo] Failed to check group call status:', err);
+          alert('Cuộc gọi đã kết thúc.');
+          return;
+        }
+      } else {
+        setGroupCallData(callLog);
+      }
+
       setGroupCallState('connected');
     };
 
@@ -286,6 +306,59 @@ export default function Zalo() {
     setGroupCallState('idle');
     setGroupCallData(null);
   };
+
+  const handleLeaveGroupCall = async () => {
+    if (groupCallData?.groupCallId) {
+      try {
+        await leaveGroupCallApi(groupCallData.groupCallId);
+      } catch (err) {
+        console.error('[Zalo] Error leaving group call API:', err);
+      }
+    }
+    setGroupCallState('idle');
+    setGroupCallData(null);
+  };
+
+  // Ping server liên tục mỗi 5s để báo hiệu "tôi vẫn còn sống" (tránh zombie call)
+  useEffect(() => {
+    let pingInterval;
+    if (groupCallState === 'connected' && groupCallData?.groupCallId) {
+      pingInterval = setInterval(async () => {
+        try {
+          const { pingGroupCallApi } = await import('../services/call/groupCallApi');
+          await pingGroupCallApi(groupCallData.groupCallId);
+        } catch (err) {
+          console.warn('[Zalo] Failed to ping group call:', err);
+        }
+      }, 5000);
+    }
+    return () => {
+      if (pingInterval) clearInterval(pingInterval);
+    };
+  }, [groupCallState, groupCallData]);
+
+  // Xử lý khi người dùng đóng trình duyệt/tab đột ngột
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (groupCallState === 'connected' && groupCallData?.groupCallId) {
+        // Sử dụng fetch keepalive để gửi request với auth header khi đóng tab
+        const token = localStorage.getItem('token');
+        if (token) {
+           const baseUrl = import.meta.env.VITE_APP_API_URL || 'http://localhost:8080/api/v1';
+           const url = `${baseUrl}/group-calls/${groupCallData.groupCallId}/leave`;
+           fetch(url, {
+             method: 'POST',
+             headers: {
+               'Authorization': `Bearer ${token}`
+             },
+             keepalive: true
+           }).catch(console.error);
+        }
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [groupCallState, groupCallData]);
 
   useEffect(() => {
     if (!userData) return;
@@ -415,7 +488,7 @@ export default function Zalo() {
       {groupCallState === "connected" && (
         <GroupCallRoom 
           callData={groupCallData} 
-          onLeave={() => setGroupCallState('idle')} 
+          onLeave={handleLeaveGroupCall} 
         />
       )}
 
