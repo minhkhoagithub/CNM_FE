@@ -268,6 +268,21 @@ export const resetPassword = async ({ identifier, resetToken, newPassword, confi
   });
   return response;
 };
+
+export const verifyCurrentPassword = async ({ currentPassword }) => {
+  const response = await apiClient.post("/auth/verify-current-password", {
+    currentPassword,
+  });
+  return response;
+};
+
+export const changePassword = async ({ changePasswordToken, newPassword }) => {
+  const response = await apiClient.post("/auth/change-password", {
+    changePasswordToken,
+    newPassword,
+  });
+  return response;
+};
 // Device Approval / Login - Device Approval System
 /**
  * Check current status of device login approval request
