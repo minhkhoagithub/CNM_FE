@@ -40,3 +40,11 @@ export const getGroupCallStatusApi = async (groupCallId) => {
   const response = await chatHttpClient.get(`${BASE_PATH}/${groupCallId}/status`);
   return unwrapResponseData(response);
 };
+
+/**
+ * Gửi heartbeat ping đến server (giữ kết nối active)
+ * @param {string} groupCallId
+ */
+export const pingGroupCallApi = async (groupCallId) => {
+  await chatHttpClient.post(`${BASE_PATH}/${groupCallId}/ping`);
+};
