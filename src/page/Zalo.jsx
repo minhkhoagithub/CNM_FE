@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useContext, useEffect, useState } from "react";
+import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { UserContext } from "../Context/UserContext";
 import WebSocketService from "../services/WebSocketService";
@@ -27,6 +27,12 @@ export default function Zalo() {
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
   const [isRemoteVideoOff, setIsRemoteVideoOff] = useState(false);
+
+  // [FIX Bug 2] Dùng ref để tránh stale closure trong event listeners
+  const callStateRef = useRef("idle");
+  useEffect(() => {
+    callStateRef.current = callState;
+  }, [callState]);
 
   // Group Call states (tách biệt hoàn toàn)
   const [groupCallState, setGroupCallState] = useState('idle'); // 'idle' | 'incoming' | 'connected'
@@ -184,15 +190,20 @@ export default function Zalo() {
   }, []);
 
   useEffect(() => {
-    if (userData) {
-       const handleIncomingCall = (payload) => {
-          console.log("[Zalo] 📞 Nhận cuộc gọi đến:", payload);
-          setCallState("incoming");
-          setCallData(payload);
-       };
-       WebSocketService.on("incoming-call", handleIncomingCall);
-       return () => WebSocketService.off("incoming-call", handleIncomingCall);
-    }
+    if (!userData) return;
+    const handleIncomingCall = (payload) => {
+      console.log("[Zalo] 📞 INCOMING_CALL nhận được:", payload);
+      console.log("[Zalo] 📞 Web userId đang dùng:", userData?.userId || userData?.id);
+      if (!payload?.callId) {
+        console.error("[Zalo] ❌ INCOMING_CALL payload thiếu callId!", payload);
+        return;
+      }
+      setCallState("incoming");
+      setCallData(payload);
+    };
+    WebSocketService.on("incoming-call", handleIncomingCall);
+    console.log("[Zalo] ✅ Đã đăng ký listener incoming-call cho userId:", userData?.userId || userData?.id);
+    return () => WebSocketService.off("incoming-call", handleIncomingCall);
   }, [userData]);
 
   // --- Group Call WebSocket Subscription (tách biệt khỏi luồng 1-1) ---
@@ -269,45 +280,47 @@ export default function Zalo() {
   };
 
   useEffect(() => {
-    if (userData) {
-      const handleCallAccepted = (payload) => {
-        console.log("[Zalo] Call accepted:", payload);
-        if (callState === "outgoing") {
-          setCallState("connected");
-          setLocalStream(callService.getLocalStream());
-        }
-      };
+    if (!userData) return;
 
-      const handleCallTerminated = (payload) => {
-        console.log("[Zalo] Call terminated/rejected:", payload);
-        setCallState("idle");
-        setCallData(null);
-        setLocalStream(null);
-        setRemoteStream(null);
-        setIsRemoteVideoOff(false);
-        // Ensure SFU connection is cleaned up
-        callService.endCall();
-      };
+    // [FIX Bug 2] Dùng callStateRef thay vì callState để tránh stale closure
+    const handleCallAccepted = (payload) => {
+      console.log("[Zalo] ✅ CALL_ACCEPTED nhận được! callState hiện tại (ref):", callStateRef.current, "Payload:", payload);
+      if (callStateRef.current === "outgoing") {
+        setCallState("connected");
+        setLocalStream(callService.getLocalStream());
+      } else {
+        console.warn("[Zalo] ⚠️ CALL_ACCEPTED bị bỏ qua vì callState không phải 'outgoing', ref hiện là:", callStateRef.current);
+      }
+    };
 
-      const handleCallAction = (payload) => {
-        console.log("[Zalo] ⚡ CALL ACTION Received:", payload);
-        if (payload.action === 'VIDEO_OFF') setIsRemoteVideoOff(true);
-        else if (payload.action === 'VIDEO_ON') setIsRemoteVideoOff(false);
-      };
+    const handleCallTerminated = (payload) => {
+      console.log("[Zalo] Call terminated/rejected:", payload);
+      setCallState("idle");
+      setCallData(null);
+      setLocalStream(null);
+      setRemoteStream(null);
+      setIsRemoteVideoOff(false);
+      callService.endCall();
+    };
 
-      WebSocketService.on("call-accepted", handleCallAccepted);
-      WebSocketService.on("call-rejected", handleCallTerminated);
-      WebSocketService.on("call-ended", handleCallTerminated);
-      WebSocketService.on("call-action", handleCallAction);
+    const handleCallAction = (payload) => {
+      console.log("[Zalo] ⚡ CALL ACTION Received:", payload);
+      if (payload.action === 'VIDEO_OFF') setIsRemoteVideoOff(true);
+      else if (payload.action === 'VIDEO_ON') setIsRemoteVideoOff(false);
+    };
 
-      return () => {
-        WebSocketService.off("call-accepted", handleCallAccepted);
-        WebSocketService.off("call-rejected", handleCallTerminated);
-        WebSocketService.off("call-ended", handleCallTerminated);
-        WebSocketService.off("call-action", handleCallAction);
-      };
-    }
-  }, [userData, callState]);
+    WebSocketService.on("call-accepted", handleCallAccepted);
+    WebSocketService.on("call-rejected", handleCallTerminated);
+    WebSocketService.on("call-ended", handleCallTerminated);
+    WebSocketService.on("call-action", handleCallAction);
+
+    return () => {
+      WebSocketService.off("call-accepted", handleCallAccepted);
+      WebSocketService.off("call-rejected", handleCallTerminated);
+      WebSocketService.off("call-ended", handleCallTerminated);
+      WebSocketService.off("call-action", handleCallAction);
+    };
+  }, [userData]); // [FIX Bug 2] Bỏ callState khỏi deps - dùng ref thay thế
 
   const handleAcceptCall = async () => {
     if (!callData) return;
