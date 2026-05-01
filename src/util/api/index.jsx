@@ -1,3 +1,5 @@
+﻿import apiClient from "./axiosConfig";
+
 // Update user cover image
 export const updateCoverImage = async (file) => {
   const formData = new FormData();
@@ -25,7 +27,16 @@ export const updateUserProfile = async (profileData) => {
   const response = await apiClient.put("/users/profile", profileData);
   return response;
 };
-import apiClient from "./axiosConfig";
+
+export const getUserSettings = async () => {
+  const response = await apiClient.get("/users/settings");
+  return response;
+};
+
+export const updateUserSettings = async ({ settings }) => {
+  const response = await apiClient.patch("/users/settings", { settings });
+  return response;
+};
 
 // User
 export const userLogin = async ({ username, password, deviceId, platform, deviceName }) => {
@@ -38,6 +49,12 @@ export const userLogin = async ({ username, password, deviceId, platform, device
   });
   return response;
 };
+export const checkEmailExists = async ({ email }) => {
+  const response = await apiClient.post("/auth/check-email", {
+    email: String(email || "").trim().toLowerCase(),
+  });
+  return response;
+};
 export const userRegister = async ({ username, password }) => {
   const response = await apiClient.post("/auth/register", {
     username,
@@ -45,19 +62,17 @@ export const userRegister = async ({ username, password }) => {
   });
   return response;
 };
-export const sendRegisterOtp = async ({ email, phone }) => {
+export const sendRegisterOtp = async ({ email }) => {
   const response = await apiClient.post("/auth/send-register-otp", {
     email,
-    phone,
   });
   return response;
 };
-export const verifyRegisterOtp = async ({ email, phone, otpCode }) => {
+export const verifyRegisterOtp = async ({ email, otpCode, type = "REGISTER" }) => {
   const response = await apiClient.post("/auth/verify-otp", {
     email,
-    phone,
     otpCode,
-    type: "REGISTER",
+    type,
   });
   return response;
 };
@@ -99,7 +114,7 @@ export const userLoginByToken = async () => {
     const response = await apiClient.post("/auth/token", {});
     return response;
   } catch {
-    // Mock data nếu backend không sẵn sàng
+    // Mock data náº¿u backend khÃ´ng sáºµn sÃ ng
     return {
       status: 200,
       data: {
@@ -286,7 +301,7 @@ export const changePassword = async ({ changePasswordToken, newPassword }) => {
 // Device Approval / Login - Device Approval System
 /**
  * Check current status of device login approval request
- * Gọi từ device mới để poll status
+ * Gá»i tá»« device má»›i Ä‘á»ƒ poll status
  */
 export const createDeviceLoginRequest = async ({
   deviceId,
@@ -305,8 +320,8 @@ export const checkDeviceLoginStatus = async (requestId) => {
   return response;
 };
 /**
- * Device cũ cấp phép hoặc từ chối yêu cầu đăng nhập từ device mới
- * Thông qua REST API
+ * Device cÅ© cáº¥p phÃ©p hoáº·c tá»« chá»‘i yÃªu cáº§u Ä‘Äƒng nháº­p tá»« device má»›i
+ * ThÃ´ng qua REST API
  */
 export const approveDeviceLogin = async ({ requestId, status }) => {
   const response = await apiClient.post("/auth/device-login-approval", {
@@ -316,14 +331,14 @@ export const approveDeviceLogin = async ({ requestId, status }) => {
   return response;
 };
 /**
- * Lấy danh sách tất cả devices của user hiện tại
+ * Láº¥y danh sÃ¡ch táº¥t cáº£ devices cá»§a user hiá»‡n táº¡i
  */
 export const getUserDevices = async () => {
   const response = await apiClient.get("/auth/devices");
   return response;
 };
 /**
- * Đăng xuất khỏi một device cụ thể
+ * ÄÄƒng xuáº¥t khá»i má»™t device cá»¥ thá»ƒ
  */
 export const logoutDevice = async ({ deviceId, platform }) => {
   const response = await apiClient.post("/auth/logout-device", {

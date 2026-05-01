@@ -9,7 +9,12 @@ import Clod from "../component/Cloud/Cloud";
 import ToolBox from "../component/ToolBox/ToolBox";
 import Setting from "../component/Setting/Setting";
 import DeviceManager from "../component/Setting/DeviceManager";
-import { changePassword, verifyCurrentPassword } from "../util/api";
+import {
+  changePassword,
+  getUserSettings,
+  updateUserSettings,
+  verifyCurrentPassword,
+} from "../util/api";
 import mess from "../resource/svg/chat/chat.svg";
 import addressbook from "../resource/svg/chat/addressbook.svg";
 import todo from "../resource/svg/chat/todo.svg";
@@ -18,6 +23,15 @@ import toolbox from "../resource/svg/chat/toolbox.svg";
 import setting from "../resource/svg/chat/setting.svg";
 function Chat({ handleLogout, onConversationSelect }) {
   const { userData } = useContext(UserContext);
+  const [userSettings, setUserSettings] = useState({
+    notifications: {
+      pushEnabled: true,
+      soundEnabled: true,
+    },
+    appearance: {
+      theme: "SYSTEM",
+    },
+  });
 
   const [showPageAddressBook, setShowPageAddressBook] = useState(false);
   const [menuActive, setMenuactive] = useState(0);
@@ -36,6 +50,8 @@ function Chat({ handleLogout, onConversationSelect }) {
   const [changePasswordToken, setChangePasswordToken] = useState("");
   const [changePasswordLoading, setChangePasswordLoading] = useState(false);
   const [changePasswordMessage, setChangePasswordMessage] = useState("");
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState("");
 
   const topMenu = [mess, addressbook, todo];
   const bottomMenu = [cloud, toolbox, setting];
@@ -98,6 +114,84 @@ function Chat({ handleLogout, onConversationSelect }) {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [boxRef, setIsShoeStartup, boxSettingRef, setShowSettingMenu]);
+
+  const mergeSettings = useCallback((incomingSettings = {}) => {
+    setUserSettings((prev) => ({
+      ...prev,
+      ...incomingSettings,
+      notifications: {
+        ...prev.notifications,
+        ...(incomingSettings.notifications || {}),
+      },
+      appearance: {
+        ...prev.appearance,
+        ...(incomingSettings.appearance || {}),
+      },
+    }));
+  }, []);
+
+  const loadUserSettings = useCallback(async () => {
+    setSettingsLoading(true);
+    setSettingsMessage("");
+    try {
+      const response = await getUserSettings();
+      const payload = response?.data?.data ?? response?.data ?? {};
+      mergeSettings(payload?.settings || {});
+    } catch (error) {
+      setSettingsMessage("Không thể tải cài đặt từ máy chủ.");
+    } finally {
+      setSettingsLoading(false);
+    }
+  }, [mergeSettings]);
+
+  useEffect(() => {
+    if (showSettingsModal) {
+      void loadUserSettings();
+    }
+  }, [loadUserSettings, showSettingsModal]);
+
+  const patchUserSettingsSection = useCallback(
+    async (sectionKey, sectionValue) => {
+      setSettingsMessage("");
+      try {
+        const response = await updateUserSettings({
+          settings: {
+            [sectionKey]: sectionValue,
+          },
+        });
+        const payload = response?.data?.data ?? response?.data ?? {};
+        mergeSettings(payload?.settings || {});
+      } catch (error) {
+        setSettingsMessage("Không thể cập nhật cài đặt. Vui lòng thử lại.");
+      }
+    },
+    [mergeSettings],
+  );
+
+  const handleSystemToggle = useCallback(
+    async (key) => {
+      const nextValue = !Boolean(userSettings?.notifications?.[key]);
+      const nextSection = {
+        ...userSettings.notifications,
+        [key]: nextValue,
+      };
+      mergeSettings({ notifications: nextSection });
+      await patchUserSettingsSection("notifications", { [key]: nextValue });
+    },
+    [mergeSettings, patchUserSettingsSection, userSettings],
+  );
+
+  const handleThemeToggle = useCallback(async () => {
+    const currentTheme = String(userSettings?.appearance?.theme || "SYSTEM").toUpperCase();
+    const nextTheme = currentTheme === "DARK" ? "LIGHT" : "DARK";
+    mergeSettings({
+      appearance: {
+        ...userSettings.appearance,
+        theme: nextTheme,
+      },
+    });
+    await patchUserSettingsSection("appearance", { theme: nextTheme });
+  }, [mergeSettings, patchUserSettingsSection, userSettings]);
 
   const handleChangeMenuActive = (index) => {
     if (index === 0 || index === 1) {
@@ -340,19 +434,42 @@ function Chat({ handleLogout, onConversationSelect }) {
                 <div className="settings-modal-content">
                   {activeSettingsTab === "system" && (
                     <>
+                      {settingsMessage ? (
+                        <div className="settings-option" style={{ color: "#d93025" }}>
+                          {settingsMessage}
+                        </div>
+                      ) : null}
                       <div className="settings-option">
                         <label>
-                          <input type="checkbox" /> Thông báo
+                          <input
+                            type="checkbox"
+                            checked={Boolean(userSettings?.notifications?.pushEnabled)}
+                            onChange={() => void handleSystemToggle("pushEnabled")}
+                            disabled={settingsLoading}
+                          />{" "}
+                          Thông báo
                         </label>
                       </div>
                       <div className="settings-option">
                         <label>
-                          <input type="checkbox" /> Âm thanh
+                          <input
+                            type="checkbox"
+                            checked={Boolean(userSettings?.notifications?.soundEnabled)}
+                            onChange={() => void handleSystemToggle("soundEnabled")}
+                            disabled={settingsLoading}
+                          />{" "}
+                          Âm thanh
                         </label>
                       </div>
                       <div className="settings-option">
                         <label>
-                          <input type="checkbox" /> Chế độ tối
+                          <input
+                            type="checkbox"
+                            checked={String(userSettings?.appearance?.theme || "").toUpperCase() === "DARK"}
+                            onChange={() => void handleThemeToggle()}
+                            disabled={settingsLoading}
+                          />{" "}
+                          Chế độ tối
                         </label>
                       </div>
                     </>
