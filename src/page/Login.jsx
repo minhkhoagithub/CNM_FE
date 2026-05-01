@@ -1,4 +1,4 @@
-﻿import React, { useContext, useEffect, useState } from "react";
+﻿import React, { useCallback, useContext, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import FingerprintJS from "@fingerprintjs/fingerprintjs";
 import QRCode from "qrcode";
@@ -8,10 +8,14 @@ import { UAParser } from "ua-parser-js";
 import { UserContext } from "../Context/UserContext";
 import "../resource/style/Login/login.css";
 import {
+  checkEmailExists,
   checkDeviceLoginStatus,
   createDeviceLoginRequest,
   getCurrentUser,
+  sendRegisterOtp,
   userLogin,
+  userRegisterWithOtp,
+  verifyRegisterOtp,
 } from "../util/api";
 
 const extractPayload = (response) =>
@@ -304,15 +308,27 @@ function LoginQr() {
 function LoginAccount({ handleChangeStateChat }) {
   const { setUserData } = useContext(UserContext);
   const navigate = useNavigate();
+  const [step, setStep] = useState("EMAIL");
+  const [email, setEmail] = useState("");
   const [value, setValue] = useState({
-    username: "",
     password: "",
     deviceId: "",
     deviceName: "",
     platform: "WEB",
   });
+  const [registerData, setRegisterData] = useState({
+    phone: "",
+    password: "",
+    confirmPassword: "",
+    firstName: "",
+    lastName: "",
+    dob: "",
+    gender: "MALE",
+  });
+  const [otpCode, setOtpCode] = useState("");
+  const [registerToken, setRegisterToken] = useState("");
   const [stateLogin, setStateLogin] = useState("");
-  const [disableBtn, setDisableBtn] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [pendingApprovalId, setPendingApprovalId] = useState("");
 
   useEffect(() => {
@@ -326,10 +342,6 @@ function LoginAccount({ handleChangeStateChat }) {
 
     void initializeDeviceInfo();
   }, []);
-
-  useEffect(() => {
-    setDisableBtn(!(value.username.length >= 4 && value.password.length >= 4));
-  }, [value]);
 
   useEffect(() => {
     if (!pendingApprovalId) {
@@ -430,11 +442,47 @@ function LoginAccount({ handleChangeStateChat }) {
   const handleChangeData = (event) => {
     setValue({ ...value, [event.target.name]: event.target.value });
   };
+  const normalizeEmail = useCallback((rawEmail) => String(rawEmail || "").trim().toLowerCase(), []);
+  const handleCheckEmail = async () => {
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) {
+      setStateLogin("Vui lòng nhập email.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setStateLogin("");
+      const response = await checkEmailExists({ email: normalizedEmail });
+      const payload = extractPayload(response);
+      const nextStep = String(payload?.nextStep || "").toUpperCase();
+      setEmail(normalizedEmail);
+
+      if (nextStep === "LOGIN" || payload?.exists === true) {
+        setStep("LOGIN");
+        return;
+      }
+
+      if (nextStep === "REGISTER" || payload?.exists === false) {
+        setStep("REGISTER_FORM");
+        return;
+      }
+
+      setStateLogin(payload?.message || "Không xác định được bước tiếp theo.");
+    } catch (error) {
+      setStateLogin(
+        error.response?.data?.message || "Không thể kiểm tra email lúc này."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleLoginAccount = async () => {
     try {
+      setLoading(true);
       const response = await userLogin({
-        username: value.username,
+        username: normalizeEmail(email),
         password: value.password,
         deviceId: value.deviceId,
         platform: value.platform || "WEB",
@@ -464,11 +512,96 @@ function LoginAccount({ handleChangeStateChat }) {
         "Tài khoản hoặc mật khẩu không đúng.";
 
       setStateLogin(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSendRegisterOtp = async () => {
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) {
+      setStateLogin("Email không hợp lệ.");
+      return;
+    }
+
+    const { phone, password, confirmPassword, firstName, lastName, dob, gender } = registerData;
+    if (!phone || !password || !firstName || !lastName || !dob || !gender) {
+      setStateLogin("Vui lòng nhập đầy đủ thông tin đăng ký.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setStateLogin("Mật khẩu xác nhận không khớp.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setStateLogin("");
+      await sendRegisterOtp({ email: normalizedEmail });
+      setStep("REGISTER_OTP");
+    } catch (error) {
+      setStateLogin(error.response?.data?.message || "Không thể gửi OTP đăng ký.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyRegisterOtp = async () => {
+    const normalizedEmail = normalizeEmail(email);
+    if (!otpCode) {
+      setStateLogin("Vui lòng nhập OTP.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setStateLogin("");
+      const response = await verifyRegisterOtp({
+        email: normalizedEmail,
+        otpCode: otpCode.trim(),
+        type: "REGISTER",
+      });
+      const token = extractPayload(response);
+      if (!token) {
+        setStateLogin("Không nhận được register token từ máy chủ.");
+        return;
+      }
+      setRegisterToken(String(token));
+      setStep("REGISTER_SUBMIT");
+    } catch (error) {
+      setStateLogin(error.response?.data?.message || "OTP không hợp lệ.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmitRegister = async () => {
+    const normalizedEmail = normalizeEmail(email);
+    try {
+      setLoading(true);
+      setStateLogin("");
+      await userRegisterWithOtp({
+        email: normalizedEmail,
+        phone: registerData.phone,
+        registerToken,
+        password: registerData.password,
+        firstName: registerData.firstName,
+        lastName: registerData.lastName,
+        dob: registerData.dob,
+        gender: registerData.gender,
+      });
+      setStateLogin("Đăng ký thành công. Vui lòng đăng nhập.");
+      setStep("LOGIN");
+      setValue((prev) => ({ ...prev, password: "" }));
+    } catch (error) {
+      setStateLogin(error.response?.data?.message || "Đăng ký thất bại.");
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleButtonLogin = (event) => {
-    if (!disableBtn && (event.code === "Enter" || event.code === "NumpadEnter")) {
+    if (value.password && (event.code === "Enter" || event.code === "NumpadEnter")) {
       void handleLoginAccount();
     }
   };
@@ -477,43 +610,181 @@ function LoginAccount({ handleChangeStateChat }) {
     <div className="login-login-account">
       <div className="login-form-login-account">
         <div className="login-form-login-wrap">
-          <div className="flex">
-            <IoIosPhonePortrait className="icon-login" />
-            <input
-              type="text"
-              placeholder="Số điện thoại hoặc email"
-              name="username"
-              value={value.username}
-              onChange={handleChangeData}
-              onKeyDown={handleButtonLogin}
-            />
-          </div>
-          <div className="flex">
-            <CiLock className="icon-login" />
-            <input
-              type="password"
-              placeholder="Mật khẩu"
-              value={value.password}
-              name="password"
-              onChange={handleChangeData}
-              onKeyDown={handleButtonLogin}
-            />
-          </div>
+          {step === "EMAIL" ? (
+            <div className="flex">
+              <IoIosPhonePortrait className="icon-login" />
+              <input
+                type="text"
+                placeholder="Email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            </div>
+          ) : null}
+
+          {step === "LOGIN" ? (
+            <>
+              <div className="flex">
+                <IoIosPhonePortrait className="icon-login" />
+                <input type="text" value={email} disabled />
+              </div>
+              <div className="flex">
+                <CiLock className="icon-login" />
+                <input
+                  type="password"
+                  placeholder="Mật khẩu"
+                  value={value.password}
+                  name="password"
+                  onChange={handleChangeData}
+                  onKeyDown={handleButtonLogin}
+                />
+              </div>
+            </>
+          ) : null}
+
+          {step === "REGISTER_FORM" ? (
+            <>
+              <div className="flex">
+                <IoIosPhonePortrait className="icon-login" />
+                <input type="text" value={email} disabled />
+              </div>
+              <div className="flex">
+                <IoIosPhonePortrait className="icon-login" />
+                <input
+                  type="text"
+                  placeholder="Số điện thoại"
+                  value={registerData.phone}
+                  onChange={(event) =>
+                    setRegisterData((prev) => ({ ...prev, phone: event.target.value }))
+                  }
+                />
+              </div>
+              <div className="flex">
+                <IoIosPhonePortrait className="icon-login" />
+                <input
+                  type="text"
+                  placeholder="Họ"
+                  value={registerData.firstName}
+                  onChange={(event) =>
+                    setRegisterData((prev) => ({ ...prev, firstName: event.target.value }))
+                  }
+                />
+              </div>
+              <div className="flex">
+                <IoIosPhonePortrait className="icon-login" />
+                <input
+                  type="text"
+                  placeholder="Tên"
+                  value={registerData.lastName}
+                  onChange={(event) =>
+                    setRegisterData((prev) => ({ ...prev, lastName: event.target.value }))
+                  }
+                />
+              </div>
+              <div className="flex">
+                <IoIosPhonePortrait className="icon-login" />
+                <input
+                  type="date"
+                  value={registerData.dob}
+                  onChange={(event) =>
+                    setRegisterData((prev) => ({ ...prev, dob: event.target.value }))
+                  }
+                />
+              </div>
+              <div className="flex">
+                <IoIosPhonePortrait className="icon-login" />
+                <select
+                  value={registerData.gender}
+                  onChange={(event) =>
+                    setRegisterData((prev) => ({
+                      ...prev,
+                      gender: String(event.target.value || "").toUpperCase(),
+                    }))
+                  }
+                >
+                  <option value="MALE">Nam</option>
+                  <option value="FEMALE">Nữ</option>
+                  <option value="OTHER">Khác</option>
+                </select>
+              </div>
+              <div className="flex">
+                <CiLock className="icon-login" />
+                <input
+                  type="password"
+                  placeholder="Mật khẩu"
+                  value={registerData.password}
+                  onChange={(event) =>
+                    setRegisterData((prev) => ({ ...prev, password: event.target.value }))
+                  }
+                />
+              </div>
+              <div className="flex">
+                <CiLock className="icon-login" />
+                <input
+                  type="password"
+                  placeholder="Xác nhận mật khẩu"
+                  value={registerData.confirmPassword}
+                  onChange={(event) =>
+                    setRegisterData((prev) => ({ ...prev, confirmPassword: event.target.value }))
+                  }
+                />
+              </div>
+            </>
+          ) : null}
+
+          {step === "REGISTER_OTP" ? (
+            <div className="flex">
+              <CiLock className="icon-login" />
+              <input
+                type="text"
+                placeholder="Nhập OTP email"
+                value={otpCode}
+                onChange={(event) => setOtpCode(event.target.value)}
+              />
+            </div>
+          ) : null}
+
+          {step === "REGISTER_SUBMIT" ? (
+            <div className="flex">
+              <IoIosPhonePortrait className="icon-login" />
+              <input type="text" value="Đã xác thực email, sẵn sàng đăng ký" disabled />
+            </div>
+          ) : null}
         </div>
         {stateLogin && <div className="state-login">{stateLogin}</div>}
-        <div
-          className={`login-container-btn ${
-            disableBtn ? "login-disable" : ""
-          }`}
-        >
+        <div className={`login-container-btn ${loading ? "login-disable" : ""}`}>
           <div className="login-btn-login">
-            <button onClick={handleLoginAccount}>Đăng nhập với mật khẩu</button>
+            {step === "EMAIL" ? (
+              <button onClick={handleCheckEmail} disabled={loading}>
+                Tiếp tục
+              </button>
+            ) : null}
+            {step === "LOGIN" ? (
+              <button onClick={handleLoginAccount} disabled={loading || !value.password}>
+                Đăng nhập với mật khẩu
+              </button>
+            ) : null}
+            {step === "REGISTER_FORM" ? (
+              <button onClick={handleSendRegisterOtp} disabled={loading}>
+                Xác thực email
+              </button>
+            ) : null}
+            {step === "REGISTER_OTP" ? (
+              <button onClick={handleVerifyRegisterOtp} disabled={loading || !otpCode}>
+                Xác thực OTP
+              </button>
+            ) : null}
+            {step === "REGISTER_SUBMIT" ? (
+              <button onClick={handleSubmitRegister} disabled={loading || !registerToken}>
+                Đăng ký tài khoản
+              </button>
+            ) : null}
           </div>
           <div className="login-btn-login-phone">
             <button>Đăng nhập bằng thiết bị di động</button>
             <div
               className={`login-introduce-login ${
-                disableBtn ? "" : "login-introduce-login-active"
+                loading ? "" : "login-introduce-login-active"
               }`}
             >
               <svg height="10" width="100">
@@ -523,6 +794,22 @@ function LoginAccount({ handleChangeStateChat }) {
             </div>
           </div>
         </div>
+        {step !== "EMAIL" ? (
+          <div style={{ textAlign: "center", marginTop: 10 }}>
+            <span
+              style={{ color: "#0190f3", cursor: "pointer", fontWeight: 600 }}
+              onClick={() => {
+                setStep("EMAIL");
+                setStateLogin("");
+                setOtpCode("");
+                setRegisterToken("");
+                setValue((prev) => ({ ...prev, password: "" }));
+              }}
+            >
+              Quay lại nhập email
+            </span>
+          </div>
+        ) : null}
       </div>
 
       <div
@@ -545,3 +832,4 @@ function LoginAccount({ handleChangeStateChat }) {
     </div>
   );
 }
+
