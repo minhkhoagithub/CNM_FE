@@ -32,6 +32,11 @@ import {
   getConversations,
   updateConversationAvatarV1,
 } from "../../services/chat/conversationApi";
+import chatRealtimeService from "../../services/chat/chatRealtimeService";
+import {
+  getFriendRealtimeDestination,
+  isFriendRealtimeEvent,
+} from "../../services/friendRealtimeService";
 import { uploadAttachmentV1 } from "../../services/chat/messageApi";
 import { mapConversation } from "../../mappers/conversationMapper";
 
@@ -118,7 +123,9 @@ function MenuContact({ handleChangeContact, handleSetContentMenuContact }) {
   // })();
     const { userData } = useContext(UserContext);
   const { upsertConversation, fetchConversation } = useContext(ContactContext);
+  const currentUserId = userData?._id || userData?.userId || null;
   const [friendRequestCount, setFriendRequestCount] = useState(0);
+  const [activeMenuTitle, setActiveMenuTitle] = useState(null);
 
   const getRecentSearchStorageKey = (userId) => `user-search:${userId || "guest"}`;
 
@@ -129,8 +136,8 @@ const [dataSearch, setDataSearch] = useState({
   response: [],
 });
 
-const fetchIncomingFriendRequestCount = async () => {
-  if (!userData?._id) return;
+const fetchIncomingFriendRequestCount = React.useCallback(async () => {
+  if (!currentUserId) return;
 
   try {
     const response = await getIncomingFriendRequestsV2();
@@ -140,11 +147,11 @@ const fetchIncomingFriendRequestCount = async () => {
     console.error("Failed to load incoming friend request count:", error);
     setFriendRequestCount(0);
   }
-};
+}, [currentUserId]);
 
 useEffect(() => {
-  fetchIncomingFriendRequestCount();
-}, [userData?._id]);
+  void fetchIncomingFriendRequestCount();
+}, [fetchIncomingFriendRequestCount]);
 
 
 useEffect(() => {
@@ -816,7 +823,7 @@ const handleChangeSearchKeyword = (e) => {
 //   });
 // };
 
-const handleFindUsersForAddFriend = async () => {
+const handleFindUsersForAddFriend = React.useCallback(async () => {
   const keyword = friendSearch.keyword.trim();
 
   if (!keyword) {
@@ -861,7 +868,7 @@ const handleFindUsersForAddFriend = async () => {
       error: "Không thể tìm kiếm lúc này",
     }));
   }
-};
+}, [friendSearch.keyword]);
 
 
 
@@ -972,7 +979,9 @@ const handleSendFriendRequestFromSearch = async (user) => {
   //   }
   // };
   // Phiên bản mới với API V2
-  const handleFetchDataUser = async (title) => {
+  const handleFetchDataUser = React.useCallback(async (title) => {
+  setActiveMenuTitle(title);
+
   if (title === DanhSachBanBe) {
     const response = await getFriendsV2();
     const friends = Array.isArray(response.data)
@@ -1003,21 +1012,32 @@ const handleSendFriendRequestFromSearch = async (user) => {
   //   return;
   // }
   if (title === LoiMoiKetBan) {
-  const response = await getIncomingFriendRequestsV2();
-  const requests = Array.isArray(response.data)
-    ? response.data.map(mapIncomingRequestToUi)
-    : [];
+    try {
+      const response = await getIncomingFriendRequestsV2();
+      const requests = Array.isArray(response.data)
+        ? response.data.map(mapIncomingRequestToUi)
+        : [];
 
-  setFriendRequestCount(requests.length);
+      setFriendRequestCount(requests.length);
 
-  handleSetContentMenuContact({
-    state: true,
-    data: requests,
-    title: LoiMoiKetBan,
-    count: `Lời mời kết bạn (${requests.length})`,
-  });
-  return;
-}
+      handleSetContentMenuContact({
+        state: true,
+        data: requests,
+        title: LoiMoiKetBan,
+        count: `Lời mời kết bạn (${requests.length})`,
+      });
+    } catch (error) {
+      console.error("Failed to load incoming friend requests:", error);
+      setFriendRequestCount(0);
+      handleSetContentMenuContact({
+        state: true,
+        data: [],
+        title: LoiMoiKetBan,
+        count: "Lời mời kết bạn (0)",
+      });
+    }
+    return;
+  }
 
 
   if (title === DanhSachNhom) {
@@ -1086,7 +1106,78 @@ const handleSendFriendRequestFromSearch = async (user) => {
     });
     return;
   }
-};
+}, [handleSetContentMenuContact, userData?._id, userData?.userId]);
+
+useEffect(() => {
+  if (!currentUserId || activeMenuTitle) {
+    return;
+  }
+
+  void handleFetchDataUser(DanhSachBanBe);
+}, [activeMenuTitle, currentUserId, handleFetchDataUser]);
+
+useEffect(() => {
+  if (!currentUserId) {
+    return undefined;
+  }
+
+  const subscriptionKey = `address-book:friends:${currentUserId}`;
+  chatRealtimeService
+    .subscribe(
+      subscriptionKey,
+      getFriendRealtimeDestination(currentUserId),
+      async (event) => {
+        if (!isFriendRealtimeEvent(event)) {
+          return;
+        }
+
+        await fetchIncomingFriendRequestCount();
+
+        if (activeMenuTitle === DanhSachBanBe || activeMenuTitle === LoiMoiKetBan) {
+          await handleFetchDataUser(activeMenuTitle);
+        }
+
+        if (addUser.group) {
+          try {
+            const response = await getFriendsV2();
+            const nextFriends = Array.isArray(response.data)
+              ? response.data.map(mapFriendshipToUi)
+              : [];
+
+            setFriendOptions(
+              nextFriends.map((friend) => ({
+                userId: friend.userId,
+                displayName: friend.displayName || friend.username,
+                avatarUrl: friend.avatarUrl || friend.avatar || "",
+              }))
+            );
+          } catch (error) {
+            console.error("Failed to refresh group friend options:", error);
+          }
+        }
+
+        if (addUser.friend && String(friendSearch.keyword || "").trim()) {
+          await handleFindUsersForAddFriend();
+        }
+      }
+    )
+    .catch((error) => {
+      console.error("Failed to subscribe friend realtime in address book:", error);
+    });
+
+  return () => {
+    chatRealtimeService.unsubscribe(subscriptionKey);
+  };
+}, [
+  activeMenuTitle,
+  addUser.friend,
+  addUser.group,
+  currentUserId,
+  fetchIncomingFriendRequestCount,
+  friendSearch.keyword,
+  handleFetchDataUser,
+  handleFindUsersForAddFriend,
+]);
 
 
   return (
@@ -1470,7 +1561,9 @@ const handleSendFriendRequestFromSearch = async (user) => {
               {listMenu.map((item, index) => (
               <li
                 key={index}
-                className="flex"
+                className={`flex ${
+                  activeMenuTitle === item.title ? "menu-contact-item-active" : ""
+                }`}
                 onClick={() => handleFetchDataUser(item.title)}
               >
                 <div className="icon-contact">{item.icon}</div>

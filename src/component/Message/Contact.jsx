@@ -25,6 +25,11 @@ import {
   updateConversationMuteV1,
   updateConversationPinV1,
 } from "../../services/chat/conversationApi";
+import chatRealtimeService from "../../services/chat/chatRealtimeService";
+import {
+  getFriendRealtimeDestination,
+  isFriendRealtimeEvent,
+} from "../../services/friendRealtimeService";
 import { uploadAttachmentV1 } from "../../services/chat/messageApi";
 import { mapConversation } from "../../mappers/conversationMapper";
 import "../../resource/style/AddressBook/menuContact.css";
@@ -166,6 +171,7 @@ function Contact({
     updateConversationById,
   } = useContext(ContactContext);
   const { userData } = useContext(UserContext);
+  const currentUserId = userData?._id || userData?.userId || null;
   const getRecentSearchStorageKey = (userId) =>
   `message-user-search:${userId || "guest"}`;
 
@@ -953,7 +959,7 @@ const storeLocal = (value) => {
       fetchConversation();
     }
   };
-  const handleSendFriendRequestFromSearch = async (user) => {
+const handleSendFriendRequestFromSearch = async (user) => {
   if (!user?.userId || user.relationshipStatus !== "NONE") {
     return;
   }
@@ -975,6 +981,67 @@ const storeLocal = (value) => {
     console.error("Failed to send friend request:", error);
   }
 };
+
+useEffect(() => {
+  if (!currentUserId) {
+    return undefined;
+  }
+
+  const subscriptionKey = `message-contact:friends:${currentUserId}`;
+  chatRealtimeService
+    .subscribe(
+      subscriptionKey,
+      getFriendRealtimeDestination(currentUserId),
+      async (event) => {
+        if (!isFriendRealtimeEvent(event)) {
+          return;
+        }
+
+        if (addUser.group) {
+          try {
+            const response = await getFriendsV2();
+            setFriendOptions(mapFriendOptions(response.data));
+            setFriendOptionsState((prevState) => ({
+              ...prevState,
+              loaded: true,
+              loading: false,
+              attempted: true,
+              error: "",
+            }));
+          } catch (error) {
+            console.error("Failed to refresh message friend options:", error);
+          }
+        }
+
+        const keyword = String(friendSearch.keyword || "").trim();
+        if (addUser.friend && keyword) {
+          try {
+            const response = await searchUsersV2({ keyword });
+            const results = Array.isArray(response.data)
+              ? response.data.map(mapSearchUserToUi)
+              : [];
+
+            setFriendSearch((prevState) => ({
+              ...prevState,
+              loading: false,
+              searched: true,
+              results,
+              error: "",
+            }));
+          } catch (error) {
+            console.error("Failed to refresh message friend search:", error);
+          }
+        }
+      }
+    )
+    .catch((error) => {
+      console.error("Failed to subscribe friend realtime in message contact:", error);
+    });
+
+  return () => {
+    chatRealtimeService.unsubscribe(subscriptionKey);
+  };
+}, [addUser.friend, addUser.group, currentUserId, friendSearch.keyword]);
 
 const handleClearRecentSearch = () => {
   const userId = userData?._id || userData?.userId || "guest";

@@ -15,9 +15,16 @@ import {
   acceptFriendRequestV2,
   rejectFriendRequestV2,
   unfriendUserV2,
-  blockUserV2,
-  unblockUserV2,
 } from "../../util/api";
+import {
+  blockUserForCurrentUser,
+  unblockUserForCurrentUser,
+} from "../../services/userBlockApi";
+import chatRealtimeService from "../../services/chat/chatRealtimeService";
+import {
+  getFriendRealtimeDestination,
+  isFriendRealtimeEvent,
+} from "../../services/friendRealtimeService";
 
 
 export const HUY_LOI_MOI_KET_BAN = "Thu hồi lời mời kết bạn";
@@ -123,6 +130,7 @@ export default function ContentMenuContact({
   handleShowSoftConversation,
 }) {
   const { userData } = useContext(UserContext);
+  const currentUserId = userData?._id || userData?.userId || null;
   const [friendReq, setFriendReq] = useState([]);
   // const [listData, setListData] = useState(() => buildListData(dataContentContac, title));
   // const [resultSearch, setResultSearch] = useState({
@@ -161,20 +169,50 @@ useEffect(() => {
 
   //   fetch();
   // }, [title, userData?._id]);
-  useEffect(() => {
-  const fetch = async () => {
-    if (title === LoiMoiKetBan) {
-      const response = await getOutgoingFriendRequestsV2();
-      if (response.status === 200 && Array.isArray(response.data)) {
-        setFriendReq(response.data.map(mapOutgoingRequestToUi));
-      } else {
-        setFriendReq([]);
-      }
-    }
-  };
+const loadOutgoingRequests = React.useCallback(async () => {
+  if (title !== LoiMoiKetBan) {
+    setFriendReq([]);
+    return;
+  }
 
-  fetch();
-}, [title, userData?._id]);
+  const response = await getOutgoingFriendRequestsV2();
+  if (response.status === 200 && Array.isArray(response.data)) {
+    setFriendReq(response.data.map(mapOutgoingRequestToUi));
+  } else {
+    setFriendReq([]);
+  }
+}, [title]);
+
+useEffect(() => {
+  void loadOutgoingRequests();
+}, [loadOutgoingRequests]);
+
+useEffect(() => {
+  if (!currentUserId || title !== LoiMoiKetBan) {
+    return undefined;
+  }
+
+  const subscriptionKey = `address-book:friend-requests:${currentUserId}:${title}`;
+  chatRealtimeService
+    .subscribe(
+      subscriptionKey,
+      getFriendRealtimeDestination(currentUserId),
+      async (event) => {
+        if (!isFriendRealtimeEvent(event)) {
+          return;
+        }
+
+        await loadOutgoingRequests();
+      }
+    )
+    .catch((error) => {
+      console.error("Failed to subscribe friend request realtime in content panel:", error);
+    });
+
+  return () => {
+    chatRealtimeService.unsubscribe(subscriptionKey);
+  };
+}, [currentUserId, loadOutgoingRequests, title]);
 
 
   const updateListStateByAction = (friendId, action) => {
@@ -279,7 +317,7 @@ useEffect(() => {
     }
   }
   if (action === CHAN) {
-    const response = await blockUserV2({
+    const response = await blockUserForCurrentUser({
       blockedUserId: friend.userId || friend._id,
       reason: "",
     });
@@ -290,7 +328,7 @@ useEffect(() => {
   }
 
   if (action === BO_CHAN) {
-    const response = await unblockUserV2({
+    const response = await unblockUserForCurrentUser({
       blockedUserId: friend.userId || friend._id,
     });
     if (response.status === 200) {

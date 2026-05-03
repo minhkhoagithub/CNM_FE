@@ -7,6 +7,15 @@ import ContainerMess from "./ContainerMess";
 import ConversationImageGallery from "./ConversationImageGallery";
 import { fetchConversationSharedAttachments } from "./conversationMedia";
 
+const INFO_PANEL_BREAKPOINT = 1180;
+const getInitialInfoPanelVisibility = () => {
+  if (typeof window === "undefined") {
+    return true;
+  }
+
+  return window.innerWidth > INFO_PANEL_BREAKPOINT;
+};
+
 export default function Message({ showPageAddressBook, onConversationSelect }) {
   const {
     currentConversationNormalized,
@@ -25,6 +34,9 @@ export default function Message({ showPageAddressBook, onConversationSelect }) {
     activeImageId: null,
     isPartial: false,
   });
+  const [isInfoPanelVisible, setIsInfoPanelVisible] = useState(
+    getInitialInfoPanelVisibility
+  );
 
   const activeConversation = currentConversationNormalized;
   const currentUserId = userData?.userId || userData?._id || null;
@@ -71,6 +83,21 @@ export default function Message({ showPageAddressBook, onConversationSelect }) {
       onConversationSelect(conversationId);
     }
   }, [conversationId, handleCloseImageGallery, onConversationSelect]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleResponsiveInfoPanel = () => {
+      setIsInfoPanelVisible(window.innerWidth > INFO_PANEL_BREAKPOINT);
+    };
+
+    window.addEventListener("resize", handleResponsiveInfoPanel);
+    return () => {
+      window.removeEventListener("resize", handleResponsiveInfoPanel);
+    };
+  }, []);
 
   const handleSelectGalleryImage = useCallback((imageId) => {
     setImageGalleryState((prevState) => ({
@@ -195,15 +222,20 @@ export default function Message({ showPageAddressBook, onConversationSelect }) {
           {activeConversation !== null ? (
             <ContainerMess
               onOpenConversationImageGallery={handleOpenConversationImageGallery}
+              isInfoPanelVisible={isInfoPanelVisible}
+              onToggleInfoPanel={() =>
+                setIsInfoPanelVisible((previousState) => !previousState)
+              }
             />
           ) : (
             ""
           )}
         </div>
-        {activeConversation !== null ? (
+        {activeConversation !== null && isInfoPanelVisible ? (
           <div className="message-layout-info">
             <MessageInfor
               onOpenConversationImageGallery={handleOpenConversationImageGallery}
+              onRequestClose={() => setIsInfoPanelVisible(false)}
             />
           </div>
         ) : null}
