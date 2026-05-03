@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Login from "./page/Login";
 import Register from "./page/Register";
 import ForgotPassword from "./page/ForgotPassword";
+import ZaloLock from "./page/ZaloLock";
 import Chat from "./page/Chat";
 import Zalo from "./page/Zalo";
 import ProtectedRoute from "./Context/ProtectedRoute";
@@ -38,6 +39,14 @@ function App() {
               <ForgotPassword />
             </ProtectedRoute>
           } 
+        />
+        <Route
+          path="/auth/lock"
+          element={
+            <ProtectedRoute requireAuth={false} redirectIfLoggedIn={false}>
+              <ZaloLock />
+            </ProtectedRoute>
+          }
         />
 
         {/* Protected routes - chỉ được vào khi đã đăng nhập */}

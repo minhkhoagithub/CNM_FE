@@ -12,6 +12,7 @@ import {
   checkDeviceLoginStatus,
   createDeviceLoginRequest,
   getCurrentUser,
+  getZaloLock,
   sendRegisterOtp,
   userLogin,
   userRegisterWithOtp,
@@ -20,6 +21,24 @@ import {
 
 const extractPayload = (response) =>
   response?.data?.data ?? response?.data ?? response ?? null;
+
+const applyZaloLockState = async () => {
+  try {
+    const response = await getZaloLock();
+    const payload = extractPayload(response);
+    const enabled = Boolean(payload?.enabled);
+    const method = String(payload?.method || "").toUpperCase();
+    const pinRequired = enabled && method === "PIN";
+
+    localStorage.setItem("zaloLockRequired", pinRequired ? "true" : "false");
+    localStorage.setItem("zaloLockUnlocked", pinRequired ? "false" : "true");
+    return pinRequired;
+  } catch {
+    localStorage.setItem("zaloLockRequired", "false");
+    localStorage.setItem("zaloLockUnlocked", "true");
+    return false;
+  }
+};
 
 const getWebDeviceInfo = async () => {
   try {
@@ -217,7 +236,8 @@ function LoginQr() {
             localStorage.setItem("isLogin", "true");
             localStorage.setItem("userProfile", JSON.stringify(fallbackUser));
             setUserData(fallbackUser);
-            navigate("/");
+            const pinRequired = await applyZaloLockState();
+            navigate(pinRequired ? "/auth/lock" : "/");
             return;
           }
 
@@ -227,7 +247,8 @@ function LoginQr() {
           localStorage.setItem("isLogin", "true");
           localStorage.setItem("userProfile", JSON.stringify(currentUser || {}));
           setUserData(currentUser);
-          navigate("/");
+          const pinRequired = await applyZaloLockState();
+          navigate(pinRequired ? "/auth/lock" : "/");
         }
       } catch (error) {
         if (!isMounted) {
@@ -503,7 +524,8 @@ function LoginAccount({ handleChangeStateChat }) {
 
         setUserData(payload);
         setStateLogin("");
-        navigate("/");
+        const pinRequired = await applyZaloLockState();
+        navigate(pinRequired ? "/auth/lock" : "/");
       }
     } catch (error) {
       const errorMessage =

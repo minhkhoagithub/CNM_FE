@@ -298,6 +298,80 @@ export const changePassword = async ({ changePasswordToken, newPassword }) => {
   });
   return response;
 };
+
+export const getAccountSecuritySummary = async () => {
+  const response = await apiClient.get("/auth/account-security/summary");
+  return response;
+};
+
+export const getZaloLock = async () => {
+  const response = await apiClient.get("/auth/account-security/zalo-lock");
+  return response;
+};
+
+export const updateZaloLock = async (payload) => {
+  const response = await apiClient.patch("/auth/account-security/zalo-lock", payload);
+  return response;
+};
+
+export const createZaloLockChallenge = async () => {
+  const response = await apiClient.post("/auth/account-security/zalo-lock/challenge", {});
+  return response;
+};
+
+export const verifyZaloLockPin = async ({ pin }) => {
+  const response = await apiClient.post("/auth/account-security/zalo-lock/verify", { pin });
+  return response;
+};
+
+export const unlockZaloLock = async ({ challengeToken, pin }) => {
+  const response = await apiClient.post("/auth/account-security/zalo-lock/unlock", {
+    challengeToken,
+    pin,
+  });
+  return response;
+};
+
+export const getMyQr = async () => {
+  const response = await apiClient.get("/auth/account-security/my-qr");
+  return response;
+};
+
+export const sendEmailChangeOtp = async ({ newEmail }) => {
+  const response = await apiClient.post("/auth/account-security/email/send-otp", { newEmail });
+  return response;
+};
+
+export const verifyEmailChangeOtp = async ({ newEmail, otp }) => {
+  const response = await apiClient.post("/auth/account-security/email/verify-otp", { newEmail, otp });
+  return response;
+};
+
+export const confirmEmailChange = async ({ newEmail, changeToken }) => {
+  const response = await apiClient.post("/auth/account-security/email/confirm", {
+    newEmail,
+    changeToken,
+  });
+  return response;
+};
+
+export const sendPhoneChangeOtp = async ({ newPhone }) => {
+  const response = await apiClient.post("/auth/account-security/phone/send-otp", { newPhone });
+  return response;
+};
+
+export const verifyPhoneChangeOtp = async ({ newPhone, otp }) => {
+  const response = await apiClient.post("/auth/account-security/phone/verify-otp", { newPhone, otp });
+  return response;
+};
+
+export const confirmPhoneChange = async ({ newPhone, changeToken }) => {
+  const response = await apiClient.post("/auth/account-security/phone/confirm", {
+    newPhone,
+    changeToken,
+  });
+  return response;
+};
 // Device Approval / Login - Device Approval System
 /**
  * Check current status of device login approval request
