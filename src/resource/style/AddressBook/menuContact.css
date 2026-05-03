@@ -10,6 +10,10 @@
   background-color: #e5efff;
   transition: background-color 0.3s;
 }
+.menu-contact .menu-contact-item-active {
+  background-color: #e5efff;
+  box-shadow: inset 3px 0 0 #0068ff;
+}
 .menu-contact .icon-contact {
   padding: 8px;
   font-size: 20px;

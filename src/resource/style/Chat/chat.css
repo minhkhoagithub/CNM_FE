@@ -994,3 +994,119 @@
   font-weight: 700;
   color: #1a1a1a;
 }
+
+@media (max-width: 1024px) {
+  .settings-modal {
+    width: min(92vw, 860px);
+    min-width: 0;
+    height: min(88vh, 720px);
+  }
+
+  .settings-sidebar {
+    width: 132px;
+    flex-shrink: 0;
+  }
+
+  .password-modal,
+  .login-locations-modal {
+    width: min(92vw, 480px);
+  }
+}
+
+@media (max-width: 768px) {
+  .chat-avatar-user .startup,
+  .setting-menu {
+    left: 56px;
+    width: min(220px, calc(100vw - 72px));
+  }
+
+  .settings-modal {
+    width: calc(100vw - 24px);
+    height: calc(100vh - 24px);
+    max-height: none;
+    min-height: 0;
+    border-radius: 14px;
+  }
+
+  .settings-modal-body {
+    flex-direction: column;
+  }
+
+  .settings-sidebar {
+    width: 100%;
+    display: flex;
+    border-right: none;
+    border-bottom: 1px solid #e0e0e0;
+    overflow-x: auto;
+  }
+
+  .settings-tab {
+    white-space: nowrap;
+    border-left: none;
+    border-bottom: 3px solid transparent;
+  }
+
+  .settings-tab.active {
+    border-left-color: transparent;
+    border-bottom-color: #0091ff;
+  }
+
+  .settings-modal-content {
+    padding: 16px;
+  }
+
+  .password-modal,
+  .login-locations-modal {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+  }
+
+  .login-location-item,
+  .login-location-item-inline {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .btn-logout,
+  .btn-logout-device,
+  .login-location-item-inline .btn-logout {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .chat-menu-left {
+    min-width: 56px;
+  }
+
+  .chat-top-menu img,
+  .chat-bottom-menu img {
+    width: 22px;
+    height: 22px;
+    padding: 16px 0;
+  }
+
+  .chat-avatar-user img,
+  .default-avatar-sidebar,
+  .default-avatar-container {
+    width: 44px;
+    height: 44px;
+  }
+
+  .default-avatar-icon-sidebar,
+  .default-avatar-icon {
+    width: 26px;
+    height: 26px;
+  }
+
+  .subsection-footer {
+    flex-direction: column-reverse;
+  }
+
+  .subsection-footer .btn-cancel,
+  .subsection-footer .btn-confirm,
+  .btn-confirm,
+  .btn-cancel {
+    width: 100%;
+  }
+}
