@@ -904,6 +904,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     archivedConversations,
     selectedConversationId,
     currentConversationNormalized,
+    upsertConversation,
     updateConversationById,
   } = useContext(ContactContext);
   const currentUserId = userData?.userId || userData?._id || null;
@@ -1944,6 +1945,24 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                 ? event.payload?.actorReaction
                 : undefined
             );
+            return;
+          }
+
+          if (event.type === "CONVERSATION_UPDATED") {
+            const payloadConversationId =
+              event.payload?.id || event.payload?.conversationId || backendConversationId;
+            if (!payloadConversationId) {
+              return;
+            }
+
+            // Prefer canonical upsert when backend sends full conversation payload.
+            if (event.payload?.id || event.payload?.members || event.payload?.type) {
+              upsertConversation(event.payload);
+              return;
+            }
+
+            // Fallback for partial payloads broadcast on conversation topic.
+            updateConversationById(payloadConversationId, event.payload || {});
           }
         }
       )
@@ -1960,6 +1979,8 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     isContextMode,
     markMessageDeleted,
     syncMessageReactionSummary,
+    updateConversationById,
+    upsertConversation,
     upsertMessage,
   ]);
 
