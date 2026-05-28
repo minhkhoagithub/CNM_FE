@@ -555,7 +555,8 @@ export const normalizeConversationInput = (conversation, options = {}) => {
       ? GROUP_CONVERSATION_PLACEHOLDER
       : PRIVATE_CONVERSATION_PLACEHOLDER);
   const trustedAvatarUrl = toNullableString(trustedIdentity.trustedAvatarUrl);
-  const finalDisplayName = customName || trustedDisplayName;
+  const finalDisplayName =
+    normalizedType === "group" ? trustedDisplayName : customName || trustedDisplayName;
   const backgroundColor = resolveConversationBackgroundColor(
     conversation,
     rawConversation

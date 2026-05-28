@@ -5,12 +5,13 @@ import { resolveChatUserId } from "./chatSession";
 const DEFAULT_API_BASE_URL =
   import.meta.env.VITE_BASE_API_URL || "http://localhost:8080/api/v1";
 
-const resolveRealtimeUrl = () => {
+const resolveRealtimeUrls = () => {
   try {
     const apiUrl = new URL(DEFAULT_API_BASE_URL);
-    return `${apiUrl.origin}/ws`;
+    return [`${apiUrl.origin}/ws`, `${apiUrl.origin}/auth/ws`];
   } catch {
-    return `${DEFAULT_API_BASE_URL.replace(/\/api\/v1\/?$/, "")}/ws`;
+    const origin = `${DEFAULT_API_BASE_URL.replace(/\/api\/v1\/?$/, "")}`;
+    return [`${origin}/ws`, `${origin}/auth/ws`];
   }
 };
 
@@ -31,6 +32,7 @@ class ChatRealtimeService {
     this.client = null;
     this.connectPromise = null;
     this.subscriptions = new Map();
+    this.connectedUserId = null;
 
     // Setup page unload listener to clean up session
     if (typeof window !== "undefined") {
@@ -39,6 +41,16 @@ class ChatRealtimeService {
   }
 
   async connect() {
+    const targetUserId = resolveChatUserId() || null;
+
+    if (this.client?.connected) {
+      if (this.connectedUserId !== targetUserId) {
+        this.disconnect();
+      } else {
+        return this.client;
+      }
+    }
+
     if (this.client?.connected) {
       return this.client;
     }
@@ -48,28 +60,48 @@ class ChatRealtimeService {
     }
 
     this.connectPromise = new Promise((resolve, reject) => {
-      try {
-        const socket = new SockJS(resolveRealtimeUrl());
-        const client = Stomp.over(socket);
-        client.debug = () => {};
+      const urls = resolveRealtimeUrls();
+      let currentIndex = 0;
 
-        client.connect(
-          {
-            ...(resolveChatUserId() ? { "x-user-id": resolveChatUserId() } : {}),
-          },
-          () => {
-            this.client = client;
-            resolve(client);
-          },
-          (error) => {
-            this.connectPromise = null;
-            reject(error);
-          }
-        );
-      } catch (error) {
-        this.connectPromise = null;
-        reject(error);
-      }
+      const tryConnect = () => {
+        if (currentIndex >= urls.length) {
+          this.connectPromise = null;
+          reject(new Error("Failed to connect websocket on all configured endpoints."));
+          return;
+        }
+
+        const targetUrl = urls[currentIndex];
+        currentIndex += 1;
+
+        try {
+          const socket = new SockJS(targetUrl);
+          const client = Stomp.over(socket);
+          client.debug = () => {};
+          client.reconnect_delay = 5000;
+
+          client.connect(
+            {
+              ...(resolveChatUserId() ? { "x-user-id": resolveChatUserId() } : {}),
+            },
+            () => {
+              this.client = client;
+              this.connectedUserId = targetUserId;
+              this.connectPromise = null;
+              resolve(client);
+            },
+            () => {
+              try {
+                client.disconnect(() => {});
+              } catch {}
+              tryConnect();
+            }
+          );
+        } catch {
+          tryConnect();
+        }
+      };
+
+      tryConnect();
     });
 
     return this.connectPromise;
@@ -109,6 +141,7 @@ class ChatRealtimeService {
 
     this.client = null;
     this.connectPromise = null;
+    this.connectedUserId = null;
   }
 }
 
