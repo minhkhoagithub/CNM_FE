@@ -13,8 +13,8 @@ import { ContactContext } from "../../Context/ContactConext";
 import Icon from "./Icon";
 import { HiOutlineUserGroup } from "react-icons/hi2";
 import { CiSearch } from "react-icons/ci";
-import { IoVideocamOutline, IoCameraOutline, IoCallOutline, IoBarChartOutline } from "react-icons/io5";
-import { AiOutlineLike, AiOutlinePicture, AiOutlineSend } from "react-icons/ai";
+import { IoVideocamOutline, IoCameraOutline, IoCallOutline, IoBarChartOutline, IoArrowUndoOutline, IoArrowDown } from "react-icons/io5";
+import { AiOutlineLike, AiFillLike, AiOutlinePicture, AiOutlineSend } from "react-icons/ai";
 import { IoMdClose, IoMdAttach,IoMdMore  } from "react-icons/io";
 import { MdOutlineContactMail } from "react-icons/md";
 import {
@@ -4142,7 +4142,7 @@ function ContainerMess({
                                   target="_blank"
                                   rel="noreferrer"
                                 >
-                                  <span className="message-file-type-badge">
+                                  <span className={`message-file-type-badge badge-${fileMeta.label.toLowerCase()}`}>
                                     {fileMeta.icon} {fileMeta.label}
                                   </span>
                                   <span className="message-file-name">
@@ -4363,9 +4363,15 @@ function ContainerMess({
                             item.myReaction === "LIKE" ? "active-reaction" : "subtle"
                           }`}
                           type="button"
+                          aria-label={item.myReaction === "LIKE" ? "Bỏ thích" : "Thích"}
+                          title={item.myReaction === "LIKE" ? "Bỏ thích" : "Thích"}
                           onClick={() => handleReactionClick(item)}
                         >
-                          {item.myReaction === "LIKE" ? "Bo like" : "Like"}
+                          {item.myReaction === "LIKE" ? (
+                            <AiFillLike style={{ fontSize: "16px", color: "var(--ui-primary)" }} />
+                          ) : (
+                            <AiOutlineLike style={{ fontSize: "16px" }} />
+                          )}
                         </button>
 
                         <div className="message-reaction-picker">
@@ -4401,9 +4407,11 @@ function ContainerMess({
                           <button
                             className="message-action-btn subtle"
                             type="button"
+                            aria-label="Trả lời"
+                            title="Trả lời"
                             onClick={() => handleReplyToMessage(item)}
                           >
-                            Trả lời
+                            <IoArrowUndoOutline style={{ fontSize: "16px" }} />
                           </button>
                         ) : null}
 
@@ -4516,20 +4524,19 @@ function ContainerMess({
                             </div>
                           ) : null}
                         </div>
-
-                        {Array.isArray(item.reactions) && item.reactions.length > 0 ? (
-                          <span className="message-reaction-summary">
-                            {item.reactions
-                              .filter((reaction) => Number(reaction.count || 0) > 0)
-                              .map(
-                                (reaction) =>
-                                  `${resolveReactionEmoji(reaction.type)} ${reaction.count}`
-                              )
-                              .join(" ")}
-                          </span>
-                        ) : null}
                       </div>
                     )}
+                    {!isDeleted && Array.isArray(item.reactions) && item.reactions.length > 0 ? (
+                      <span className="message-reaction-summary">
+                        {item.reactions
+                          .filter((reaction) => Number(reaction.count || 0) > 0)
+                          .map(
+                            (reaction) =>
+                              `${resolveReactionEmoji(reaction.type)} ${reaction.count}`
+                          )
+                          .join(' ')}
+                      </span>
+                    ) : null}
                     {groupReadReceiptSummary ? (
                       <p
                         className="group-read-receipt"
@@ -4575,7 +4582,9 @@ function ContainerMess({
           disabled={isLoadingContext}
           title="Về tin nhắn hiện tại"
         >
-          <span className="jump-latest-btn-arrow">⌄⌄</span>
+          <span className="jump-latest-btn-arrow" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+            <IoArrowDown style={{ fontSize: "16px" }} />
+          </span>
           {isContextMode ? <span>Về hiện tại</span> : null}
           {newMessagesSinceContext > 0 ? (
             <span className="jump-latest-btn-badge">+{newMessagesSinceContext}</span>
@@ -4671,7 +4680,7 @@ function ContainerMess({
                     <video src={attachment.previewUrl} controls muted />
                   ) : (
                     <div className="selected-attachment-file">
-                      <span className="selected-attachment-file-badge">
+                      <span className={`selected-attachment-file-badge badge-${resolveAttachmentTypeMeta(attachment).label.toLowerCase()}`}>
                         {resolveAttachmentTypeMeta(attachment).icon}{" "}
                         {resolveAttachmentTypeMeta(attachment).label}
                       </span>

@@ -1,6 +1,7 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { UserContext } from "../Context/UserContext";
+import { useNotifications } from "../Context/NotificationContext";
 import WebSocketService from "../services/WebSocketService";
 import { approveDeviceLogin, getCurrentUser, userLogout } from "../util/api";
 import Chat from "./Chat";
@@ -20,6 +21,7 @@ export default function Zalo() {
   const [isLoadding, setIsLoadding] = useState(true);
   const [selectedConversationId, setSelectedConversationId] = useState(null);
   const navigate = useNavigate();
+  const { revokeWebPush, clearState: clearNotificationState } = useNotifications();
 
   // Call states (1-1)
   const [callState, setCallState] = useState("idle");
@@ -47,6 +49,12 @@ export default function Zalo() {
 
   const handleLogout = useCallback(async () => {
     try {
+      await revokeWebPush();
+    } catch (err) {
+      console.warn("Revoke web push token failed:", err);
+    }
+
+    try {
       await userLogout();
     } catch (err) {
       console.error("Logout error:", err);
@@ -60,10 +68,11 @@ export default function Zalo() {
 
     localStorage.setItem("isLogin", "false");
     localStorage.removeItem("userProfile");
+    clearNotificationState();
     setChat(false);
     setUserData(null);
     navigate("/auth/login");
-  }, [navigate, setUserData]);
+  }, [clearNotificationState, navigate, revokeWebPush, setUserData]);
 
   useEffect(() => {
     if (userData?.userId || userData?._id) {

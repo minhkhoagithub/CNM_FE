@@ -109,6 +109,7 @@ function Contact({
   });
   const [allMessActive, setAllMessActive] = useState(true);
   const [showArchived, setShowArchived] = useState(false);
+  const [openConversationMenuId, setOpenConversationMenuId] = useState(null);
   const [conversationSettingsError, setConversationSettingsError] = useState("");
   const [pendingConversationId, setPendingConversationId] = useState(null);
 
@@ -252,6 +253,12 @@ const getSearchItemId = (item) => item?.userId || item?._id || item?.id || null;
       loadFriendOptionsForCreateGroup();
     }
   }, [addUser.group, loadFriendOptionsForCreateGroup]);
+
+  useEffect(() => {
+    const handleDocumentClick = () => setOpenConversationMenuId(null);
+    document.addEventListener("click", handleDocumentClick);
+    return () => document.removeEventListener("click", handleDocumentClick);
+  }, []);
 
   // useEffect(() => {
   //   const local = localStorage.getItem("user-search");
@@ -1719,6 +1726,7 @@ const isCreateGroupSubmitDisabled =
                           }
                           key={index}
                           onClick={() => {
+                            setOpenConversationMenuId(null);
                             handleChangeContact(data);
                           }}
                         >
@@ -1770,20 +1778,41 @@ const isCreateGroupSubmitDisabled =
                               </p>
 
                               <div
+                                className={`conversation-more-menu ${
+                                  String(openConversationMenuId || "") === String(data.id || "")
+                                    ? "open"
+                                    : ""
+                                }`}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                 }}
                                 style={{
-                                  display: "none",
                                   flexDirection: "column",
                                   alignItems: "flex-end",
                                 }}
                               >
-                                <IoIosMore className="icon-more-conversation" />
+                                <button
+                                  type="button"
+                                  className="conversation-more-trigger"
+                                  aria-label="Mở tùy chọn hội thoại"
+                                  aria-expanded={
+                                    String(openConversationMenuId || "") === String(data.id || "")
+                                  }
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setOpenConversationMenuId((current) =>
+                                      String(current || "") === String(data.id || "")
+                                        ? null
+                                        : data.id
+                                    );
+                                  }}
+                                >
+                                  <IoIosMore className="icon-more-conversation" />
+                                </button>
                                 <div
                                   className="box-del-conversation"
                                   key={index}
-                                  style={{ width: 150, display: "block", fontSize: 0 }}
+                                  style={{ width: 150, fontSize: 0 }}
                                 >
                                   <p
                                     style={{ fontSize: 13 }}
@@ -1850,7 +1879,10 @@ const isCreateGroupSubmitDisabled =
                         <li
                           className={data?.id === selectedConversationId ? "conversation-active" : ""}
                           key={data?.id || index}
-                          onClick={() => handleChangeContact(data)}
+                          onClick={() => {
+                            setOpenConversationMenuId(null);
+                            handleChangeContact(data);
+                          }}
                         >
                           <div
                             className={`contact-detial-conversation flex ${
