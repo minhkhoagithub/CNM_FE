@@ -2264,9 +2264,27 @@ function ContainerMess({
               return;
             }
 
-            // Prefer canonical upsert when backend sends full conversation payload.
-            if (event.payload?.id || event.payload?.members || event.payload?.type) {
-              upsertConversation(event.payload);
+            const hasCanonicalConversationPayload = Boolean(
+              event.payload?.id ||
+                event.payload?.raw?.id ||
+                event.payload?.members ||
+                event.payload?.type ||
+                event.payload?.name ||
+                event.payload?.displayName ||
+                event.payload?.avatarUrl ||
+                event.payload?.groupAvatarUrl
+            );
+
+            // Prefer canonical upsert when backend sends conversation metadata,
+            // but normalize missing `id` from `conversationId` to avoid dropping updates.
+            if (hasCanonicalConversationPayload) {
+              const normalizedConversationPayload = event.payload?.id
+                ? event.payload
+                : {
+                    ...(event.payload || {}),
+                    id: payloadConversationId,
+                  };
+              upsertConversation(normalizedConversationPayload);
               return;
             }
 

@@ -203,6 +203,7 @@ function MessageInfor({
   const [settingsError, setSettingsError] = useState("");
   const [isSavingCustomName, setIsSavingCustomName] = useState(false);
   const [isSavingGroupName, setIsSavingGroupName] = useState(false);
+  const [isEditingGroupName, setIsEditingGroupName] = useState(false);
   const [isSavingAvatar, setIsSavingAvatar] = useState(false);
   const [isUploadingAvatarFile, setIsUploadingAvatarFile] = useState(false);
   const groupAvatarFileInputRef = useRef(null);
@@ -279,8 +280,9 @@ function MessageInfor({
   );
   const currentConversationBackgroundImageUrl =
     activeConversation?.backgroundImageUrl || "";
-  const isGroupConversation = activeConversation?.type === "group";
-  const isPrivateConversation = activeConversation?.type === "private";
+  const normalizedConversationType = String(activeConversation?.type || "").toLowerCase();
+  const isGroupConversation = normalizedConversationType === "group";
+  const isPrivateConversation = normalizedConversationType === "private";
   const peerUserId = isPrivateConversation ? activeConversation?.peerUserId || null : null;
 
   useEffect(() => {
@@ -479,12 +481,18 @@ function MessageInfor({
   ]);
 
   useEffect(() => {
-    setGroupNameDraft(activeConversation?.name || activeConversation?.displayName || "");
     setCustomNameDraft(activeConversation?.customName || "");
+    setGroupNameDraft(
+      activeConversation?.trustedDisplayName ||
+        activeConversation?.displayName ||
+        activeConversation?.name ||
+        ""
+    );
     setAvatarUrlDraft(activeConversation?.avatarUrl || activeConversation?.trustedAvatarUrl || "");
     setNotificationLevelDraft(activeConversation?.notificationLevel || "ALL");
     setBackgroundColorDraft(currentConversationBackgroundColorForPicker);
     setIsBackgroundPanelOpen(false);
+    setIsEditingGroupName(false);
     setSettingsError("");
   }, [
     activeConversation?.avatarUrl,
@@ -493,6 +501,7 @@ function MessageInfor({
     activeConversation?.displayName,
     activeConversation?.name,
     activeConversation?.notificationLevel,
+    activeConversation?.trustedDisplayName,
     activeConversation?.trustedAvatarUrl,
     currentConversationBackgroundColorForPicker,
     conversationId,
@@ -1081,14 +1090,22 @@ function MessageInfor({
     }
   };
 
-  const handleSaveGroupName = async () => {
-    if (!conversationId || !canRenameGroup || isSavingGroupName) {
+  const handleSaveGroupName = async ({ closeInlineEditor = false } = {}) => {
+    if (
+      !conversationId ||
+      !isGroupConversation ||
+      !canRenameGroup ||
+      isSavingGroupName
+    ) {
       return;
     }
 
-    const nextGroupName = groupNameDraft.trim();
+    const nextGroupName = String(groupNameDraft || "").trim();
     const currentGroupName = String(
-      activeConversation?.name || activeConversation?.displayName || ""
+      activeConversation?.trustedDisplayName ||
+        activeConversation?.displayName ||
+        activeConversation?.name ||
+        ""
     ).trim();
 
     if (!nextGroupName) {
@@ -1097,6 +1114,9 @@ function MessageInfor({
     }
 
     if (nextGroupName === currentGroupName) {
+      if (closeInlineEditor) {
+        setIsEditingGroupName(false);
+      }
       return;
     }
 
@@ -1107,13 +1127,29 @@ function MessageInfor({
       const response = await renameConversationV1(conversationId, nextGroupName);
       if (response?.id) {
         upsertConversation(response, { source: "group-name-update" });
-      } else {
-        updateConversationById(conversationId, {
-          name: nextGroupName,
-          displayName: nextGroupName,
-        });
       }
+      updateConversationById(conversationId, {
+        name: nextGroupName,
+        displayName: nextGroupName,
+        trustedDisplayName: nextGroupName,
+      });
+
       await refreshConversationsAfterGroupAction(response, "name-update");
+
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          "conversation-rename-sync",
+          JSON.stringify({
+            conversationId,
+            name: nextGroupName,
+            updatedAt: Date.now(),
+          })
+        );
+      }
+
+      if (closeInlineEditor) {
+        setIsEditingGroupName(false);
+      }
     } catch (error) {
       console.error("[WEB GROUP NAME UPDATE]", {
         conversationId,
@@ -1125,6 +1161,10 @@ function MessageInfor({
     } finally {
       setIsSavingGroupName(false);
     }
+  };
+
+  const handleRenameGroupFromHeader = async () => {
+    await handleSaveGroupName({ closeInlineEditor: true });
   };
 
   const handleSaveGroupAvatar = async () => {
@@ -1904,11 +1944,81 @@ function MessageInfor({
               renderAvatarPlaceholder("mess-infor-avatar-infor", 86)
             )}
             <div className="mess-infor-nickname flex">
-              <p>{effectiveDisplayName}</p>
+              {isGroupConversation && isEditingGroupName ? (
+                <input
+                  type="text"
+                  value={groupNameDraft}
+                  onChange={(event) => setGroupNameDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      handleRenameGroupFromHeader();
+                    }
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setIsEditingGroupName(false);
+                    }
+                  }}
+                  autoFocus
+                  style={{
+                    border: "1px solid #d6dbe1",
+                    borderRadius: 6,
+                    padding: "6px 8px",
+                    minWidth: 220,
+                  }}
+                />
+              ) : (
+                <p>{effectiveDisplayName}</p>
+              )}
               {activeConversation?.id !== "AI_ASSISTANT" && (
-                <CiEdit style={{ fontSize: "23px", cursor: "pointer" }} />
+                <CiEdit
+                  style={{
+                    fontSize: "23px",
+                    cursor: isGroupConversation ? "pointer" : "not-allowed",
+                    opacity: isGroupConversation ? 1 : 0.5,
+                  }}
+                  onClick={() => {
+                    if (!isGroupConversation) {
+                      return;
+                    }
+                    setSettingsError("");
+                    setGroupNameDraft(
+                      activeConversation?.trustedDisplayName ||
+                        activeConversation?.displayName ||
+                        activeConversation?.name ||
+                        ""
+                    );
+                    setIsEditingGroupName(true);
+                  }}
+                />
               )}
             </div>
+            {isGroupConversation && isEditingGroupName ? (
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button
+                  type="button"
+                  onClick={handleRenameGroupFromHeader}
+                  disabled={isSavingGroupName || !String(groupNameDraft || "").trim()}
+                >
+                  {isSavingGroupName ? "Đang lưu..." : "Lưu"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingGroupName(false);
+                    setGroupNameDraft(
+                      activeConversation?.trustedDisplayName ||
+                        activeConversation?.displayName ||
+                        activeConversation?.name ||
+                        ""
+                    );
+                  }}
+                  disabled={isSavingGroupName}
+                >
+                  Hủy
+                </button>
+              </div>
+            ) : null}
             {activeConversation?.id !== "AI_ASSISTANT" && (
               <div className="mess-infor-status-chips">
                 {activeConversation?.pinned ? (

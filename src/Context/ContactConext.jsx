@@ -14,6 +14,7 @@ import {
   openOrCreatePrivateConversationV1,
 } from "../services/chat/conversationApi";
 import chatRealtimeService from "../services/chat/chatRealtimeService";
+import { setChatUserId } from "../services/chat/chatSession";
 import {
   hasConversationMemberPayload,
   mapConversationList,
@@ -115,6 +116,51 @@ const logConversationState = (label, payload) => {
   }
 
   console.debug(`[conversation-state] ${label}`, payload);
+};
+
+const unwrapConversationRealtimePayload = (event) => {
+  if (!event || typeof event !== "object") {
+    return { eventType: "", payload: null };
+  }
+
+  const extractEnvelopePayload = (value) => {
+    let current = value;
+    let depth = 0;
+    while (
+      current &&
+      typeof current === "object" &&
+      current.payload &&
+      typeof current.payload === "object" &&
+      depth < 4
+    ) {
+      const currentKeys = Object.keys(current);
+      const looksLikeEnvelope =
+        currentKeys.length <= 3 &&
+        (currentKeys.includes("type") ||
+          currentKeys.includes("payload") ||
+          currentKeys.includes("timestamp"));
+      if (!looksLikeEnvelope) {
+        break;
+      }
+      current = current.payload;
+      depth += 1;
+    }
+    return current;
+  };
+
+  const eventType = String(event?.type || event?.payload?.type || "").toUpperCase();
+  const unwrapped = extractEnvelopePayload(event);
+  const dataPayload =
+    unwrapped?.data && typeof unwrapped.data === "object" ? unwrapped.data : unwrapped;
+  const payload =
+    dataPayload?.id || !dataPayload?.conversationId
+      ? dataPayload
+      : {
+          ...dataPayload,
+          id: dataPayload.conversationId,
+        };
+
+  return { eventType, payload };
 };
 
 export const ContactProvider = ({ children }) => {
@@ -303,53 +349,77 @@ export const ContactProvider = ({ children }) => {
   }, [updateConversationById]);
 
   const handleConversationRealtimeEvent = useCallback((event) => {
-    if (!event || event.type !== "CONVERSATION_UPDATED") {
+    if (!event) {
       return;
     }
 
-    if (event.payload?.status) {
+    const { eventType, payload } = unwrapConversationRealtimePayload(event);
+    const hasConversationMetadata = Boolean(
+      payload &&
+        (payload.id ||
+          payload.conversationId ||
+          payload.name ||
+          payload.displayName ||
+          payload.avatarUrl ||
+          payload.groupAvatarUrl ||
+          payload.members ||
+          payload.status)
+    );
+    const isConversationUpdatedEvent =
+      eventType === "CONVERSATION_UPDATED" || hasConversationMetadata;
+
+    if (!isConversationUpdatedEvent) {
+      return;
+    }
+
+    const normalizedStatus = String(payload?.status || "").toUpperCase();
+    const isConversationStatusEvent =
+      Boolean(payload?.conversationId) &&
+      (normalizedStatus === "SEEN" || normalizedStatus === "DELETED");
+
+    if (isConversationStatusEvent) {
       console.log("[WEB PHASE2 UNREAD SYNC]", {
         kind: "status",
-        conversationId: event.payload.conversationId,
-        status: event.payload.status,
+        conversationId: payload.conversationId,
+        status: payload.status,
       });
-      applyConversationStatusPayload(event.payload);
+      applyConversationStatusPayload(payload);
       return;
     }
 
-    if (String(event.payload?.type || "").toUpperCase() === "GROUP") {
+    if (String(payload?.type || "").toUpperCase() === "GROUP") {
       console.log("[GROUP RENAME SYNC]", {
         source: "web-conversation-updated",
-        conversationId: event.payload?.id,
-        displayName: event.payload?.displayName,
-        name: event.payload?.name,
+        conversationId: payload?.id,
+        displayName: payload?.displayName,
+        name: payload?.name,
       });
       console.log("[WEB PHASE2 CANONICAL UPSERT]", {
         kind: "conversation",
-        conversationId: event.payload?.id,
-        hasMembers: hasConversationMemberPayload(event.payload),
-        memberCount: Array.isArray(event.payload?.members)
-          ? event.payload.members.length
+        conversationId: payload?.id,
+        hasMembers: hasConversationMemberPayload(payload),
+        memberCount: Array.isArray(payload?.members)
+          ? payload.members.length
           : 0,
-        unreadCount: Number(event.payload?.unreadCount ?? 0),
-        payloadShape: hasConversationMemberPayload(event.payload)
+        unreadCount: Number(payload?.unreadCount ?? 0),
+        payloadShape: hasConversationMemberPayload(payload)
           ? "member-payload"
           : "partial-metadata",
       });
     }
 
-    if (event.payload?.id || event.payload?.conversationId) {
+    if (payload?.id || payload?.conversationId) {
       console.log("[WEB PHASE2 UNREAD SYNC]", {
         source: "conversation-refresh",
-        conversationId: event.payload?.id || event.payload?.conversationId,
-        unreadCount: Number(event.payload?.unreadCount ?? 0),
+        conversationId: payload?.id || payload?.conversationId,
+        unreadCount: Number(payload?.unreadCount ?? 0),
         hasUnreadField:
-          Object.prototype.hasOwnProperty.call(event.payload || {}, "unreadCount") ||
-          Object.prototype.hasOwnProperty.call(event.payload?.raw || {}, "unreadCount"),
+          Object.prototype.hasOwnProperty.call(payload || {}, "unreadCount") ||
+          Object.prototype.hasOwnProperty.call(payload?.raw || {}, "unreadCount"),
       });
     }
 
-    upsertNormalizedConversation(event.payload, { source: "realtime" });
+    upsertNormalizedConversation(payload, { source: "realtime" });
   }, [applyConversationStatusPayload, upsertNormalizedConversation]);
 
   const fetchConversation = useCallback(
@@ -432,13 +502,27 @@ export const ContactProvider = ({ children }) => {
       chatRealtimeService.disconnect();
       return undefined;
     }
+    setChatUserId(currentUserId);
 
     const subscriptionKey = `chat:user:${currentUserId}:conversations`;
     chatRealtimeService
       .subscribe(
         subscriptionKey,
         `/topic/users/${currentUserId}/conversations`,
-        handleConversationRealtimeEvent
+        (event, rawMessage) => {
+          if (isDevelopmentMode) {
+            console.debug("[conversation-realtime/raw]", {
+              userId: currentUserId,
+              destination: `/topic/users/${currentUserId}/conversations`,
+              eventType: event?.type || null,
+              hasPayload: Boolean(event?.payload),
+              payloadKeys:
+                event && typeof event === "object" ? Object.keys(event) : [],
+              rawBodyLength: rawMessage?.body ? String(rawMessage.body).length : 0,
+            });
+          }
+          handleConversationRealtimeEvent(event);
+        }
       )
       .catch((error) => {
         console.error("Failed to subscribe to conversation realtime updates:", error);
@@ -448,6 +532,80 @@ export const ContactProvider = ({ children }) => {
       chatRealtimeService.unsubscribe(subscriptionKey);
     };
   }, [handleConversationRealtimeEvent, userData?._id, userData?.userId]);
+
+  useEffect(() => {
+    const currentUserId = userData?.userId || userData?._id;
+    const conversationId = selectedConversationId;
+    if (!currentUserId || !conversationId) {
+      return undefined;
+    }
+    setChatUserId(currentUserId);
+
+    const subscriptionKey = `chat:conversation:${conversationId}:conversations`;
+    chatRealtimeService
+      .subscribe(
+        subscriptionKey,
+        `/topic/conversations/${conversationId}`,
+        (event, rawMessage) => {
+          if (isDevelopmentMode) {
+            console.debug("[conversation-realtime/raw]", {
+              userId: currentUserId,
+              destination: `/topic/conversations/${conversationId}`,
+              eventType: event?.type || null,
+              hasPayload: Boolean(event?.payload),
+              payloadKeys:
+                event && typeof event === "object" ? Object.keys(event) : [],
+              rawBodyLength: rawMessage?.body ? String(rawMessage.body).length : 0,
+            });
+          }
+          handleConversationRealtimeEvent(event);
+        }
+      )
+      .catch((error) => {
+        console.error("Failed to subscribe to room conversation realtime updates:", error);
+      });
+
+    return () => {
+      chatRealtimeService.unsubscribe(subscriptionKey);
+    };
+  }, [
+    handleConversationRealtimeEvent,
+    selectedConversationId,
+    userData?._id,
+    userData?.userId,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleStorageSync = (event) => {
+      if (event.key !== "conversation-rename-sync" || !event.newValue) {
+        return;
+      }
+
+      try {
+        const payload = JSON.parse(event.newValue);
+        const conversationId = payload?.conversationId;
+        const nextName = String(payload?.name || "").trim();
+        if (!conversationId || !nextName) {
+          return;
+        }
+
+        updateConversationById(conversationId, {
+          name: nextName,
+          displayName: nextName,
+          trustedDisplayName: nextName,
+        });
+      } catch {}
+    };
+
+    window.addEventListener("storage", handleStorageSync);
+    return () => {
+      window.removeEventListener("storage", handleStorageSync);
+    };
+  }, [updateConversationById]);
 
   const normalizedConversations = conversationLists[ACTIVE_CONVERSATION_SCOPE];
   const archivedConversations = conversationLists[ARCHIVED_CONVERSATION_SCOPE];

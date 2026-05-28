@@ -11,7 +11,7 @@ const resolveWebSocketUrl = () => {
   const normalizedApiBaseUrl = apiBaseUrl.replace(/\/$/, "");
   const origin = normalizedApiBaseUrl.replace(/\/api\/v\d+$/, "");
 
-  return `${origin}/auth/ws`;
+  return `${origin}/ws`;
 };
 
 class WebSocketService {
@@ -37,7 +37,7 @@ class WebSocketService {
 
     this.connectionPromise = new Promise((resolve, reject) => {
       try {
-        console.log("[WebSocket] Connecting to /auth/ws...");
+        console.log("[WebSocket] Connecting to /ws...");
 
         const socket = new SockJS(resolveWebSocketUrl());
         const client = Stomp.over(socket);
@@ -52,7 +52,7 @@ class WebSocketService {
               return;
             }
 
-            console.log("[WebSocket] Connected to /auth/ws");
+            console.log("[WebSocket] Connected to /ws");
             console.log("[WebSocket] Frame:", frame);
             this.isConnected = true;
             this.connectionPromise = null;
