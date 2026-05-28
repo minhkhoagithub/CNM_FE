@@ -1,15 +1,24 @@
 .contact-container-contact {
   height: 100vh;
-  min-width: 350px;
+  width: 100%;
+  min-width: 0;
   border-right: 1px solid rgb(209, 209, 209);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .contact-contact-search {
   border-bottom: 1px solid rgb(202, 199, 200);
+  flex-shrink: 0;
+  overflow: hidden;
 }
 .contact-group-search {
   background-color: #eaedf0;
   height: 30px;
   width: 250px;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: calc(100% - 72px);
   margin: 15px;
   margin-right: 5px;
   border-radius: 5px;
@@ -24,7 +33,8 @@
 }
 .contact-group-search input {
   font-size: 14px;
-  width: 200px;
+  width: 100%;
+  min-width: 0;
   border: none;
   margin: 5px;
   background-color: #eaedf0;
@@ -147,7 +157,9 @@
 
 .contact-listConversation {
   overflow-y: auto;
-  height: 600px;
+  overflow-x: hidden;
+  height: 100%;
+  min-width: 0;
   background: linear-gradient(180deg, #f8fbff 0%, #ffffff 8%);
 }
 .contact-listConversation::-webkit-scrollbar {
@@ -166,8 +178,10 @@
 .contact-detial-conversation {
   padding: 12px 8px;
   justify-content: space-between;
+  gap: 10px;
   border-left: 3px solid transparent;
   transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  min-width: 0;
 }
 .list-contact li:hover,
 .contact-listConversation li:hover {
@@ -218,6 +232,9 @@
 .contact-overview-mess {
   margin: auto;
   display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 .contact-overview-mess h3 {
   margin: 0;
@@ -226,13 +243,22 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  max-width: 225px;
+  max-width: 100%;
+  min-width: 0;
+}
+.contact-overview-mess h3 > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .contact-overview-mess p {
   font-size: 14px;
   color: #7589a3;
   font-weight: 400;
-  width: 215px;
+  width: auto;
+  max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -266,6 +292,7 @@
   align-items: end;
   position: relative;
   min-width: 72px;
+  flex: 0 0 auto;
 }
 .contact-last-onl .wrap-count-seen {
   display: flex !important;
@@ -619,4 +646,135 @@
 .box-del-conversation:hover {
   background-color: white;
   box-shadow: 0 16px 32px rgba(65, 77, 89, 0.14);
+}
+.contact-wrap-conversation {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.contact-listConversation ul,
+.contact-listConversation li {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.contact-listConversation li {
+  overflow: hidden;
+}
+
+.contact-listConversation .contact-detial-conversation > .flex {
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+}
+
+.contact-listConversation .contact-avatar-friend {
+  flex: 0 0 auto;
+}
+
+.contact-listConversation .contact-overview-mess,
+.contact-listConversation .contact-last-onl {
+  padding: 0;
+}
+
+.contact-conversation-flags {
+  flex-shrink: 0;
+}
+
+@media (max-width: 1366px) {
+  .contact-container-contact {
+    min-width: 0;
+  }
+
+  .contact-overview-mess h3 {
+    font-size: 15px;
+  }
+
+  .contact-overview-mess p {
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .contact-container-contact {
+    height: 100vh;
+  }
+
+  .contact-group-search {
+    width: auto;
+    margin-left: 10px;
+  }
+
+  .contact-list-status-row {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .contact-detial-conversation {
+    padding: 10px 6px;
+  }
+}
+
+@media (max-width: 768px) {
+  .contact-contact-search > .flex {
+    gap: 6px;
+    padding-right: 8px;
+  }
+
+  .contact-group-search {
+    margin: 10px;
+    margin-right: 0;
+    max-width: none;
+  }
+
+  .contact-group-add-user {
+    flex-shrink: 0;
+  }
+
+  .contact-listConversation {
+    height: auto;
+  }
+
+  .contact-avatar-friend img {
+    width: 48px;
+    height: 48px;
+  }
+
+  .contact-last-onl {
+    min-width: 60px;
+  }
+
+  .icon-more-conversation {
+    right: 0;
+  }
+
+  .box-del-conversation {
+    right: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .contact-group-search {
+    height: 34px;
+  }
+
+  .contact-left-filter p,
+  .contact-right-filter p {
+    font-size: 13px;
+  }
+
+  .contact-overview-mess h3 {
+    font-size: 14px;
+  }
+
+  .contact-overview-mess p {
+    font-size: 12px;
+  }
+
+  .contact-conversation-pill {
+    font-size: 9px;
+    padding: 3px 5px;
+  }
 }

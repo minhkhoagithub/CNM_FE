@@ -17,7 +17,12 @@ import { IoVideocamOutline, IoCameraOutline, IoCallOutline, IoBarChartOutline } 
 import { AiOutlineLike, AiOutlinePicture, AiOutlineSend } from "react-icons/ai";
 import { IoMdClose, IoMdAttach,IoMdMore  } from "react-icons/io";
 import { MdOutlineContactMail } from "react-icons/md";
-import { RiCalendarTodoFill, RiEmojiStickerLine } from "react-icons/ri";
+import {
+  RiCalendarTodoFill,
+  RiEmojiStickerLine,
+  RiSidebarFoldLine,
+  RiSidebarUnfoldLine,
+} from "react-icons/ri";
 import { RxDotFilled } from "react-icons/rx";
 import {
   addOrUpdateReactionV1,
@@ -57,6 +62,10 @@ import {
   upsertMessageItem,
 } from "../../mappers/messageMapper";
 import { searchUsersV2, sendFriendRequestV2 } from "../../util/api";
+import {
+  USER_BLOCK_STATUS_CHANGED_EVENT,
+  isUserBlockedByCurrentUser,
+} from "../../services/userBlockApi";
 
 const REACTION_OPTIONS = ["LIKE", "LOVE", "WOW", "HAHA"];
 const POLL_CREATE_PREFIX = "[[POLL_CREATE]]";
@@ -65,6 +74,9 @@ const POLL_ADD_OPTION_PREFIX = "[[POLL_ADD_OPTION]]";
 const TYPING_DEBOUNCE_MS = 400;
 const TYPING_IDLE_MS = 900;
 const REMOTE_TYPING_TIMEOUT_MS = 3000;
+const BLOCK_STATE_LOADING_MESSAGE = "Đang kiểm tra trạng thái chặn...";
+const PRIVATE_BLOCKED_COMPOSER_MESSAGE =
+  "Bạn đã chặn người dùng này. Bỏ chặn trong Thông tin hội thoại để trò chuyện lại.";
 const PRIVATE_CONVERSATION_LABEL = "Người dùng";
 const GROUP_CONVERSATION_LABEL = "Nhóm";
 const REACTION_LABELS = {
@@ -833,7 +845,12 @@ const renderMentionAwareText = (text, { enabled, messageId, conversationId } = {
 };
 
 
-function ContainerMess({ contactData, onOpenConversationImageGallery }) {
+function ContainerMess({
+  contactData,
+  onOpenConversationImageGallery,
+  isInfoPanelVisible = true,
+  onToggleInfoPanel,
+}) {
   const scrollRef = useRef(null);
   const messageScrollContainerRef = useRef(null);
   const inputMessage = useRef(null);
@@ -854,6 +871,8 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   const [activeIconSend, setActiveIconSend] = useState(false);
   const [draftText, setDraftText] = useState("");
   const [mentionState, setMentionState] = useState(() => closeMentionState());
+  const [isPeerBlocked, setIsPeerBlocked] = useState(false);
+  const [isPeerBlockStateLoading, setIsPeerBlockStateLoading] = useState(false);
   const [actionError, setActionError] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState(null);
@@ -867,6 +886,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   const [isForwarding, setIsForwarding] = useState(false);
   const [forwardNotice, setForwardNotice] = useState("");
   const [openMessageMenuId, setOpenMessageMenuId] = useState(null);
+  const [openMessageMenuPlacement, setOpenMessageMenuPlacement] = useState("down");
   const [pinningMessageId, setPinningMessageId] = useState(null);
   const [isPinnedListExpanded, setIsPinnedListExpanded] = useState(false);
   const [isContextMode, setIsContextMode] = useState(false);
@@ -898,6 +918,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   const [selectedContactProfile, setSelectedContactProfile] = useState(null);
   const [isSendingFriendRequest, setIsSendingFriendRequest] = useState(false);
   const forwardNoticeTimeoutRef = useRef(null);
+  const messageActionMenuRefs = useRef(new Map());
   const { userData } = useContext(UserContext);
   const {
     conversations,
@@ -925,6 +946,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     return null;
   }, [contactData, currentConversationNormalized, selectedConversationId]);
   const isConversationDisbanded = Boolean(activeConversation?.isDisbanded);
+  const isPrivateConversation = activeConversation?.type === "private";
 
   // Listener cho sự kiện mở tóm tắt AI từ Sidebar
   useEffect(() => {
@@ -946,6 +968,14 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   }, [currentUserId]);
 
   const backendConversationId = activeConversation?.id || null;
+  const peerUserId = isPrivateConversation ? activeConversation?.peerUserId || null : null;
+  const canManagePrivateBlock =
+    isPrivateConversation &&
+    backendConversationId !== "AI_ASSISTANT" &&
+    Boolean(peerUserId);
+  const isComposerBlocked = canManagePrivateBlock && isPeerBlocked;
+  const isComposerInteractionLocked =
+    isConversationDisbanded || isComposerBlocked || isPeerBlockStateLoading;
   const conversationName =
     activeConversation?.displayName ||
     activeConversation?.trustedDisplayName ||
@@ -1013,6 +1043,30 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     });
   }, [availableForwardConversations, forwardSearchQuery]);
   const currentUserAvatar = userData?.avatarUrl || userData?.avatar || null;
+  const shouldSuppressComposerBlockError =
+    isComposerBlocked && actionError === PRIVATE_BLOCKED_COMPOSER_MESSAGE;
+
+  const getComposerLockMessage = useCallback(() => {
+    if (isPeerBlockStateLoading) {
+      return BLOCK_STATE_LOADING_MESSAGE;
+    }
+
+    if (isComposerBlocked) {
+      return PRIVATE_BLOCKED_COMPOSER_MESSAGE;
+    }
+
+    return "";
+  }, [isComposerBlocked, isPeerBlockStateLoading]);
+
+  const guardComposerInteraction = useCallback(() => {
+    const lockMessage = getComposerLockMessage();
+    if (!lockMessage) {
+      return true;
+    }
+
+    setActionError(lockMessage);
+    return false;
+  }, [getComposerLockMessage]);
   const conversationMembers = useMemo(
     () => (Array.isArray(activeConversation?.members) ? activeConversation.members : []),
     [activeConversation?.members]
@@ -1228,13 +1282,60 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   );
   const handleCloseMessageMenu = useCallback(() => {
     setOpenMessageMenuId(null);
+    setOpenMessageMenuPlacement("down");
   }, []);
 
-  const handleToggleMessageMenu = useCallback((messageId) => {
+  const resolveMessageMenuPlacement = useCallback(
+    (anchorElement, dropdownHeight = 220) => {
+      const containerElement = messageScrollContainerRef.current;
+      if (!anchorElement || !containerElement) {
+        return "down";
+      }
+
+      const containerRect = containerElement.getBoundingClientRect();
+      const anchorRect = anchorElement.getBoundingClientRect();
+      const requiredHeight = Math.max(Number(dropdownHeight) || 0, 160) + 12;
+      const spaceBelow = containerRect.bottom - anchorRect.bottom;
+      const spaceAbove = anchorRect.top - containerRect.top;
+
+      if (spaceBelow >= requiredHeight) {
+        return "down";
+      }
+
+      if (spaceAbove >= requiredHeight) {
+        return "up";
+      }
+
+      return spaceAbove > spaceBelow ? "up" : "down";
+    },
+    []
+  );
+
+  const setMessageActionMenuRef = useCallback((messageId, node) => {
+    const normalizedId = String(messageId || "");
+    if (!normalizedId) {
+      return;
+    }
+
+    if (node) {
+      messageActionMenuRefs.current.set(normalizedId, node);
+      return;
+    }
+
+    messageActionMenuRefs.current.delete(normalizedId);
+  }, []);
+
+  const handleToggleMessageMenu = useCallback((messageId, anchorElement) => {
     setOpenMessageMenuId((currentValue) =>
       String(currentValue) === String(messageId) ? null : messageId
     );
-  }, []);
+    if (String(openMessageMenuId) === String(messageId)) {
+      setOpenMessageMenuPlacement("down");
+      return;
+    }
+
+    setOpenMessageMenuPlacement(resolveMessageMenuPlacement(anchorElement));
+  }, [openMessageMenuId, resolveMessageMenuPlacement]);
 
 
   const buildReplyTarget = useCallback(
@@ -1433,6 +1534,10 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
         return;
       }
 
+      if ((isComposerBlocked || isPeerBlockStateLoading) && isTyping) {
+        return;
+      }
+
       if (typingStateRef.current === isTyping) {
         return;
       }
@@ -1448,7 +1553,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
         await sendTypingState(backendConversationId, isTyping);
       } catch {}
     },
-    [backendConversationId, isConversationDisbanded]
+    [backendConversationId, isComposerBlocked, isConversationDisbanded, isPeerBlockStateLoading]
   );
 
   const captureComposerSelection = useCallback(() => {
@@ -1514,6 +1619,19 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       return;
     }
 
+    if (isComposerBlocked || isPeerBlockStateLoading) {
+      if (typingDebounceTimeoutRef.current) {
+        clearTimeout(typingDebounceTimeoutRef.current);
+      }
+
+      if (typingIdleTimeoutRef.current) {
+        clearTimeout(typingIdleTimeoutRef.current);
+      }
+
+      void pushTypingState(false);
+      return;
+    }
+
     const shouldSendTyping = Boolean(currentText);
 
     if (typingDebounceTimeoutRef.current) {
@@ -1537,10 +1655,21 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
         pushTypingState(false);
       }, TYPING_IDLE_MS);
     }
-  }, [activeConversation?.type, backendConversationId, isConversationDisbanded, pushTypingState]);
+  }, [
+    activeConversation?.type,
+    backendConversationId,
+    isComposerBlocked,
+    isConversationDisbanded,
+    isPeerBlockStateLoading,
+    pushTypingState,
+  ]);
 
   const insertEmojiIntoComposer = useCallback(
     (emoji) => {
+      if (!guardComposerInteraction()) {
+        return;
+      }
+
       const composer = inputMessage.current;
       if (!composer || !emoji) {
         return;
@@ -1585,7 +1714,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
         composer.focus();
       });
     },
-    [backendConversationId, restoreComposerSelection, syncComposerState]
+    [backendConversationId, guardComposerInteraction, restoreComposerSelection, syncComposerState]
   );
 
   const resetComposer = useCallback(() => {
@@ -1715,8 +1844,111 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   }, [selectedAttachments]);
 
   useEffect(() => {
-    setActiveIconSend(Boolean(draftText || selectedAttachments.length > 0));
-  }, [draftText, selectedAttachments.length]);
+    setActiveIconSend(
+      !isComposerInteractionLocked && Boolean(draftText || selectedAttachments.length > 0)
+    );
+  }, [draftText, isComposerInteractionLocked, selectedAttachments.length]);
+
+  useEffect(() => {
+    let shouldIgnore = false;
+
+    if (!canManagePrivateBlock) {
+      setIsPeerBlocked(false);
+      setIsPeerBlockStateLoading(false);
+      return () => {
+        shouldIgnore = true;
+      };
+    }
+
+    setIsPeerBlockStateLoading(true);
+
+    const loadBlockState = async () => {
+      try {
+        const nextBlockedState = await isUserBlockedByCurrentUser(peerUserId);
+        if (!shouldIgnore) {
+          setIsPeerBlocked(nextBlockedState);
+        }
+      } catch (error) {
+        console.error("Failed to load web block state for composer:", error);
+        if (!shouldIgnore) {
+          setIsPeerBlocked(false);
+        }
+      } finally {
+        if (!shouldIgnore) {
+          setIsPeerBlockStateLoading(false);
+        }
+      }
+    };
+
+    void loadBlockState();
+
+    return () => {
+      shouldIgnore = true;
+    };
+  }, [canManagePrivateBlock, peerUserId]);
+
+  useEffect(() => {
+    if (!canManagePrivateBlock || typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleBlockStatusChanged = (event) => {
+      const detail = event?.detail || {};
+      if (String(detail.blockedUserId || "") !== String(peerUserId || "")) {
+        return;
+      }
+
+      setIsPeerBlocked(Boolean(detail.isBlocked));
+      setIsPeerBlockStateLoading(false);
+    };
+
+    window.addEventListener(
+      USER_BLOCK_STATUS_CHANGED_EVENT,
+      handleBlockStatusChanged
+    );
+
+    return () => {
+      window.removeEventListener(
+        USER_BLOCK_STATUS_CHANGED_EVENT,
+        handleBlockStatusChanged
+      );
+    };
+  }, [canManagePrivateBlock, peerUserId]);
+
+  useEffect(() => {
+    if (!isComposerInteractionLocked) {
+      return;
+    }
+
+    if (typingDebounceTimeoutRef.current) {
+      clearTimeout(typingDebounceTimeoutRef.current);
+    }
+
+    if (typingIdleTimeoutRef.current) {
+      clearTimeout(typingIdleTimeoutRef.current);
+    }
+
+    setMenuControl((prevState) =>
+      prevState.tableIcon ? { ...prevState, tableIcon: false } : prevState
+    );
+    setMentionState(closeMentionState());
+    composerSelectionRef.current = null;
+    inputMessage.current?.blur();
+    void pushTypingState(false);
+  }, [isComposerInteractionLocked, pushTypingState]);
+
+  useEffect(() => {
+    if (isPeerBlockStateLoading || isComposerBlocked) {
+      return;
+    }
+
+    if (
+      actionError === PRIVATE_BLOCKED_COMPOSER_MESSAGE ||
+      actionError === BLOCK_STATE_LOADING_MESSAGE
+    ) {
+      setActionError("");
+    }
+  }, [actionError, isComposerBlocked, isPeerBlockStateLoading]);
 
   useEffect(() => {
     console.log("[WEB TYPING STATE]", {
@@ -1728,6 +1960,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     const handleDocumentClick = (event) => {
       if (!event.target.closest(".message-actions-menu")) {
         setOpenMessageMenuId(null);
+        setOpenMessageMenuPlacement("down");
       }
     };
 
@@ -1737,6 +1970,43 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
       document.removeEventListener("mousedown", handleDocumentClick);
     };
   }, []);
+
+  useEffect(() => {
+    if (!openMessageMenuId) {
+      return undefined;
+    }
+
+    const updatePlacement = () => {
+      const menuContainer = messageActionMenuRefs.current.get(
+        String(openMessageMenuId)
+      );
+      if (!menuContainer) {
+        return;
+      }
+
+      const triggerElement = menuContainer.querySelector(
+        ".message-action-menu-trigger"
+      );
+      const dropdownElement = menuContainer.querySelector(
+        ".message-actions-dropdown"
+      );
+
+      setOpenMessageMenuPlacement(
+        resolveMessageMenuPlacement(
+          triggerElement || menuContainer,
+          dropdownElement?.offsetHeight || 220
+        )
+      );
+    };
+
+    const frameId = window.requestAnimationFrame(updatePlacement);
+    window.addEventListener("resize", updatePlacement);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener("resize", updatePlacement);
+    };
+  }, [openMessageMenuId, resolveMessageMenuPlacement]);
 
 
   useEffect(() => {
@@ -1776,6 +2046,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
     setTypingUsers([]);
     setReplyingToMessage(null);
     setOpenMessageMenuId(null);
+    setOpenMessageMenuPlacement("down");
     setMentionState(closeMentionState());
     setIsContextMode(false);
     setContextLatestMessageId(null);
@@ -2128,6 +2399,10 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   }, [backendConversationId, updateConversationById]);
 
   const handleChangeMenuControl = (event) => {
+    if (!guardComposerInteraction()) {
+      return;
+    }
+
     const name = event.target.getAttribute("name");
     if (!name) {
       return;
@@ -2140,18 +2415,35 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   };
 
   const handleGetIcon = (value) => {
+    if (!guardComposerInteraction()) {
+      return;
+    }
+
     insertEmojiIntoComposer(value);
   };
 
   const handleImagePickerOpen = () => {
+    if (!guardComposerInteraction()) {
+      return;
+    }
+
     imageInputRef.current?.click();
   };
 
   const handleFilePickerOpen = () => {
+    if (!guardComposerInteraction()) {
+      return;
+    }
+
     fileInputRef.current?.click();
   };
 
   const handleAttachmentPick = (event) => {
+    if (!guardComposerInteraction()) {
+      event.target.value = "";
+      return;
+    }
+
     const files = Array.from(event.target.files || []);
     if (!files.length) {
       return;
@@ -2294,6 +2586,10 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
 
   const handleSendMess = async (event, flag = false) => {
     event?.preventDefault?.();
+
+    if (!guardComposerInteraction()) {
+      return;
+    }
     const rawComposerText = flag ? "👍" : inputMessage.current?.textContent || "";
     const messageText = rawComposerText.trim();
     const containsEmoji = EMOJI_PATTERN.test(rawComposerText);
@@ -2461,6 +2757,11 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
   );
 
   const handleButtonSendMess = (event) => {
+    if ((event.key === "Enter" || event.key === "Escape") && !guardComposerInteraction()) {
+      event.preventDefault();
+      return;
+    }
+
     if (mentionState.open && event.key === "Escape") {
       event.preventDefault();
       setMentionState(closeMentionState());
@@ -3556,6 +3857,12 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                  archivedConversations.find(c => c.id === backendConversationId);
     return Number(conv?.unreadCount || 0);
   };
+  const InfoPanelToggleIcon = isInfoPanelVisible
+    ? RiSidebarFoldLine
+    : RiSidebarUnfoldLine;
+  const infoPanelToggleLabel = isInfoPanelVisible
+    ? "Ẩn thông tin hội thoại"
+    : "Hiện thông tin hội thoại";
 
   return (
     <div className="container-containermess" onClick={handleSeenMess}>
@@ -3588,6 +3895,20 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
           </div>
         </div>
         <div className="group-choice flex">
+          {typeof onToggleInfoPanel === "function" ? (
+            <button
+              type="button"
+              className={`message-info-toggle ${
+                isInfoPanelVisible ? "active" : ""
+              }`}
+              onClick={onToggleInfoPanel}
+              title={infoPanelToggleLabel}
+              aria-label={infoPanelToggleLabel}
+              aria-pressed={isInfoPanelVisible}
+            >
+              <InfoPanelToggleIcon />
+            </button>
+          ) : null}
           {getUnreadCount() >= 5 && (
             <div 
               className="icon-header ai-summary-btn" 
@@ -4110,6 +4431,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                         <div
                           className="message-actions-menu"
                           data-open={String(openMessageMenuId) === String(item.id)}
+                          ref={(node) => setMessageActionMenuRef(item.id, node)}
                         >
                           <button
                             className="message-action-menu-trigger"
@@ -4118,14 +4440,20 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                             aria-expanded={String(openMessageMenuId) === String(item.id)}
                             onClick={(event) => {
                               event.stopPropagation();
-                              handleToggleMessageMenu(item.id);
+                              handleToggleMessageMenu(item.id, event.currentTarget);
                             }}
                           >
                             <IoMdMore />
                           </button>
 
                           {String(openMessageMenuId) === String(item.id) ? (
-                            <div className="message-actions-dropdown">
+                            <div
+                              className={`message-actions-dropdown ${
+                                openMessageMenuPlacement === "up"
+                                  ? "message-actions-dropdown-up"
+                                  : ""
+                              }`}
+                            >
                               <button
                                 className="message-action-menu-item"
                                 type="button"
@@ -4168,7 +4496,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                                     handleStartEditing(item);
                                   }}
                                 >
-                                  Sua
+                                  Sửa
                                 </button>
                               ) : null}
 
@@ -4181,7 +4509,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                                     handleDeleteMessage(item.id);
                                   }}
                                 >
-                                  Thu hoi
+                                  Thu hồi
                                 </button>
                               ) : null}
 
@@ -4193,7 +4521,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                                   handleHideMessage(item.id);
                                 }}
                               >
-                                An
+                                Ẩn
                               </button>
 
                               <button
@@ -4204,7 +4532,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                                   handleRemoveMessageForMe(item.id);
                                 }}
                               >
-                                Xóa cho tôi
+                                Xóa phía tôi
                               </button>
                             </div>
                           ) : null}
@@ -4280,7 +4608,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
           <div className="flex">
             <div className="wrap-set-icon">
               <RiEmojiStickerLine
-                className="icon-header"
+                className={`icon-header ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
                 name="tableIcon"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={handleChangeMenuControl}
@@ -4291,14 +4619,26 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
                 </div>
               ) : null}
             </div>
-            <AiOutlinePicture className="icon-header" onClick={handleImagePickerOpen} />
-            <IoMdAttach className="icon-header" onClick={handleFilePickerOpen} />
-            <IoCameraOutline className="icon-header" />
-            <MdOutlineContactMail className="icon-header" />
+            <AiOutlinePicture
+              className={`icon-header ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
+              onClick={handleImagePickerOpen}
+            />
+            <IoMdAttach
+              className={`icon-header ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
+              onClick={handleFilePickerOpen}
+            />
+            <IoCameraOutline
+              className={`icon-header ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
+            />
+            <MdOutlineContactMail
+              className={`icon-header ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
+            />
             {activeConversation?.type === "group" ? (
               <IoBarChartOutline className="icon-header" onClick={handleOpenPollComposer} />
             ) : null}
-            <RiCalendarTodoFill className="icon-header" />
+            <RiCalendarTodoFill
+              className={`icon-header ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
+            />
           </div>
         </div>
         <form onSubmit={handleSendMess}>
@@ -4318,6 +4658,11 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
             onChange={handleAttachmentPick}
           />
           <div className="chat-input-web">
+            {isComposerBlocked ? (
+              <div className="composer-block-banner">
+                <p>{PRIVATE_BLOCKED_COMPOSER_MESSAGE}</p>
+              </div>
+            ) : null}
             {replyingToMessage ? (
               <div className="composer-reply-banner">
                 <div className="composer-reply-text">
@@ -4392,13 +4737,15 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
             <div
               className={`wrap-input-chat ${
                 selectedAttachments.length > 0 ? "content-chat-height" : ""
+              } ${isComposerInteractionLocked ? "composer-locked" : ""}${
+                isComposerBlocked ? " blocked-composer" : ""
               }`}
               style={{
                 maxHeight: selectedAttachments.length > 0 ? undefined : "170px",
               }}
             >
               <div
-                contentEditable={!isConversationDisbanded}
+                contentEditable={!isComposerInteractionLocked}
                 suppressContentEditableWarning
                 spellCheck="false"
                 className="contentEditable"
@@ -4413,18 +4760,20 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
             </div>
             <div className="flex">
               <AiOutlineSend
-                className={`icon-header icon-send-mess ${activeIconSend ? "activeIconSend" : ""}`}
+                className={`icon-header icon-send-mess ${
+                  activeIconSend ? "activeIconSend" : ""
+                } ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
                 style={{
                   color: "rgb(107 173 223)",
                   backgroundColor: "#dff3ff",
-                  opacity: isSending || isConversationDisbanded ? 0.6 : 1,
+                  opacity: isSending || isComposerInteractionLocked ? 0.6 : 1,
                 }}
-                onClick={isConversationDisbanded ? undefined : handleSendMess}
+                onClick={isComposerInteractionLocked ? undefined : handleSendMess}
               />
               <AiOutlineLike
-                className="icon-header"
+                className={`icon-header ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
                 onClick={
-                  isConversationDisbanded
+                  isComposerInteractionLocked
                     ? undefined
                     : (event) => handleSendMess(event, true)
                 }
@@ -4524,7 +4873,7 @@ function ContainerMess({ contactData, onOpenConversationImageGallery }) {
         ) : null}
         {isSending ? <p className="composer-feedback-hint">Đang gửi tin nhắn...</p> : null}
         {forwardNotice ? <p className="composer-feedback-success">{forwardNotice}</p> : null}
-        {!isForwardPickerOpen && actionError ? (
+        {!isForwardPickerOpen && actionError && !shouldSuppressComposerBlockError ? (
           <p className="composer-feedback-error">{actionError}</p>
         ) : null}
         {isConversationDisbanded ? (

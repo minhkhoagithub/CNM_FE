@@ -1,26 +1,67 @@
 .mess-infor-container-messageinfor {
-  width: 300px;
+  width: 100%;
   height: 100vh;
+  min-width: 0;
   border-left: 1px solid rgb(209, 209, 209);
 }
 .mess-infor-scrool-header {
   overflow-y: auto;
+  overflow-x: hidden;
   max-height: calc(100vh - 70px);
 }
 .mess-infor-title-text {
   background-color: white;
   border-bottom: 1px solid rgb(209, 209, 209);
   height: 70px;
-  justify-content: center;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px 0 18px;
 }
 .mess-infor-title-text h3 {
   margin: 0;
-  text-align: center;
+  text-align: left;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  flex: 1 1 auto;
   cursor: default;
   font-weight: 500;
+}
+.mess-infor-close-button {
+  border: none;
+  border-radius: 10px;
+  padding: 8px 12px;
+  background-color: #eef4ff;
+  color: #0a5bd3;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+.mess-infor-close-button:hover {
+  background-color: #ddeaff;
+  transform: translateY(-1px);
+}
+
+@media (max-width: 1180px) {
+  .mess-infor-container-messageinfor {
+    border-left: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .mess-infor-title-text {
+    padding: 0 12px 0 14px;
+  }
+
+  .mess-infor-title-text h3 {
+    font-size: 17px;
+  }
+
+  .mess-infor-close-button {
+    padding: 7px 10px;
+    font-size: 12px;
+  }
 }
 
 .mess-infor-header-infor {
@@ -107,6 +148,10 @@
 .mess-infor-status-chip.archived {
   color: #597369;
   background-color: #edf5ef;
+}
+.mess-infor-status-chip.blocked {
+  color: #9a2f2f;
+  background-color: #ffe5e5;
 }
 .mess-infor-quick-action {
   padding: 10px 6px;
@@ -261,6 +306,60 @@
   background-color: #f7fafc;
   padding: 10px 12px;
   border-radius: 10px;
+}
+.mess-infor-block-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dfe6ed;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fcfdff 0%, #f7faff 100%);
+}
+.mess-infor-block-card.blocked {
+  border-color: #f1c7c7;
+  background: linear-gradient(180deg, #fff8f8 0%, #fff0f0 100%);
+}
+.mess-infor-block-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.mess-infor-block-copy strong {
+  color: #24384e;
+  font-size: 14px;
+}
+.mess-infor-block-copy span {
+  color: #6b7f95;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.mess-infor-block-button {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 12px;
+  min-width: 116px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+.mess-infor-block-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(39, 56, 78, 0.12);
+}
+.mess-infor-block-button.block {
+  background-color: #d63f3f;
+  color: #fff;
+}
+.mess-infor-block-button.unblock {
+  background-color: #eef3f7;
+  color: #2f4a63;
+}
+.mess-infor-block-button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 .mess-infor-member-list,
 .mess-infor-add-member {

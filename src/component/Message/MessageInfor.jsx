@@ -30,6 +30,12 @@ import {
 import { fetchConversationSharedAttachments } from "./conversationMedia";
 import { getFriendsV2 } from "../../util/api";
 import { uploadAttachmentV1 } from "../../services/chat/messageApi";
+import {
+  USER_BLOCK_STATUS_CHANGED_EVENT,
+  blockUserForCurrentUser,
+  isUserBlockedByCurrentUser,
+  unblockUserForCurrentUser,
+} from "../../services/userBlockApi";
 
 const NOTIFICATION_OPTIONS = [
   { value: "ALL", label: "Tất cả" },
@@ -150,7 +156,11 @@ const formatAttachmentCreatedAt = (value) => {
   });
 };
 
-function MessageInfor({ contactData, onOpenConversationImageGallery }) {
+function MessageInfor({
+  contactData,
+  onOpenConversationImageGallery,
+  onRequestClose,
+}) {
   const [showTool, setShowTool] = useState([]);
   const [customNameDraft, setCustomNameDraft] = useState("");
   const [avatarUrlDraft, setAvatarUrlDraft] = useState("");
@@ -174,6 +184,9 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
   const [backgroundColorDraft, setBackgroundColorDraft] = useState("#f4f7fb");
   const [isUpdatingBackground, setIsUpdatingBackground] = useState(false);
   const backgroundImageInputRef = useRef(null);
+  const [isBlockedByCurrentUser, setIsBlockedByCurrentUser] = useState(false);
+  const [isLoadingBlockState, setIsLoadingBlockState] = useState(false);
+  const [isUpdatingBlockState, setIsUpdatingBlockState] = useState(false);
   const [sharedAttachmentState, setSharedAttachmentState] = useState({
     loading: false,
     error: "",
@@ -232,6 +245,12 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
   const currentConversationBackgroundImageUrl =
     activeConversation?.backgroundImageUrl || "";
   const isGroupConversation = activeConversation?.type === "group";
+  const isPrivateConversation = activeConversation?.type === "private";
+  const peerUserId = isPrivateConversation ? activeConversation?.peerUserId || null : null;
+  const canManagePrivateBlock =
+    isPrivateConversation &&
+    activeConversation?.id !== "AI_ASSISTANT" &&
+    Boolean(peerUserId);
   const currentUserId = userData?.userId || userData?._id || null;
   const nicknameStorageKey =
     currentUserId && conversationId
@@ -425,6 +444,72 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     conversationId,
   ]);
 
+  useEffect(() => {
+    let shouldIgnore = false;
+
+    if (!canManagePrivateBlock) {
+      setIsBlockedByCurrentUser(false);
+      setIsLoadingBlockState(false);
+      return () => {
+        shouldIgnore = true;
+      };
+    }
+
+    setIsLoadingBlockState(true);
+
+    const loadBlockState = async () => {
+      try {
+        const nextBlockedState = await isUserBlockedByCurrentUser(peerUserId);
+        if (!shouldIgnore) {
+          setIsBlockedByCurrentUser(nextBlockedState);
+        }
+      } catch (error) {
+        console.error("Failed to load block state for conversation:", error);
+        if (!shouldIgnore) {
+          setIsBlockedByCurrentUser(false);
+        }
+      } finally {
+        if (!shouldIgnore) {
+          setIsLoadingBlockState(false);
+        }
+      }
+    };
+
+    loadBlockState();
+
+    return () => {
+      shouldIgnore = true;
+    };
+  }, [canManagePrivateBlock, peerUserId]);
+
+  useEffect(() => {
+    if (!canManagePrivateBlock || typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleBlockStatusChanged = (event) => {
+      const detail = event?.detail || {};
+      if (String(detail.blockedUserId || "") !== String(peerUserId || "")) {
+        return;
+      }
+
+      setIsBlockedByCurrentUser(Boolean(detail.isBlocked));
+      setIsLoadingBlockState(false);
+    };
+
+    window.addEventListener(
+      USER_BLOCK_STATUS_CHANGED_EVENT,
+      handleBlockStatusChanged
+    );
+
+    return () => {
+      window.removeEventListener(
+        USER_BLOCK_STATUS_CHANGED_EVENT,
+        handleBlockStatusChanged
+      );
+    };
+  }, [canManagePrivateBlock, peerUserId]);
+
   const loadFriendOptionsForAddMember = useCallback(async () => {
     if (!conversationId || !isGroupConversation) {
       return;
@@ -603,6 +688,95 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
       return [...prevState, index];
     });
   };
+
+  const handleTogglePrivateBlock = async () => {
+    if (!canManagePrivateBlock || isUpdatingBlockState) {
+      return;
+    }
+
+    const shouldProceed = window.confirm(
+      isBlockedByCurrentUser
+        ? "Bỏ chặn người dùng này để trò chuyện lại bình thường?"
+        : "Chặn người dùng này sẽ khóa việc nhắn tin cho đến khi bạn bỏ chặn. Tiếp tục?"
+    );
+
+    if (!shouldProceed) {
+      return;
+    }
+
+    setSettingsError("");
+    setIsUpdatingBlockState(true);
+
+    try {
+      if (isBlockedByCurrentUser) {
+        await unblockUserForCurrentUser({ blockedUserId: peerUserId });
+        setIsBlockedByCurrentUser(false);
+      } else {
+        await blockUserForCurrentUser({
+          blockedUserId: peerUserId,
+          reason: "",
+        });
+        setIsBlockedByCurrentUser(true);
+      }
+    } catch (error) {
+      console.error("Failed to update block state:", error);
+      setSettingsError(
+        getApiErrorMessage(
+          error,
+          isBlockedByCurrentUser
+            ? "Không thể bỏ chặn người dùng lúc này."
+            : "Không thể chặn người dùng lúc này."
+        )
+      );
+    } finally {
+      setIsUpdatingBlockState(false);
+    }
+  };
+
+  const renderPrivateSecurityPanel = () => (
+    <div className="mess-infor-panel-body">
+      <p className="mess-infor-section-note">
+        Chặn người dùng sẽ khóa việc gửi tin nhắn trong cuộc trò chuyện riêng này cho đến khi bạn bỏ chặn.
+      </p>
+      {isLoadingBlockState ? (
+        <div className="mess-infor-shared-feedback">
+          Đang kiểm tra trạng thái chặn...
+        </div>
+      ) : null}
+      <div
+        className={`mess-infor-block-card ${
+          isBlockedByCurrentUser ? "blocked" : ""
+        }`}
+      >
+        <div className="mess-infor-block-copy">
+          <strong>
+            {isBlockedByCurrentUser
+              ? "Bạn đã chặn người dùng này"
+              : "Người dùng chưa bị chặn"}
+          </strong>
+          <span>
+            {isBlockedByCurrentUser
+              ? "Ô nhập tin nhắn trên web và mobile sẽ bị khóa cho đến khi bạn bỏ chặn."
+              : "Sau khi chặn, bạn sẽ không thể tiếp tục trò chuyện cho đến khi bỏ chặn."}
+          </span>
+        </div>
+        <button
+          className={`mess-infor-block-button ${
+            isBlockedByCurrentUser ? "unblock" : "block"
+          }`}
+          type="button"
+          onClick={handleTogglePrivateBlock}
+          disabled={isUpdatingBlockState || isLoadingBlockState || !peerUserId}
+        >
+          {isUpdatingBlockState
+            ? "Đang cập nhật..."
+            : isBlockedByCurrentUser
+            ? "Bỏ chặn người dùng"
+            : "Chặn người dùng"}
+        </button>
+      </div>
+    </div>
+  );
 
   const handleConversationPreferenceUpdate = async (key, nextValue) => {
     if (!conversationId) {
@@ -1358,6 +1532,15 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
     >
       <div className="mess-infor-title-text flex">
         <h3>Thông tin hội thoại</h3>
+        {typeof onRequestClose === "function" ? (
+          <button
+            type="button"
+            className="mess-infor-close-button"
+            onClick={onRequestClose}
+          >
+            Ẩn
+          </button>
+        ) : null}
       </div>
       <div className="mess-infor-scrool-header">
         <div className="mess-infor-header-infor">
@@ -1387,6 +1570,9 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                 ) : null}
                 {activeConversation?.archived ? (
                   <span className="mess-infor-status-chip archived">Lưu trữ</span>
+                ) : null}
+                {canManagePrivateBlock && isBlockedByCurrentUser ? (
+                  <span className="mess-infor-status-chip blocked">Đã chặn</span>
                 ) : null}
                 <span className="mess-infor-status-chip">
                   {activeConversation?.notificationLevel || "ALL"}
@@ -1973,6 +2159,8 @@ function MessageInfor({ contactData, onOpenConversationImageGallery }) {
                 >
                   {data === "Tệp đã chia sẻ" ? (
                     renderSharedAttachmentPanel()
+                  ) : data === "Báº£o máº­t" && canManagePrivateBlock ? (
+                    renderPrivateSecurityPanel()
                   ) : (
                     <div style={{ padding: "0 12px 12px", color: "#7589a3", fontSize: 14 }}>
                       Tính năng này sẽ được mở rộng ở giai đoạn sau.
