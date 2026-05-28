@@ -8,6 +8,7 @@ import { GoPin } from "react-icons/go";
 import { HiOutlineArchiveBox } from "react-icons/hi2";
 import { CiEdit } from "react-icons/ci";
 import { IoTriangle } from "react-icons/io5";
+import { IoMdClose } from "react-icons/io";
 import { TbBackground } from "react-icons/tb";
 import { mapFriendOptions } from "../../mappers/friendOptionMapper";
 import {
@@ -16,6 +17,7 @@ import {
   demoteConversationAdminV1,
   leaveConversationV1,
   promoteConversationAdminV1,
+  renameConversationV1,
   removeConversationMemberV1,
   transferConversationOwnershipV1,
   updateConversationArchiveV1,
@@ -27,7 +29,10 @@ import {
   updateConversationPinV1,
   uploadConversationBackgroundImageV1,
 } from "../../services/chat/conversationApi";
-import { fetchConversationSharedAttachments } from "./conversationMedia";
+import {
+  fetchConversationSharedAttachments,
+  fetchConversationSharedLinks,
+} from "./conversationMedia";
 import { getFriendsV2 } from "../../util/api";
 import { uploadAttachmentV1 } from "../../services/chat/messageApi";
 import {
@@ -62,12 +67,29 @@ const NOTIFICATION_LEVEL_HINTS = {
 };
 const PRIVATE_CONVERSATION_LABEL = "Người dùng";
 const GROUP_CONVERSATION_LABEL = "Nhóm";
+const UUID_LIKE_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const getApiErrorMessage = (error, fallback) =>
   error?.response?.data?.message ||
   error?.response?.data?.error ||
   error?.message ||
   fallback;
+
+const isUuidLikeValue = (value) => UUID_LIKE_PATTERN.test(String(value || "").trim());
+
+const resolveMemberDisplayName = (member) => {
+  const candidates = [
+    member?.nickname,
+    member?.displayName,
+    member?.username,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  const readableName = candidates.find((value) => !isUuidLikeValue(value));
+  return readableName || "Thành viên nhóm";
+};
 
 const clampColorChannel = (value) => Math.max(0, Math.min(255, Number(value || 0)));
 
@@ -160,8 +182,13 @@ function MessageInfor({
   contactData,
   onOpenConversationImageGallery,
   onRequestClose,
+  autoOpenAddMember,
+  onCloseAddMemberModal,
 }) {
   const [showTool, setShowTool] = useState([]);
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [addMemberSearchKeyword, setAddMemberSearchKeyword] = useState("");
+  const [groupNameDraft, setGroupNameDraft] = useState("");
   const [customNameDraft, setCustomNameDraft] = useState("");
   const [avatarUrlDraft, setAvatarUrlDraft] = useState("");
   const [notificationLevelDraft, setNotificationLevelDraft] = useState("ALL");
@@ -175,6 +202,7 @@ function MessageInfor({
   const [selectedMemberId, setSelectedMemberId] = useState("");
   const [settingsError, setSettingsError] = useState("");
   const [isSavingCustomName, setIsSavingCustomName] = useState(false);
+  const [isSavingGroupName, setIsSavingGroupName] = useState(false);
   const [isSavingAvatar, setIsSavingAvatar] = useState(false);
   const [isUploadingAvatarFile, setIsUploadingAvatarFile] = useState(false);
   const groupAvatarFileInputRef = useRef(null);
@@ -192,6 +220,13 @@ function MessageInfor({
     error: "",
     images: [],
     files: [],
+    isPartial: false,
+    conversationId: null,
+  });
+  const [sharedLinkState, setSharedLinkState] = useState({
+    loading: false,
+    error: "",
+    links: [],
     isPartial: false,
     conversationId: null,
   });
@@ -247,6 +282,15 @@ function MessageInfor({
   const isGroupConversation = activeConversation?.type === "group";
   const isPrivateConversation = activeConversation?.type === "private";
   const peerUserId = isPrivateConversation ? activeConversation?.peerUserId || null : null;
+
+  useEffect(() => {
+    if (autoOpenAddMember) {
+      setShowAddMemberModal(true)
+      if (typeof onCloseAddMemberModal === 'function') {
+        onCloseAddMemberModal()
+      }
+    }
+  }, [autoOpenAddMember, onCloseAddMemberModal])
   const canManagePrivateBlock =
     isPrivateConversation &&
     activeConversation?.id !== "AI_ASSISTANT" &&
@@ -289,10 +333,14 @@ function MessageInfor({
         : []
       ).map((member) => {
         const nickname = memberNicknames[String(member.userId)] || member.nickname || "";
+        const safeDisplayName = resolveMemberDisplayName({
+          ...member,
+          nickname,
+        });
         return {
           ...member,
           nickname,
-          displayName: nickname || member.displayName,
+          displayName: safeDisplayName,
         };
       }),
     [activeConversation?.members, memberNicknames]
@@ -339,6 +387,7 @@ function MessageInfor({
     normalizedMembers,
   ]);
   const canAddMember = isGroupConversation && Boolean(currentUserMember);
+  const canRenameGroup = isGroupConversation && currentUserCanManageMembers;
   const canUpdateGroupAvatar = isGroupConversation && currentUserCanManageMembers;
   const canCloseConversation = isGroupConversation && currentUserIsOwner;
   const canLeaveGroup =
@@ -399,6 +448,8 @@ function MessageInfor({
   const isMemberPanelOpen = isGroupConversation && showTool.includes(1);
   const sharedFilesToolIndex = optionBaseIndex + listOption.indexOf("Tệp đã chia sẻ");
   const isSharedFilesPanelOpen = showTool.includes(sharedFilesToolIndex);
+  const sharedLinksToolIndex = optionBaseIndex + listOption.indexOf("Liên kết");
+  const isSharedLinksPanelOpen = showTool.includes(sharedLinksToolIndex);
 
   useEffect(() => {
     if (!isGroupConversation) {
@@ -428,6 +479,7 @@ function MessageInfor({
   ]);
 
   useEffect(() => {
+    setGroupNameDraft(activeConversation?.name || activeConversation?.displayName || "");
     setCustomNameDraft(activeConversation?.customName || "");
     setAvatarUrlDraft(activeConversation?.avatarUrl || activeConversation?.trustedAvatarUrl || "");
     setNotificationLevelDraft(activeConversation?.notificationLevel || "ALL");
@@ -438,6 +490,8 @@ function MessageInfor({
     activeConversation?.avatarUrl,
     activeConversation?.backgroundColor,
     activeConversation?.customName,
+    activeConversation?.displayName,
+    activeConversation?.name,
     activeConversation?.notificationLevel,
     activeConversation?.trustedAvatarUrl,
     currentConversationBackgroundColorForPicker,
@@ -587,10 +641,10 @@ function MessageInfor({
       return;
     }
 
-    if (isMemberPanelOpen) {
+    if (isMemberPanelOpen || showAddMemberModal) {
       loadFriendOptionsForAddMember();
     }
-  }, [isGroupConversation, isMemberPanelOpen, loadFriendOptionsForAddMember]);
+  }, [isGroupConversation, isMemberPanelOpen, showAddMemberModal, loadFriendOptionsForAddMember]);
 
   useEffect(() => {
     setSharedAttachmentState({
@@ -598,6 +652,13 @@ function MessageInfor({
       error: "",
       images: [],
       files: [],
+      isPartial: false,
+      conversationId: conversationId || null,
+    });
+    setSharedLinkState({
+      loading: false,
+      error: "",
+      links: [],
       isPartial: false,
       conversationId: conversationId || null,
     });
@@ -678,6 +739,63 @@ function MessageInfor({
       shouldIgnore = true;
     };
   }, [conversationId, currentUserId, isSharedFilesPanelOpen]);
+
+  useEffect(() => {
+    if (!conversationId || !isSharedLinksPanelOpen) {
+      return;
+    }
+
+    let shouldIgnore = false;
+
+    const loadSharedLinks = async () => {
+      setSharedLinkState({
+        loading: true,
+        error: "",
+        links: [],
+        isPartial: false,
+        conversationId,
+      });
+
+      try {
+        const { links, isPartial } = await fetchConversationSharedLinks({
+          conversationId,
+          currentUserId,
+        });
+
+        if (shouldIgnore) {
+          return;
+        }
+
+        setSharedLinkState({
+          loading: false,
+          error: "",
+          links,
+          isPartial,
+          conversationId,
+        });
+      } catch (error) {
+        console.error("Failed to load shared links:", error);
+
+        if (shouldIgnore) {
+          return;
+        }
+
+        setSharedLinkState({
+          loading: false,
+          error: "Không thể tải liên kết đã chia sẻ trong hội thoại này.",
+          links: [],
+          isPartial: false,
+          conversationId,
+        });
+      }
+    };
+
+    loadSharedLinks();
+
+    return () => {
+      shouldIgnore = true;
+    };
+  }, [conversationId, currentUserId, isSharedLinksPanelOpen]);
 
   const handleShowTool = (index) => {
     setShowTool((prevState) => {
@@ -787,8 +905,16 @@ function MessageInfor({
     setIsUpdatingPreference(true);
 
     try {
+      let optimisticPatch = {
+        [key]: nextValue,
+      };
+
       if (key === "muted") {
         await updateConversationMuteV1(conversationId, nextValue);
+        if (!nextValue && activeConversation?.notificationLevel === "NONE") {
+          optimisticPatch.notificationLevel = "ALL";
+          setNotificationLevelDraft("ALL");
+        }
       }
 
       if (key === "pinned") {
@@ -801,11 +927,16 @@ function MessageInfor({
 
       if (key === "notificationLevel") {
         await updateConversationNotificationLevelV1(conversationId, nextValue);
+        optimisticPatch.notificationLevel = nextValue;
+        if (nextValue === "NONE") {
+          optimisticPatch.muted = true;
+        }
+        if (nextValue === "ALL") {
+          optimisticPatch.muted = false;
+        }
       }
 
-      updateConversationById(conversationId, {
-        [key]: nextValue,
-      });
+      updateConversationById(conversationId, optimisticPatch);
     } catch (error) {
       console.error("Failed to update room preference:", error);
       setSettingsError("Không thể cập nhật tùy chọn hội thoại.");
@@ -950,6 +1081,52 @@ function MessageInfor({
     }
   };
 
+  const handleSaveGroupName = async () => {
+    if (!conversationId || !canRenameGroup || isSavingGroupName) {
+      return;
+    }
+
+    const nextGroupName = groupNameDraft.trim();
+    const currentGroupName = String(
+      activeConversation?.name || activeConversation?.displayName || ""
+    ).trim();
+
+    if (!nextGroupName) {
+      setSettingsError("Tên nhóm không được để trống.");
+      return;
+    }
+
+    if (nextGroupName === currentGroupName) {
+      return;
+    }
+
+    setSettingsError("");
+    setIsSavingGroupName(true);
+
+    try {
+      const response = await renameConversationV1(conversationId, nextGroupName);
+      if (response?.id) {
+        upsertConversation(response, { source: "group-name-update" });
+      } else {
+        updateConversationById(conversationId, {
+          name: nextGroupName,
+          displayName: nextGroupName,
+        });
+      }
+      await refreshConversationsAfterGroupAction(response, "name-update");
+    } catch (error) {
+      console.error("[WEB GROUP NAME UPDATE]", {
+        conversationId,
+        error,
+      });
+      setSettingsError(
+        getApiErrorMessage(error, "Không thể cập nhật tên nhóm.")
+      );
+    } finally {
+      setIsSavingGroupName(false);
+    }
+  };
+
   const handleSaveGroupAvatar = async () => {
     if (!conversationId || !canUpdateGroupAvatar || isSavingAvatar) {
       return;
@@ -1061,7 +1238,7 @@ function MessageInfor({
     }
   };
 
-  const handleAddMember = async () => {
+  const handleAddMember = async (targetUserId) => {
     if (isUpdatingMembers) {
       return;
     }
@@ -1070,16 +1247,18 @@ function MessageInfor({
       return;
     }
 
-    if (!selectedMemberId) {
+    const memberIdToAdd = targetUserId || selectedMemberId;
+
+    if (!memberIdToAdd) {
       setSettingsError("Vui lòng chọn thành viên cần thêm.");
       return;
     }
 
-    const selectedFriend = addableFriendOptions.find(
-      (friend) => String(friend.userId) === String(selectedMemberId)
+    const selectedFriend = friendOptions.find(
+      (friend) => String(friend.userId) === String(memberIdToAdd)
     );
     if (!selectedFriend) {
-      setSettingsError("Thành viên này không hợp lệ hoặc đã có trong nhóm.");
+      setSettingsError("Thành viên này không hợp lệ.");
       return;
     }
 
@@ -1427,7 +1606,7 @@ function MessageInfor({
     return (
       <div className="mess-infor-shared-panel">
         <p className="mess-infor-section-note">
-          Tổng hợp tất cả ảnh va tệp đã được gửi trong hội thoại này.
+          Tổng hợp tất cả ảnh và tệp đã được gửi trong hội thoại này.
         </p>
 
         {sharedAttachmentState.loading ? (
@@ -1444,7 +1623,7 @@ function MessageInfor({
 
         {!sharedAttachmentState.loading && !sharedAttachmentState.error ? (
           <div className="mess-infor-shared-summary">
-            <span>{totalSharedAttachments} muc</span>
+            <span>{totalSharedAttachments} mục</span>
             {sharedAttachmentState.isPartial ? (
               <span>Đang hiển thị dữ liệu gần đây</span>
             ) : (
@@ -1524,6 +1703,176 @@ function MessageInfor({
       </div>
     );
   };
+
+  const renderNotificationSettingsPanel = () => (
+    <div className="mess-infor-panel-body">
+      <p className="mess-infor-section-note">
+        Điều chỉnh cách hội thoại này tạo thông báo. Các thay đổi này dùng cùng API với nút tắt thông báo nhanh ở phía trên.
+      </p>
+      <label className="mess-infor-field">
+        <span>Nhận thông báo</span>
+        <select
+          value={notificationLevelDraft}
+          onChange={(event) => {
+            const nextValue = event.target.value;
+            setNotificationLevelDraft(nextValue);
+            handleConversationPreferenceUpdate("notificationLevel", nextValue);
+          }}
+          disabled={isUpdatingPreference}
+        >
+          {NOTIFICATION_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <small>
+          {NOTIFICATION_LEVEL_HINTS[notificationLevelDraft] ||
+            NOTIFICATION_LEVEL_HINTS.ALL}
+        </small>
+      </label>
+      <div className="mess-infor-inline-actions">
+        <button
+          type="button"
+          onClick={() =>
+            handleConversationPreferenceUpdate("muted", !activeConversation?.muted)
+          }
+          disabled={isUpdatingPreference}
+        >
+          {activeConversation?.muted ? "Bật thông báo" : "Tắt thông báo"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setNotificationLevelDraft("ALL");
+            handleConversationPreferenceUpdate("notificationLevel", "ALL");
+          }}
+          disabled={isUpdatingPreference}
+        >
+          Đặt về tất cả
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderSharedLinksPanel = () => (
+    <div className="mess-infor-shared-panel">
+      <p className="mess-infor-section-note">
+        Tổng hợp các đường dẫn http/https đã xuất hiện trong tin nhắn gần đây của hội thoại.
+      </p>
+
+      {sharedLinkState.loading ? (
+        <div className="mess-infor-shared-feedback">
+          Đang tải liên kết trong hội thoại...
+        </div>
+      ) : null}
+
+      {!sharedLinkState.loading && sharedLinkState.error ? (
+        <div className="mess-infor-shared-feedback error">
+          {sharedLinkState.error}
+        </div>
+      ) : null}
+
+      {!sharedLinkState.loading && !sharedLinkState.error ? (
+        <div className="mess-infor-shared-summary">
+          <span>{sharedLinkState.links.length} liên kết</span>
+          <span>
+            {sharedLinkState.isPartial
+              ? "Đang hiển thị dữ liệu gần đây"
+              : "Theo hội thoại hiện tại"}
+          </span>
+        </div>
+      ) : null}
+
+      {!sharedLinkState.loading && !sharedLinkState.error ? (
+        sharedLinkState.links.length ? (
+          <div className="mess-infor-shared-file-list">
+            {sharedLinkState.links.map((link) => (
+              <a
+                key={link.id}
+                className="mess-infor-shared-file-item mess-infor-shared-link-item"
+                href={link.url}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {link.imageUrl ? (
+                  <img
+                    className="mess-infor-shared-link-thumb"
+                    src={link.imageUrl}
+                    alt=""
+                  />
+                ) : (
+                  <div className="mess-infor-shared-file-icon">LINK</div>
+                )}
+                <div className="mess-infor-shared-file-meta">
+                  <strong>{link.title || link.url}</strong>
+                  <span>{link.description || link.url}</span>
+                  <span>
+                    {[
+                      link.messageId ? `Tin nhắn #${link.messageId}` : "",
+                      formatAttachmentCreatedAt(link.createdAt),
+                    ]
+                      .filter(Boolean)
+                      .join(" | ")}
+                  </span>
+                </div>
+              </a>
+            ))}
+          </div>
+        ) : (
+          <div className="mess-infor-shared-empty">
+            Chưa có liên kết được chia sẻ.
+          </div>
+        )
+      ) : null}
+    </div>
+  );
+
+  const renderGroupSecurityPanel = () => (
+    <div className="mess-infor-panel-body">
+      <p className="mess-infor-section-note">
+        Các thao tác nhạy cảm của nhóm được giới hạn theo vai trò. Trưởng nhóm có thể chuyển quyền, cấp/hạ admin và đóng nhóm.
+      </p>
+      <div className="mess-infor-block-card">
+        <div className="mess-infor-block-copy">
+          <strong>Vai trò của bạn: {currentUserIsOwner ? "Trưởng nhóm" : currentUserIsAdmin ? "Admin" : "Thành viên"}</strong>
+          <span>
+            {currentUserCanManageMembers
+              ? "Bạn có thể quản lý thành viên theo quyền hiện tại."
+              : "Bạn có thể xem thông tin nhóm và rời nhóm khi cần."}
+          </span>
+        </div>
+      </div>
+      <div className="mess-infor-inline-actions">
+        {canLeaveGroup ? (
+          <button
+            type="button"
+            className="mess-infor-danger-outline"
+            onClick={handleLeaveConversation}
+            disabled={isUpdatingMembers}
+          >
+            Rời nhóm
+          </button>
+        ) : null}
+        {canCloseConversation ? (
+          <button
+            type="button"
+            className="mess-infor-danger-soft"
+            onClick={handleCloseConversation}
+            disabled={isUpdatingMembers}
+          >
+            Đóng nhóm
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  const renderUnavailablePanel = (message = "Tính năng này sẽ được mở rộng ở giai đoạn sau.") => (
+    <div className="mess-infor-panel-body">
+      <div className="mess-infor-shared-empty">{message}</div>
+    </div>
+  );
 
   return (
     <div
@@ -1786,65 +2135,46 @@ function MessageInfor({
               <div className={showTool.includes(0) ? "li-tool-active" : "li-tool-none"}>
                 <div className="mess-infor-panel-body">
                   <p className="mess-infor-section-note">
-                    Cập nhật tên gọi nhớ va cách nhận thông báo cho hội thoại này.
+                    Cập nhật tên hiển thị cục bộ và các thông tin tùy chỉnh của hội thoại này.
                   </p>
-                  <label style={{ display: "grid", gap: 6 }}>
-                    <span style={{ fontSize: 14, fontWeight: 500 }}>Tên gọi nhớ</span>
+                  {canRenameGroup ? (
+                    <>
+                      <label className="mess-infor-field">
+                        <span>Tên nhóm</span>
+                        <input
+                          type="text"
+                          value={groupNameDraft}
+                          onChange={(event) => setGroupNameDraft(event.target.value)}
+                          placeholder="Nhập tên nhóm"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="mess-infor-primary-button"
+                        onClick={handleSaveGroupName}
+                        disabled={isSavingGroupName}
+                      >
+                        {isSavingGroupName ? "Đang lưu..." : "Lưu tên nhóm"}
+                      </button>
+                    </>
+                  ) : null}
+                  <label className="mess-infor-field">
+                    <span>Tên gọi nhớ</span>
                     <input
                       type="text"
                       value={customNameDraft}
                       onChange={(event) => setCustomNameDraft(event.target.value)}
                       placeholder="Nhập tên gọi nhớ"
-                      style={{
-                        padding: "10px 12px",
-                        borderRadius: 8,
-                        border: "1px solid #d6dbe1",
-                      }}
                     />
                   </label>
                   <button
                     type="button"
+                    className="mess-infor-primary-button"
                     onClick={handleSaveCustomName}
                     disabled={isSavingCustomName}
-                    style={{
-                      border: "none",
-                      borderRadius: 8,
-                      padding: "10px 12px",
-                      backgroundColor: "#0068ff",
-                      color: "white",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                    }}
                   >
                     {isSavingCustomName ? "Đang lưu..." : "Lưu tên gọi nhớ"}
                   </button>
-                  <label style={{ display: "grid", gap: 6 }}>
-                    <span style={{ fontSize: 14, fontWeight: 500 }}>Thông báo</span>
-                    <select
-                      value={notificationLevelDraft}
-                      onChange={(event) => {
-                        const nextValue = event.target.value;
-                        setNotificationLevelDraft(nextValue);
-                        handleConversationPreferenceUpdate("notificationLevel", nextValue);
-                      }}
-                      disabled={isUpdatingPreference}
-                      style={{
-                        padding: "10px 12px",
-                        borderRadius: 8,
-                        border: "1px solid #d6dbe1",
-                      }}
-                    >
-                      {NOTIFICATION_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <span style={{ fontSize: 12, color: "#7589a3", lineHeight: 1.4 }}>
-                      {NOTIFICATION_LEVEL_HINTS[notificationLevelDraft] ||
-                        NOTIFICATION_LEVEL_HINTS.ALL}
-                    </span>
-                  </label>
                 </div>
               </div>
             </li>
@@ -1866,7 +2196,7 @@ function MessageInfor({
                 <div className={showTool.includes(1) ? "li-tool-active" : "li-tool-none"}>
                   <div className="mess-infor-panel-body">
                     <p className="mess-infor-section-note">
-                      Quản lý thành viên, quyền nhóm va vòng đời hội thoại.
+                      Quản lý thành viên, quyền nhóm và vòng đời hội thoại.
                     </p>
                     <div className="mess-infor-member-list">
                       {normalizedMembers.map((member) => {
@@ -1885,36 +2215,24 @@ function MessageInfor({
 
                         return (
                           <div key={member.userId} className="mess-infor-member-row">
-                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <div className="mess-infor-member-main">
                               {member.avatarUrl ? (
                                 <img
                                   src={member.avatarUrl}
                                   alt=""
-                                  style={{
-                                    width: 32,
-                                    height: 32,
-                                    borderRadius: "50%",
-                                    objectFit: "cover",
-                                  }}
+                                  className="mess-infor-member-avatar"
                                 />
                               ) : (
-                                renderAvatarPlaceholder("", 32)
+                                renderAvatarPlaceholder("mess-infor-member-avatar", 32)
                               )}
-                              <div>
-                                <p style={{ margin: 0, fontWeight: 500 }}>
+                              <div className="mess-infor-member-meta">
+                                <p className="mess-infor-member-name">
                                   {member.nickname || member.displayName}
                                 </p>
-                                <p style={{ margin: 0, fontSize: 12, color: "#7589a3" }}>
-                                  {isCurrentUser ? "Ban" : member.userId} • {member.role || "MEMBER"}
+                                <p className="mess-infor-member-role">
+                                  {member.role === "OWNER" ? "Trưởng nhóm" : member.role === "ADMIN" ? "Phó nhóm" : "Thành viên"}
                                 </p>
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    gap: 6,
-                                    marginTop: 6,
-                                    alignItems: "center",
-                                  }}
-                                >
+                                <div className="mess-infor-member-nickname-form">
                                   <input
                                     type="text"
                                     value={nicknameDrafts[String(member.userId)] || ""}
@@ -1925,25 +2243,12 @@ function MessageInfor({
                                       }))
                                     }
                                     placeholder="Biệt danh"
-                                    style={{
-                                      width: 120,
-                                      padding: "5px 8px",
-                                      borderRadius: 8,
-                                      border: "1px solid #d6dbe1",
-                                      fontSize: 12,
-                                    }}
+                                    className="mess-infor-member-nickname-input"
                                   />
                                   <button
                                     type="button"
                                     onClick={() => handleSaveMemberNickname(member.userId)}
-                                    style={{
-                                      border: "none",
-                                      borderRadius: 8,
-                                      padding: "5px 8px",
-                                      backgroundColor: "#e5efff",
-                                      cursor: "pointer",
-                                      fontSize: 12,
-                                    }}
+                                    className="mess-infor-member-nickname-save"
                                   >
                                     Lưu
                                   </button>
@@ -2023,76 +2328,26 @@ function MessageInfor({
                       })}
                     </div>
                     {canAddMember ? (
-                    <div className="mess-infor-add-member">
-                      <span style={{ fontSize: 14, fontWeight: 500 }}>Thêm thành viên</span>
-                      {friendOptionsState.loading ? (
-                        <p className="mess-infor-feedback-error">
-                          Đang tải danh sách bạn bè...
-                        </p>
-                      ) : null}
-                      {!friendOptionsState.loading && friendOptionsState.error ? (
-                        <p className="mess-infor-feedback-error">
-                          {friendOptionsState.error}
-                        </p>
-                      ) : null}
-                      <select
-                        value={selectedMemberId}
-                        onChange={(event) => setSelectedMemberId(event.target.value)}
-                        disabled={
-                          friendOptionsState.loading ||
-                          !addableFriendOptions.length ||
-                          isUpdatingMembers
-                        }
-                        style={{
-                          padding: "10px 12px",
-                          borderRadius: 8,
-                          border: "1px solid #d6dbe1",
-                        }}
-                      >
-                        <option value="">
-                          {friendOptionsState.loading
-                            ? "Đang tải danh sách bạn bè"
-                            : addableFriendOptions.length
-                            ? "Chọn bạn để thêm"
-                            : "Không còn bạn nào để thêm"}
-                        </option>
-                        {addableFriendOptions.map((friend) => (
-                          <option key={friend.userId} value={friend.userId}>
-                            {friend.displayName}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={handleAddMember}
-                        disabled={
-                          !selectedMemberId ||
-                          isUpdatingMembers ||
-                          friendOptionsState.loading
-                        }
-                        style={{
-                          border: "none",
-                          borderRadius: 8,
-                          padding: "10px 12px",
-                          backgroundColor:
-                            !selectedMemberId ||
-                            isUpdatingMembers ||
-                            friendOptionsState.loading
-                              ? "#9bbdf4"
-                              : "#0068ff",
-                          color: "white",
-                          fontWeight: 600,
-                          cursor:
-                            !selectedMemberId ||
-                            isUpdatingMembers ||
-                            friendOptionsState.loading
-                              ? "not-allowed"
-                              : "pointer",
-                        }}
-                      >
-                        {isUpdatingMembers ? "Đang xử lý..." : "Thêm thành viên"}
-                      </button>
-                    </div>
+                      <div className="mess-infor-add-member" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        <button
+                          type="button"
+                          onClick={() => setShowAddMemberModal(true)}
+                          disabled={isUpdatingMembers || friendOptionsState.loading}
+                          style={{
+                            border: "none",
+                            borderRadius: 8,
+                            padding: "10px 12px",
+                            backgroundColor: "#0068ff",
+                            color: "white",
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            width: "100%",
+                            textAlign: "center",
+                          }}
+                        >
+                          Thêm thành viên
+                        </button>
+                      </div>
                     ) : null}
                     {canLeaveGroup ? (
                       <button
@@ -2157,14 +2412,20 @@ function MessageInfor({
                       : "li-tool-none"
                   }
                 >
-                  {data === "Tệp đã chia sẻ" ? (
+                  {data === "Tùy chỉnh thông báo" ? (
+                    renderNotificationSettingsPanel()
+                  ) : data === "Tệp đã chia sẻ" ? (
                     renderSharedAttachmentPanel()
-                  ) : data === "Báº£o máº­t" && canManagePrivateBlock ? (
-                    renderPrivateSecurityPanel()
+                  ) : data === "Liên kết" ? (
+                    renderSharedLinksPanel()
+                  ) : data === "Bảo mật" ? (
+                    canManagePrivateBlock
+                      ? renderPrivateSecurityPanel()
+                      : isGroupConversation
+                      ? renderGroupSecurityPanel()
+                      : renderUnavailablePanel("Không có thiết lập bảo mật riêng cho hội thoại này.")
                   ) : (
-                    <div style={{ padding: "0 12px 12px", color: "#7589a3", fontSize: 14 }}>
-                      Tính năng này sẽ được mở rộng ở giai đoạn sau.
-                    </div>
+                    renderUnavailablePanel()
                   )}
                 </div>
                     </>
@@ -2178,6 +2439,116 @@ function MessageInfor({
               {settingsError}
             </p>
           ) : null}
+          {showAddMemberModal && (
+            <div className="screen-mask" style={{ zIndex: 1002 }}>
+              <div className="wrap-add modal-add-friend" style={{ height: 550 }}>
+                <div className="header-add-friend flex">
+                  <p>Thêm thành viên</p>
+                  <IoMdClose
+                    className="btn-close"
+                    onClick={() => {
+                      setShowAddMemberModal(false)
+                      setAddMemberSearchKeyword('')
+                    }}
+                  />
+                </div>
+                
+                <div className="modal-body-content">
+                  <div className="search-input-container">
+                    <svg className="search-input-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.608 10.608Z" />
+                    </svg>
+                    <input
+                      type="text"
+                      value={addMemberSearchKeyword}
+                      onChange={(e) => setAddMemberSearchKeyword(e.target.value)}
+                      placeholder="Nhập tên hoặc số điện thoại..."
+                    />
+                  </div>
+
+                  <div className="modal-section-label">DANH SÁCH BẠN BÈ</div>
+
+                  <div className="friend-search-results-wrapper" style={{ flex: 1, overflowY: "auto" }}>
+                    {friendOptionsState.loading ? (
+                      <div className="search-error-message">Đang tải danh sách...</div>
+                    ) : null}
+                    
+                    {!friendOptionsState.loading && friendOptionsState.error ? (
+                      <div className="search-error-message">{friendOptionsState.error}</div>
+                    ) : null}
+
+                    {!friendOptionsState.loading && !friendOptionsState.error && (
+                      <div className="friend-search-results-list" style={{ gap: 10 }}>
+                        {friendOptions
+                          .filter((friend) => {
+                            if (!addMemberSearchKeyword.trim()) return true
+                            return String(friend.displayName || '')
+                              .toLowerCase()
+                              .includes(addMemberSearchKeyword.toLowerCase()) ||
+                              String(friend.username || '')
+                                .toLowerCase()
+                                .includes(addMemberSearchKeyword.toLowerCase())
+                          })
+                          .map((friend) => {
+                            const isAlreadyInGroup = normalizedMembers.some(
+                              (member) => String(member.userId) === String(friend.userId)
+                            )
+                            return (
+                              <div key={friend.userId} className="friend-search-item flex items-center justify-between" style={{ padding: "8px 12px" }}>
+                                <div className="flex items-center gap-3">
+                                  <div className="friend-search-avatar">
+                                    {friend.avatarUrl ? (
+                                      <img src={friend.avatarUrl} alt="" />
+                                    ) : (
+                                      <div className="avatar-initials">
+                                        {(friend.displayName || '?').charAt(0).toUpperCase()}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <p className="username" style={{ margin: 0, fontWeight: 600 }}>{friend.displayName}</p>
+                                    {friend.username && (
+                                      <p className="friend-search-subtitle" style={{ margin: 0, fontSize: 12, color: "#7589a3" }}>@{friend.username}</p>
+                                    )}
+                                  </div>
+                                </div>
+                                <div>
+                                  <button
+                                    className="btn-add-friend-action"
+                                    disabled={isAlreadyInGroup || isUpdatingMembers}
+                                    onClick={() => handleAddMember(friend.userId)}
+                                    style={{
+                                      backgroundColor: isAlreadyInGroup ? "#cbd5e1" : "#0068ff",
+                                      color: isAlreadyInGroup ? "#64748b" : "white",
+                                      cursor: isAlreadyInGroup ? "not-allowed" : "pointer"
+                                    }}
+                                  >
+                                    {isAlreadyInGroup ? "Đã tham gia" : "Thêm"}
+                                  </button>
+                                </div>
+                              </div>
+                            )
+                          })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="modal-footer flex">
+                  <button 
+                    className="btn-cancel" 
+                    type="button" 
+                    onClick={() => {
+                      setShowAddMemberModal(false)
+                      setAddMemberSearchKeyword('')
+                    }}
+                  >
+                    Đóng
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="mess-infor-fill-namespace">&nbsp;</div>
         </div>
       </div>

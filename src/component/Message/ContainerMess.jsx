@@ -11,10 +11,10 @@ import "../../resource/style/Chat/containermess.css";
 import { UserContext } from "../../Context/UserContext";
 import { ContactContext } from "../../Context/ContactConext";
 import Icon from "./Icon";
-import { HiOutlineUserGroup } from "react-icons/hi2";
+import { HiOutlineUserGroup, HiOutlineUserPlus } from "react-icons/hi2";
 import { CiSearch } from "react-icons/ci";
 import { IoVideocamOutline, IoCameraOutline, IoCallOutline, IoBarChartOutline, IoArrowUndoOutline, IoArrowDown } from "react-icons/io5";
-import { AiOutlineLike, AiFillLike, AiOutlinePicture, AiOutlineSend } from "react-icons/ai";
+import { AiOutlineBell, AiOutlineLike, AiFillLike, AiOutlinePicture, AiOutlineSend } from "react-icons/ai";
 import { IoMdClose, IoMdAttach,IoMdMore  } from "react-icons/io";
 import { MdOutlineContactMail } from "react-icons/md";
 import {
@@ -71,6 +71,7 @@ const REACTION_OPTIONS = ["LIKE", "LOVE", "WOW", "HAHA"];
 const POLL_CREATE_PREFIX = "[[POLL_CREATE]]";
 const POLL_VOTE_PREFIX = "[[POLL_VOTE]]";
 const POLL_ADD_OPTION_PREFIX = "[[POLL_ADD_OPTION]]";
+const GROUP_SYSTEM_PREFIX = "[[GROUP_SYSTEM]]";
 const TYPING_DEBOUNCE_MS = 400;
 const TYPING_IDLE_MS = 900;
 const REMOTE_TYPING_TIMEOUT_MS = 3000;
@@ -191,6 +192,7 @@ const parseSystemMessage = (content) => {
     { kind: "poll_create", prefix: POLL_CREATE_PREFIX },
     { kind: "poll_vote", prefix: POLL_VOTE_PREFIX },
     { kind: "poll_add_option", prefix: POLL_ADD_OPTION_PREFIX },
+    { kind: "group_system", prefix: GROUP_SYSTEM_PREFIX },
   ];
 
   for (const matcher of matchers) {
@@ -199,9 +201,13 @@ const parseSystemMessage = (content) => {
     }
 
     try {
+      const payload = JSON.parse(normalizedContent.slice(matcher.prefix.length).trim());
       return {
-        kind: matcher.kind,
-        payload: JSON.parse(normalizedContent.slice(matcher.prefix.length)),
+        kind:
+          matcher.kind === "group_system"
+            ? payload?.kind || matcher.kind
+            : matcher.kind,
+        payload,
       };
     } catch {
       return null;
@@ -209,6 +215,37 @@ const parseSystemMessage = (content) => {
   }
 
   return null;
+};
+
+const resolveGroupSystemMessageText = (systemMessage) => {
+  const payload = systemMessage?.payload || {};
+  const kind = String(systemMessage?.kind || payload.kind || "");
+  const actorName = String(payload.actorName || "Ai đó");
+  const targetName = String(payload.targetName || "một thành viên");
+  const groupName = String(payload.name || payload.conversationName || "nhóm");
+
+  switch (kind) {
+    case "group_member_added":
+      return `${actorName} đã thêm ${targetName} vào nhóm`;
+    case "group_member_removed":
+      return `${actorName} đã xóa ${targetName} khỏi nhóm`;
+    case "group_left":
+      return `${actorName} đã rời nhóm`;
+    case "group_admin_promoted":
+      return `${actorName} đã cấp phó nhóm cho ${targetName}`;
+    case "group_admin_demoted":
+      return `${actorName} đã thu hồi phó nhóm của ${targetName}`;
+    case "group_owner_transferred":
+      return `${actorName} đã chuyển quyền trưởng nhóm cho ${targetName}`;
+    case "group_renamed":
+      return `${actorName} đã đổi tên nhóm thành "${groupName}"`;
+    case "group_avatar_changed":
+      return `${actorName} đã cập nhật ảnh nhóm`;
+    case "group_background_changed":
+      return `${actorName} đã đổi nền chat`;
+    default:
+      return "";
+  }
 };
 
 const buildPollMessageContent = (kind, payload) => {
@@ -850,6 +887,7 @@ function ContainerMess({
   onOpenConversationImageGallery,
   isInfoPanelVisible = true,
   onToggleInfoPanel,
+  onOpenAddMember,
 }) {
   const scrollRef = useRef(null);
   const messageScrollContainerRef = useRef(null);
@@ -3108,7 +3146,15 @@ function ContainerMess({
     () =>
       normalizedMessages.filter((message) => {
         const systemMessage = parseSystemMessage(message?.content);
-        return !systemMessage || systemMessage.kind === "poll_create";
+        if (!systemMessage) {
+          return true;
+        }
+
+        if (systemMessage.kind === "poll_create") {
+          return true;
+        }
+
+        return String(systemMessage.kind || "").startsWith("group_");
       }),
     [normalizedMessages]
   );
@@ -3895,6 +3941,37 @@ function ContainerMess({
           </div>
         </div>
         <div className="group-choice flex">
+          {getUnreadCount() >= 5 && (
+            <div 
+              className="header-action-icon ai-summary-btn" 
+              title="Tóm tắt tin nhắn bằng AI" 
+              onClick={handleOpenAiSummaryInChat}
+              style={{ color: '#0084ff', fontWeight: 'bold' }}
+            >
+              ✨
+            </div>
+          )}
+          <CiSearch className="header-action-icon" />
+          {activeConversation?.type === 'group' ? (
+            <>
+              <IoCallOutline className="header-action-icon" onClick={() => handleStartGroupCall("VOICE")} />
+              <IoVideocamOutline className="header-action-icon" onClick={() => handleStartGroupCall("VIDEO")} />
+            </>
+          ) : (
+            <>
+              <IoCallOutline className="header-action-icon" onClick={() => handleStartCall("VOICE")} />
+              <IoVideocamOutline className="header-action-icon" onClick={() => handleStartCall("VIDEO")} />
+            </>
+          )}
+
+          {activeConversation?.type === 'group' && (
+            <HiOutlineUserPlus
+              className="header-action-icon"
+              onClick={onOpenAddMember}
+              title="Thêm thành viên vào nhóm"
+            />
+          )}
+
           {typeof onToggleInfoPanel === "function" ? (
             <button
               type="button"
@@ -3909,29 +3986,6 @@ function ContainerMess({
               <InfoPanelToggleIcon />
             </button>
           ) : null}
-          {getUnreadCount() >= 5 && (
-            <div 
-              className="icon-header ai-summary-btn" 
-              title="Tóm tắt tin nhắn bằng AI" 
-              onClick={handleOpenAiSummaryInChat}
-              style={{ color: '#0084ff', fontWeight: 'bold' }}
-            >
-              ✨
-            </div>
-          )}
-          <HiOutlineUserGroup className="icon-header" />
-          <CiSearch className="icon-header" />
-          {activeConversation?.type === 'group' ? (
-            <>
-              <IoCallOutline className="icon-header" onClick={() => handleStartGroupCall("VOICE")} />
-              <IoVideocamOutline className="icon-header" onClick={() => handleStartGroupCall("VIDEO")} />
-            </>
-          ) : (
-            <>
-              <IoCallOutline className="icon-header" onClick={() => handleStartCall("VOICE")} />
-              <IoVideocamOutline className="icon-header" onClick={() => handleStartCall("VIDEO")} />
-            </>
-          )}
         </div>
       </div>
       <div
@@ -3955,6 +4009,42 @@ function ContainerMess({
 
               const isDeleted = Boolean(item.deletedAt);
               const systemMessage = parseSystemMessage(item?.content);
+              const groupSystemMessageText = resolveGroupSystemMessageText(systemMessage);
+              if (!isDeleted && groupSystemMessageText) {
+                const groupSystemTimeLabel = item.createdAt
+                  ? new Date(item.createdAt).toLocaleString("vi-VN", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric",
+                    })
+                  : "";
+
+                return (
+                  <li
+                    ref={index === displayMessages.length - 1 ? scrollRef : null}
+                    key={item.id || `${item.createdAt}-${index}`}
+                    id={item.id ? `message-row-${item.id}` : undefined}
+                    className="group-system-message-row"
+                    title={item.createdAt ? new Date(item.createdAt).toLocaleString("vi-VN") : undefined}
+                  >
+                    <span className="group-system-message-chip">
+                      <span className="group-system-message-icon" aria-hidden="true">
+                        <AiOutlineBell />
+                      </span>
+                      <span className="group-system-message-text">
+                        {groupSystemMessageText}
+                      </span>
+                      {groupSystemTimeLabel ? (
+                        <span className="group-system-message-time">
+                          {groupSystemTimeLabel}
+                        </span>
+                      ) : null}
+                    </span>
+                  </li>
+                );
+              }
               const pollState = item?.id
                 ? pollStateByCreateMessageId.get(String(item.id)) || null
                 : null;

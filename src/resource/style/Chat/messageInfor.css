@@ -298,6 +298,69 @@
   display: grid;
   gap: 12px;
 }
+.mess-infor-field {
+  display: grid;
+  gap: 6px;
+}
+.mess-infor-field span {
+  font-size: 14px;
+  font-weight: 600;
+  color: #24384e;
+}
+.mess-infor-field small {
+  font-size: 12px;
+  color: #7589a3;
+  line-height: 1.45;
+}
+.mess-infor-field input,
+.mess-infor-field select {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #d6dbe1;
+  background-color: #fff;
+  color: #1f2a37;
+  outline: none;
+}
+.mess-infor-field input:focus,
+.mess-infor-field select:focus {
+  border-color: #2f6fed;
+  box-shadow: 0 0 0 3px rgba(47, 111, 237, 0.12);
+}
+.mess-infor-primary-button,
+.mess-infor-inline-actions button {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background-color: #0068ff;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+.mess-infor-primary-button:disabled,
+.mess-infor-inline-actions button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+.mess-infor-inline-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.mess-infor-inline-actions button:nth-child(2) {
+  background-color: #e8f1ff;
+  color: #0b5ed7;
+}
+.mess-infor-inline-actions .mess-infor-danger-outline {
+  border: 1px solid #d84747;
+  background-color: #fff;
+  color: #d84747;
+}
+.mess-infor-inline-actions .mess-infor-danger-soft {
+  border: 1px solid #b42318;
+  background-color: #fff5f4;
+  color: #b42318;
+}
 .mess-infor-section-note {
   margin: 0;
   font-size: 12px;
@@ -368,18 +431,90 @@
 }
 .mess-infor-member-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   border: 1px solid #dfe6ed;
   border-radius: 12px;
   padding: 10px 12px;
   background-color: #fcfdff;
+  min-width: 0;
+  flex-wrap: wrap;
+  overflow: hidden;
+}
+.mess-infor-member-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 220px;
+}
+.mess-infor-member-avatar {
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 50% !important;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.mess-infor-member-meta {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  flex: 1;
+}
+.mess-infor-member-name {
+  margin: 0;
+  font-weight: 600;
+  color: #1f2a37;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mess-infor-member-role {
+  margin: 0;
+  font-size: 12px;
+  color: #7589a3;
+}
+.mess-infor-member-nickname-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  min-width: 0;
+}
+.mess-infor-member-nickname-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 180px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  border: 1px solid #d6dbe1;
+  font-size: 12px;
+  background: #fff;
+}
+.mess-infor-member-nickname-save {
+  border: none;
+  border-radius: 8px;
+  padding: 5px 8px;
+  background-color: #e5efff;
+  cursor: pointer;
+  font-size: 12px;
+  color: #1f2a37;
+  flex-shrink: 0;
 }
 .mess-infor-member-actions {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
-  justify-items: end;
+  justify-content: flex-end;
+  align-self: center;
+  flex: 1 1 100%;
+}
+.mess-infor-member-actions button {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .mess-infor-danger-outline,
 .mess-infor-danger-soft {
@@ -503,6 +638,17 @@
 }
 .mess-infor-shared-file-item:hover {
   background-color: #f5f9ff;
+}
+.mess-infor-shared-link-item {
+  align-items: flex-start;
+}
+.mess-infor-shared-link-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background-color: #eef3f7;
 }
 .mess-infor-shared-file-icon {
   min-width: 42px;

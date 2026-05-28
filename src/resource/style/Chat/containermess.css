@@ -209,6 +209,24 @@
   background-color: #d6dbe1;
   border-radius: 5px;
 }
+.container-containermess .header-action-icon {
+  width: 28px;
+  height: 28px;
+  padding: 5px;
+  margin: 0 3px;
+  cursor: pointer;
+  color: #57606a;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+.container-containermess .header-action-icon:hover {
+  background-color: #f1f2f4;
+  color: #1f2328;
+}
 .container-containermess .activeIconSend,
 .container-containermess .icon-send-mess:hover {
   background-color: #4ca8ec !important;
@@ -258,9 +276,64 @@
   width: calc(100% - 40px);
   box-sizing: border-box;
 }
+.group-system-message-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 16px;
+  list-style: none;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.group-system-message-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  color: #24384e;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+  width: fit-content;
+  max-width: 90%;
+  box-sizing: border-box;
+}
+.group-system-message-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #f97316;
+  font-size: 15px;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-right: 2px;
+}
+.group-system-message-text {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #24384e;
+  word-break: break-word;
+}
+.group-system-message-time {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 400;
+  color: #8899a6;
+  margin-left: 6px;
+  white-space: nowrap;
+}
 .wrap-text-mess > img {
   width: 40px;
-  height: 40px;
   border-radius: 50%;
   margin-right: 10px;
 }
@@ -1603,7 +1676,8 @@
     min-width: 280px;
   }
 
-  .container-containermess .icon-header {
+  .container-containermess .icon-header,
+  .container-containermess .header-action-icon {
     margin: 0 2px;
   }
 
@@ -1692,7 +1766,8 @@
     font-size: 12px;
   }
 
-  .container-containermess .icon-header {
+  .container-containermess .icon-header,
+  .container-containermess .header-action-icon {
     width: 22px;
     height: 22px;
     padding: 4px;

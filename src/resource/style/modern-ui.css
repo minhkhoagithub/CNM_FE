@@ -856,31 +856,98 @@ textarea:focus-visible,
   font-weight: 500;
 }
 
-/* Header action icons */
-.container-containermess .icon-header,
+/* Header action icons — smaller & friendlier */
+.container-containermess .header-action-icon,
 .message-info-toggle {
-  width: 34px !important;
-  height: 34px !important;
-  min-width: 34px !important;
-  min-height: 34px !important;
+  width: 26px !important;
+  height: 26px !important;
+  min-width: 26px !important;
+  min-height: 26px !important;
   padding: 0 !important;
   margin: 0 2px !important;
-  border-radius: var(--ui-radius-md) !important;
-  color: var(--ui-text-secondary);
+  border-radius: 50% !important;
+  color: var(--ui-text-secondary) !important;
   background: transparent !important;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all var(--ui-transition);
-  font-size: 18px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  transition: all var(--ui-transition) !important;
+  font-size: 15px !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  border: none !important;
 }
 
-.container-containermess .icon-header:hover,
+.container-containermess .header-action-icon:hover,
 .message-info-toggle:hover,
 .message-info-toggle.active {
   background: var(--ui-primary-soft) !important;
   color: var(--ui-primary) !important;
+}
+
+/* Constrain SVG icons inside header actions */
+.container-containermess .header-action-icon svg,
+.message-info-toggle svg {
+  width: 15px !important;
+  height: 15px !important;
+}
+
+/* Group system notification messages — left-aligned simple text rows */
+.group-system-message-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 16px;
+  list-style: none;
+  box-sizing: border-box;
+}
+.group-system-message-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  color: #24384e;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+  width: fit-content;
+  max-width: 90%;
+  box-sizing: border-box;
+}
+.group-system-message-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #f97316;
+  font-size: 15px;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-right: 2px;
+}
+.group-system-message-text {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #24384e;
+  word-break: break-word;
+}
+.group-system-message-time {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 400;
+  color: #8899a6;
+  margin-left: 6px;
+  white-space: nowrap;
 }
 
 /* Typing indicator */
@@ -2132,7 +2199,7 @@ textarea:focus-visible,
 
 /* 1. Composer Toolbar & Send/Like Icons */
 .chat-input {
-  height: 40px !important;
+  height: 44px !important;
   background-color: var(--ui-surface) !important;
   border-bottom: 1px solid var(--ui-border-light) !important;
   border-top: none !important;
@@ -2144,14 +2211,14 @@ textarea:focus-visible,
 }
 
 .chat-input .icon-header {
-  width: 18px !important;
-  height: 18px !important;
-  min-width: 18px !important;
-  min-height: 18px !important;
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 22px !important;
+  min-height: 22px !important;
   padding: 6px !important;
   margin: 0 !important;
   border-radius: 50% !important;
-  font-size: 16px !important;
+  font-size: 20px !important;
   color: var(--ui-text-secondary) !important;
   background: transparent !important;
   display: inline-flex !important;
@@ -2171,7 +2238,7 @@ textarea:focus-visible,
   border: none !important;
   display: flex !important;
   align-items: center !important;
-  padding: 8px 0 !important;
+  padding: 4px 0 !important;
   min-height: 50px !important;
   position: relative !important;
   width: 100% !important;
@@ -2182,18 +2249,18 @@ textarea:focus-visible,
   flex-direction: row !important;
   align-items: center !important;
   width: 100% !important;
-  max-width: 900px !important;
-  margin: 0 auto !important;
-  padding: 0 16px !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
   box-sizing: border-box !important;
   position: relative !important;
 }
 
 .footer-chat .chat-input {
-  max-width: 900px !important;
+  max-width: none !important;
   width: 100% !important;
-  margin: 0 auto !important;
-  padding: 8px 16px !important;
+  margin: 0 !important;
+  padding: 0 4px !important;
   box-sizing: border-box !important;
 }
 
@@ -2246,13 +2313,13 @@ textarea:focus-visible,
 .chat-input-web .icon-header {
   position: absolute !important;
   bottom: 9px !important;
-  width: 18px !important;
-  height: 18px !important;
-  min-width: 18px !important;
-  min-height: 18px !important;
-  padding: 7px !important;
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 22px !important;
+  min-height: 22px !important;
+  padding: 5px !important;
   border-radius: 50% !important;
-  font-size: 16px !important;
+  font-size: 20px !important;
   color: var(--ui-text-secondary) !important;
   background: transparent !important;
   display: inline-flex !important;
@@ -2305,11 +2372,16 @@ textarea:focus-visible,
   min-height: auto !important;
   max-height: none !important;
   flex-shrink: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
 }
 
 .footer-chat form {
   max-height: none !important;
   min-height: auto !important;
+  max-width: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
 }
 
 /* 3. Conversation options list dropdown clipping fix */
@@ -2484,4 +2556,13 @@ textarea:focus-visible,
   background-color: #fefdf0 !important;
   color: #ca8a04 !important;
   border-color: #fef08a !important;
+}
+
+/* Spacing adjustments for consecutive messages */
+.msg-new-sender {
+  margin-top: 24px !important;
+}
+
+.msg-time-gap {
+  margin-top: 36px !important;
 }

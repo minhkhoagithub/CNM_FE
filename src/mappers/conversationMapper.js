@@ -1,5 +1,6 @@
 ﻿const PRIVATE_CONVERSATION_PLACEHOLDER = "Người dùng";
 const GROUP_CONVERSATION_PLACEHOLDER = "Nhóm";
+const GROUP_SYSTEM_PREFIX = "[[GROUP_SYSTEM]]";
 
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key);
 
@@ -23,6 +24,60 @@ const pickFirstString = (...values) => {
   }
 
   return "";
+};
+
+const parseGroupSystemPreviewPayload = (value) => {
+  const content = typeof value === "string" ? value.trim() : "";
+  if (!content.startsWith(GROUP_SYSTEM_PREFIX)) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(content.slice(GROUP_SYSTEM_PREFIX.length));
+    return payload && typeof payload === "object" ? payload : null;
+  } catch {
+    return null;
+  }
+};
+
+export const resolveConversationPreviewText = (value) => {
+  const content = typeof value === "string" ? value.trim() : "";
+  if (!content) {
+    return "";
+  }
+
+  const payload = parseGroupSystemPreviewPayload(content);
+  if (!payload) {
+    return content;
+  }
+
+  const kind = String(payload.kind || "");
+  const actorName = String(payload.actorName || "Ai đó");
+  const targetName = String(payload.targetName || "một thành viên");
+  const groupName = String(payload.name || payload.conversationName || "nhóm");
+
+  switch (kind) {
+    case "group_member_added":
+      return `${actorName} đã thêm ${targetName} vào nhóm`;
+    case "group_member_removed":
+      return `${actorName} đã xóa ${targetName} khỏi nhóm`;
+    case "group_left":
+      return `${actorName} đã rời nhóm`;
+    case "group_admin_promoted":
+      return `${actorName} đã cấp phó nhóm cho ${targetName}`;
+    case "group_admin_demoted":
+      return `${actorName} đã thu hồi phó nhóm của ${targetName}`;
+    case "group_owner_transferred":
+      return `${actorName} đã chuyển quyền trưởng nhóm cho ${targetName}`;
+    case "group_renamed":
+      return `${actorName} đã đổi tên nhóm thành "${groupName}"`;
+    case "group_avatar_changed":
+      return `${actorName} đã cập nhật ảnh nhóm`;
+    case "group_background_changed":
+      return `${actorName} đã đổi nền chat`;
+    default:
+      return "Hoạt động nhóm";
+  }
 };
 
 const resolveConversationBackgroundColor = (conversation, rawConversation) =>
@@ -580,7 +635,9 @@ export const normalizeConversationInput = (conversation, options = {}) => {
     unreadCount: Number(
       conversation?.unreadCount ?? rawConversation?.unreadCount ?? 0
     ),
-    lastMessage: conversation?.lastMessage ?? rawConversation?.lastMessage ?? "",
+    lastMessage: resolveConversationPreviewText(
+      conversation?.lastMessage ?? rawConversation?.lastMessage ?? ""
+    ),
     lastMessageTime:
       conversation?.lastMessageTime ?? rawConversation?.lastMessageTime ?? null,
     lastActive: conversation?.lastActive ?? rawConversation?.lastActive ?? null,
