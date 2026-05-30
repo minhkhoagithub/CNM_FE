@@ -32,8 +32,34 @@ export const getMessageContextV1 = async (
   return unwrapResponseData(response);
 };
 
-export const markConversationSeen = async (conversationId) => {
-  const response = await chatHttpClient.patch(`/messages/mark-seen/${conversationId}`);
+export const markConversationSeen = async (
+  conversationId,
+  { lastReadMessageId } = {}
+) => {
+  const normalizedLastReadMessageId = Number(lastReadMessageId);
+  const hasExplicitCursor =
+    Number.isFinite(normalizedLastReadMessageId) && normalizedLastReadMessageId > 0;
+
+  const response = await chatHttpClient.patch(
+    `/messages/mark-seen/${conversationId}`,
+    hasExplicitCursor ? { lastReadMessageId: normalizedLastReadMessageId } : null
+  );
+  return unwrapResponseData(response);
+};
+
+export const markConversationDelivered = async (
+  conversationId,
+  { lastDeliveredMessageId } = {}
+) => {
+  const normalizedLastDeliveredMessageId = Number(lastDeliveredMessageId);
+  const hasExplicitCursor =
+    Number.isFinite(normalizedLastDeliveredMessageId) &&
+    normalizedLastDeliveredMessageId > 0;
+
+  const response = await chatHttpClient.patch(
+    `/messages/mark-delivered/${conversationId}`,
+    hasExplicitCursor ? { lastDeliveredMessageId: normalizedLastDeliveredMessageId } : null
+  );
   return unwrapResponseData(response);
 };
 

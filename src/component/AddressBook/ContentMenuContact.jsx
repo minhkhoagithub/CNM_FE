@@ -39,6 +39,15 @@ import {
   isFriendRealtimeEvent,
 } from "../../services/friendRealtimeService";
 import { updateCloseFriendStatusForCurrentUser } from "../../services/closeFriendApi";
+import {
+  leaveConversationV1,
+  updateConversationMuteV1,
+  updateConversationPinV1,
+} from "../../services/chat/conversationApi";
+import {
+  GROUP_LABEL_OPTIONS,
+  resolveGroupLabelMeta,
+} from "../../constants/groupConversationLabels";
 
 
 export const HUY_LOI_MOI_KET_BAN = "Thu hồi lời mời kết bạn";
@@ -56,10 +65,8 @@ const FRIEND_FILTER_ALL = "all";
 const FRIEND_FILTER_CLOSE = "close";
 const FRIEND_FILTER_RECENT = "recent";
 
-const GROUP_SECTION_ALL = "all";
 const GROUP_SECTION_MY = "my";
-const GROUP_SECTION_RECENT = "recent";
-const GROUP_SECTION_PUBLIC = "public";
+const GROUP_LABEL_FILTER_ALL = "all";
 
 const GROUP_SORT_RECENT = "recent";
 const GROUP_SORT_NEWEST = "newest";
@@ -68,11 +75,11 @@ const GROUP_SORT_NAME = "name";
 const GROUP_SORT_PUBLIC = "public";
 const GROUP_SORT_PRIVATE = "private";
 
-const GROUP_CATEGORIES = [
-  { id: "engineering", label: "Kỹ thuật", colorClass: "engineering" },
-  { id: "design", label: "Hệ thống thiết kế", colorClass: "design" },
-  { id: "marketing", label: "Chiến lược marketing", colorClass: "marketing" },
-];
+const GROUP_CATEGORIES = GROUP_LABEL_OPTIONS.map((option) => ({
+  id: option.value,
+  label: option.label,
+  colorClass: option.color || "slate",
+}));
 
 
 // const defaultFlags = {
@@ -106,40 +113,26 @@ const mapOutgoingRequestToUi = (item) => ({
   requestId: item.id,
 });
 
-const normalizeCategoryToken = (value) => String(value || "").toLowerCase();
+const resolveGroupCategoryMeta = (group) => {
+  const rawLabelCode = group?.groupLabel || group?.raw?.groupLabel || "";
+  const rawLabelDisplayName =
+    group?.groupLabelDisplayName || group?.raw?.groupLabelDisplayName || "";
+  const rawLabelColor = group?.groupLabelColor || group?.raw?.groupLabelColor || "";
+  const resolved = resolveGroupLabelMeta(rawLabelCode, rawLabelDisplayName, rawLabelColor);
 
-const resolveCategoryId = (group) => {
-  const rawValue =
-    group?.category ||
-    group?.categoryCode ||
-    group?.groupLabelDisplayName ||
-    group?.groupLabel ||
-    group?.raw?.category ||
-    group?.raw?.categoryCode ||
-    "";
-  const token = normalizeCategoryToken(rawValue);
-
-  if (token.includes("engineer") || token.includes("ky thuat")) {
-    return "engineering";
-  }
-  if (token.includes("design")) {
-    return "design";
-  }
-  if (token.includes("marketing") || token.includes("market")) {
-    return "marketing";
+  if (!resolved) {
+    return {
+      categoryId: "OTHER",
+      categoryLabel: "Khác",
+      categoryClass: "slate",
+    };
   }
 
-  return "other";
-};
-
-const resolveCategoryLabel = (categoryId) => {
-  const match = GROUP_CATEGORIES.find((category) => category.id === categoryId);
-  return match ? match.label : "Khác";
-};
-
-const resolveCategoryClass = (categoryId) => {
-  const match = GROUP_CATEGORIES.find((category) => category.id === categoryId);
-  return match ? match.colorClass : "other";
+  return {
+    categoryId: resolved.code,
+    categoryLabel: resolved.label,
+    categoryClass: resolved.color || "slate",
+  };
 };
 
 const resolveMemberCount = (group) => {
@@ -322,10 +315,12 @@ const [pendingCloseFriendId, setPendingCloseFriendId] = useState(null);
 const [closeFriendActionError, setCloseFriendActionError] = useState("");
 const [selectedGroupId, setSelectedGroupId] = useState(null);
 const [groupSearch, setGroupSearch] = useState("");
-const [groupSection, setGroupSection] = useState(GROUP_SECTION_ALL);
+const [groupSection, setGroupSection] = useState(GROUP_SECTION_MY);
 const [groupSort, setGroupSort] = useState(GROUP_SORT_RECENT);
-const [selectedCategory, setSelectedCategory] = useState("all");
+const [selectedCategory, setSelectedCategory] = useState(GROUP_LABEL_FILTER_ALL);
 const [isGroupDetailOpen, setIsGroupDetailOpen] = useState(false);
+const [groupActionError, setGroupActionError] = useState("");
+const [pendingGroupActionKey, setPendingGroupActionKey] = useState("");
 
 useEffect(() => {
   setListData(buildListData(dataContentContac, title));
@@ -335,10 +330,12 @@ useEffect(() => {
   setCloseFriendActionError("");
   setSelectedGroupId(null);
   setGroupSearch("");
-  setGroupSection(GROUP_SECTION_ALL);
+  setGroupSection(GROUP_SECTION_MY);
   setGroupSort(GROUP_SORT_RECENT);
-  setSelectedCategory("all");
+  setSelectedCategory(GROUP_LABEL_FILTER_ALL);
   setIsGroupDetailOpen(false);
+  setGroupActionError("");
+  setPendingGroupActionKey("");
   setResultSearch({
     state: false,
     data: new Map([]),
@@ -490,9 +487,9 @@ useEffect(() => {
       return;
     }
 
-    const nextIsCloseFriend = !Boolean(friend.isCloseFriend);
+    const nextIsCloseFriend = !friend.isCloseFriend;
     const previousState = {
-      isCloseFriend: Boolean(friend.isCloseFriend),
+      isCloseFriend: friend.isCloseFriend === true,
       note: friend.closeFriendNote ?? null,
     };
 
@@ -672,6 +669,179 @@ const handleSeachContact = (e) => {
     setIsGroupDetailOpen(false);
   };
 
+  const buildGroupConversationPayload = React.useCallback((group) => {
+    const baseRaw = group?.raw && typeof group.raw === "object" ? group.raw : {};
+    const conversationId =
+      baseRaw.id || group?.id || group?._id || group?.userId || null;
+
+    if (!conversationId) {
+      return null;
+    }
+
+    return {
+      ...baseRaw,
+      id: conversationId,
+      _id: conversationId,
+      userId: conversationId,
+      type: baseRaw.type || "group",
+      displayName:
+        baseRaw.displayName ||
+        group?.name ||
+        group?.displayName ||
+        group?.username ||
+        "Nhóm",
+      avatarUrl: baseRaw.avatarUrl || group?.avatarUrl || group?.avatar || "",
+      members: Array.isArray(baseRaw.members)
+        ? baseRaw.members
+        : Array.isArray(group?.members)
+        ? group.members
+        : [],
+    };
+  }, []);
+
+  const patchGroupState = React.useCallback((groupId, patch) => {
+    const applyPatch = (sourceMap) => {
+      const nextMap = new Map(sourceMap);
+      const current = nextMap.get(groupId);
+
+      if (current) {
+        nextMap.set(groupId, {
+          ...current,
+          ...patch,
+          raw: {
+            ...(current.raw || {}),
+            ...patch,
+          },
+        });
+        return nextMap;
+      }
+
+      for (const [key, item] of nextMap.entries()) {
+        const itemId = item?.id || item?._id || item?.userId;
+        if (String(itemId || "") !== String(groupId || "")) {
+          continue;
+        }
+
+        nextMap.set(key, {
+          ...item,
+          ...patch,
+          raw: {
+            ...(item.raw || {}),
+            ...patch,
+          },
+        });
+        break;
+      }
+
+      return nextMap;
+    };
+
+    setListData((previousState) => applyPatch(previousState));
+    setResultSearch((previousState) => ({
+      ...previousState,
+      data: applyPatch(previousState.data),
+    }));
+  }, []);
+
+  const removeGroupState = React.useCallback((groupId) => {
+    const removeFromMap = (sourceMap) => {
+      const nextMap = new Map(sourceMap);
+      if (nextMap.delete(groupId)) {
+        return nextMap;
+      }
+
+      for (const [key, item] of nextMap.entries()) {
+        const itemId = item?.id || item?._id || item?.userId;
+        if (String(itemId || "") !== String(groupId || "")) {
+          continue;
+        }
+        nextMap.delete(key);
+        break;
+      }
+      return nextMap;
+    };
+
+    setListData((previousState) => removeFromMap(previousState));
+    setResultSearch((previousState) => ({
+      ...previousState,
+      data: removeFromMap(previousState.data),
+    }));
+    setSelectedGroupId((previousState) =>
+      String(previousState || "") === String(groupId || "") ? null : previousState
+    );
+    setIsGroupDetailOpen((previousState) =>
+      String(selectedGroupId || "") === String(groupId || "") ? false : previousState
+    );
+  }, [selectedGroupId]);
+
+  const handleOpenGroupChat = React.useCallback(
+    (group) => {
+      setGroupActionError("");
+      const conversationPayload = buildGroupConversationPayload(group);
+      if (!conversationPayload?.id) {
+        setGroupActionError("Không thể mở cuộc trò chuyện cho nhóm này.");
+        return;
+      }
+
+      handleShowSoftConversation(conversationPayload);
+    },
+    [buildGroupConversationPayload, handleShowSoftConversation]
+  );
+
+  const handleGroupMenuAction = React.useCallback(
+    async (group, action) => {
+      setGroupActionError("");
+      const conversationPayload = buildGroupConversationPayload(group);
+      const conversationId = conversationPayload?.id;
+
+      if (!conversationId) {
+        setGroupActionError("Không xác định được hội thoại nhóm.");
+        return;
+      }
+
+      if (action === "leave") {
+        const confirmed = window.confirm("Bạn có chắc muốn rời nhóm này?");
+        if (!confirmed) {
+          return;
+        }
+      }
+
+      const actionKey = `${conversationId}:${action}`;
+      setPendingGroupActionKey(actionKey);
+
+      try {
+        if (action === "mute") {
+          const nextMuted = !(group?.muted || group?.raw?.muted);
+          await updateConversationMuteV1(conversationId, nextMuted);
+          patchGroupState(group.id, { muted: nextMuted });
+          return;
+        }
+
+        if (action === "pin") {
+          const nextPinned = !(group?.pinned || group?.raw?.pinned || group?.isFeatured);
+          await updateConversationPinV1(conversationId, nextPinned);
+          patchGroupState(group.id, {
+            pinned: nextPinned,
+            isFeatured: nextPinned,
+          });
+          return;
+        }
+
+        if (action === "leave") {
+          await leaveConversationV1(conversationId);
+          removeGroupState(group.id);
+          return;
+        }
+      } catch (error) {
+        console.error("Failed to apply group action:", error);
+        setGroupActionError("Không thể cập nhật thao tác nhóm.");
+      } finally {
+        setPendingGroupActionKey("");
+      }
+    },
+    [buildGroupConversationPayload, patchGroupState, removeGroupState]
+  );
+
   const resolveGroupActionMeta = (group) => {
     const accessState = group.accessState || "JOINED";
     if (accessState === "JOINED") {
@@ -706,7 +876,7 @@ const handleSeachContact = (e) => {
           return null;
         }
 
-        const categoryId = resolveCategoryId(group);
+        const { categoryId, categoryLabel, categoryClass } = resolveGroupCategoryMeta(group);
         const privacy = String(group.privacy || group.raw?.privacy || "PRIVATE").toUpperCase();
         const accessState = String(
           group.accessState || group.raw?.accessState || "JOINED"
@@ -718,8 +888,8 @@ const handleSeachContact = (e) => {
           description: group.description || group.raw?.description || "",
           avatarUrl: group.avatarUrl || group.avatar || "",
           categoryId,
-          categoryLabel: resolveCategoryLabel(categoryId),
-          categoryClass: resolveCategoryClass(categoryId),
+          categoryLabel,
+          categoryClass,
           privacy,
           accessState,
           status: resolveGroupStatus(group),
@@ -728,6 +898,8 @@ const handleSeachContact = (e) => {
             ? group.members.slice(0, 3)
             : [],
           currentUserRole: resolveCurrentUserRole(group, currentUserId),
+          muted: Boolean(group.muted || group.raw?.muted),
+          pinned: Boolean(group.pinned || group.raw?.pinned),
           lastActiveAt:
             group.lastMessageTime || group.lastActive || group.raw?.lastMessageTime || null,
           joinedAt: group.joinedAt || group.raw?.joinedAt || group.raw?.createdAt || null,
@@ -754,22 +926,9 @@ const handleSeachContact = (e) => {
 
     if (groupSection === GROUP_SECTION_MY) {
       return normalizedGroups.filter((group) =>
-        ["OWNER", "ADMIN", "MODERATOR"].includes(group.currentUserRole)
-      );
-    }
-
-    if (groupSection === GROUP_SECTION_RECENT) {
-      return normalizedGroups
-        .filter((group) => Boolean(group.joinedAt))
-        .sort((a, b) =>
-          new Date(b.joinedAt || 0).getTime() - new Date(a.joinedAt || 0).getTime()
-        );
-    }
-
-    if (groupSection === GROUP_SECTION_PUBLIC) {
-      return normalizedGroups.filter(
-        (group) =>
-          group.privacy === "PUBLIC" || group.accessState === "NOT_JOINED_PUBLIC"
+        ["JOINED", "ACCESS_REQUESTED", "PRIVATE_REQUIRES_ACCESS"].includes(
+          String(group.accessState || "JOINED").toUpperCase()
+        )
       );
     }
 
@@ -798,9 +957,13 @@ const handleSeachContact = (e) => {
     });
 
     const byCategory =
-      selectedCategory === "all"
+      selectedCategory === GROUP_LABEL_FILTER_ALL
         ? bySearch
-        : bySearch.filter((group) => group.categoryId === selectedCategory);
+        : bySearch.filter(
+            (group) =>
+              String(group.categoryId || "").toUpperCase() ===
+              String(selectedCategory || "").toUpperCase()
+          );
 
     const sortedGroups = [...byCategory];
     sortedGroups.sort((a, b) => {
@@ -843,28 +1006,14 @@ const handleSeachContact = (e) => {
       return null;
     }
 
-    if (groupSection === GROUP_SECTION_PUBLIC) {
-      return {
-        title: "Chưa có nhóm công khai.",
-        description: "Nhóm công khai sẽ hiển thị tại đây khi được tạo.",
-      };
-    }
-
-    if (groupSection === GROUP_SECTION_RECENT) {
-      return {
-        title: "Chưa có nhóm tham gia gần đây.",
-        description: "Những nhóm bạn tham gia gần đây sẽ xuất hiện tại đây.",
-      };
-    }
-
     if (groupSection === GROUP_SECTION_MY) {
       return {
-        title: "Bạn chưa quản lý nhóm nào.",
-        description: "Những nhóm bạn sở hữu hoặc quản trị sẽ hiển thị tại đây.",
+        title: "Bạn chưa tham gia nhóm nào.",
+        description: "Những nhóm bạn đang tham gia sẽ hiển thị tại đây.",
       };
     }
 
-    if (groupSearch || selectedCategory !== "all") {
+    if (groupSearch || selectedCategory !== GROUP_LABEL_FILTER_ALL) {
       return {
         title: "Không tìm thấy nhóm phù hợp.",
         description: "Hãy thử từ khóa khác hoặc xóa bộ lọc hiện tại.",
@@ -935,10 +1084,7 @@ const handleSeachContact = (e) => {
                 </div>
                 <nav className="groups-sidebar-nav">
                   {[
-                    { id: GROUP_SECTION_ALL, label: "Tất cả nhóm", icon: HiOutlineUserGroup },
                     { id: GROUP_SECTION_MY, label: "Nhóm của tôi", icon: HiOutlineStar },
-                    { id: GROUP_SECTION_RECENT, label: "Tham gia gần đây", icon: HiOutlineUserPlus },
-                    { id: GROUP_SECTION_PUBLIC, label: "Danh bạ công khai", icon: HiOutlineUser },
                   ].map((item) => (
                     <button
                       key={item.id}
@@ -955,6 +1101,19 @@ const handleSeachContact = (e) => {
                 </nav>
                 <div className="groups-sidebar-categories">
                   <p className="groups-sidebar-section-title">Danh mục</p>
+                  <button
+                    type="button"
+                    className={`groups-category-item ${
+                      selectedCategory === GROUP_LABEL_FILTER_ALL ? "active" : ""
+                    }`}
+                    onClick={() => setSelectedCategory(GROUP_LABEL_FILTER_ALL)}
+                  >
+                    <span className="category-label-wrap">
+                      <span className="category-dot slate" />
+                      <span>Tất cả</span>
+                    </span>
+                    <span className="category-count">{normalizedGroups.length}</span>
+                  </button>
                   {GROUP_CATEGORIES.map((category) => (
                     <button
                       key={category.id}
@@ -964,35 +1123,15 @@ const handleSeachContact = (e) => {
                       }`}
                       onClick={() => setSelectedCategory(category.id)}
                     >
-                      <span className={`category-dot ${category.colorClass}`} />
-                      <span>{category.label}</span>
+                      <span className="category-label-wrap">
+                        <span className={`category-dot ${category.colorClass}`} />
+                        <span>{category.label}</span>
+                      </span>
                       <span className="category-count">
                         {categoryCounts.get(category.id) || 0}
                       </span>
                     </button>
                   ))}
-                  <button
-                    type="button"
-                    className={`groups-category-item ${
-                      selectedCategory === "all" ? "active" : ""
-                    }`}
-                    onClick={() => setSelectedCategory("all")}
-                  >
-                    <span className="category-dot other" />
-                    <span>Khác</span>
-                    <span className="category-count">
-                      {categoryCounts.get("other") || 0}
-                    </span>
-                  </button>
-                </div>
-                <div className="groups-sidebar-upgrade">
-                  <div className="upgrade-icon">
-                    <HiOutlineStar />
-                  </div>
-                  <div>
-                    <h4>Nâng cấp gói</h4>
-                    <p>Mở khóa nhóm riêng tư</p>
-                  </div>
                 </div>
               </aside>
 
@@ -1037,6 +1176,9 @@ const handleSeachContact = (e) => {
                     </button>
                   </div>
                 </div>
+                {groupActionError ? (
+                  <p className="group-action-error">{groupActionError}</p>
+                ) : null}
 
                 <div className="groups-grid">
                   {groupEmptyState ? (
@@ -1053,8 +1195,8 @@ const handleSeachContact = (e) => {
                           onClick={() => {
                             if (groupEmptyState.actionLabel === "Xóa bộ lọc") {
                               setGroupSearch("");
-                              setSelectedCategory("all");
-                              setGroupSection(GROUP_SECTION_ALL);
+                              setSelectedCategory(GROUP_LABEL_FILTER_ALL);
+                              setGroupSection(GROUP_SECTION_MY);
                             } else {
                               window.dispatchEvent(new CustomEvent("OPEN_CREATE_GROUP"));
                             }
@@ -1108,10 +1250,7 @@ const handleSeachContact = (e) => {
                                   className="btn-primary"
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    handleShowSoftConversation({
-                                      ...featuredGroup.raw,
-                                      userId: featuredGroup.id,
-                                    });
+                                    handleOpenGroupChat(featuredGroup);
                                   }}
                                 >
                                   Vào chat
@@ -1220,10 +1359,7 @@ const handleSeachContact = (e) => {
                                       onClick={(event) => {
                                         event.stopPropagation();
                                         if (actionMeta.label === "Vào chat") {
-                                          handleShowSoftConversation({
-                                            ...group.raw,
-                                            userId: group.id,
-                                          });
+                                          handleOpenGroupChat(group);
                                         }
                                       }}
                                     >
@@ -1237,10 +1373,40 @@ const handleSeachContact = (e) => {
                                         <HiOutlineEllipsisHorizontal />
                                       </summary>
                                       <div className="group-card-menu-panel">
-                                        <button type="button">Tắt thông báo</button>
-                                        <button type="button">Ghim nhóm</button>
-                                        <button type="button" className="danger">Rời nhóm</button>
-                                        <button type="button">Báo cáo</button>
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            pendingGroupActionKey === `${group.id}:mute`
+                                          }
+                                          onClick={() => {
+                                            void handleGroupMenuAction(group, "mute");
+                                          }}
+                                        >
+                                          {group.muted ? "Bật thông báo" : "Tắt thông báo"}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            pendingGroupActionKey === `${group.id}:pin`
+                                          }
+                                          onClick={() => {
+                                            void handleGroupMenuAction(group, "pin");
+                                          }}
+                                        >
+                                          {group.pinned ? "Bỏ ghim nhóm" : "Ghim nhóm"}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="danger"
+                                          disabled={
+                                            pendingGroupActionKey === `${group.id}:leave`
+                                          }
+                                          onClick={() => {
+                                            void handleGroupMenuAction(group, "leave");
+                                          }}
+                                        >
+                                          Rời nhóm
+                                        </button>
                                       </div>
                                     </details>
                                   </div>
@@ -1293,12 +1459,7 @@ const handleSeachContact = (e) => {
                         <button
                           type="button"
                           className="btn-primary"
-                          onClick={() =>
-                            handleShowSoftConversation({
-                              ...selectedGroup.raw,
-                              userId: selectedGroup.id,
-                            })
-                          }
+                          onClick={() => handleOpenGroupChat(selectedGroup)}
                         >
                           Vào chat
                         </button>
@@ -1307,7 +1468,14 @@ const handleSeachContact = (e) => {
                             Quản lý nhóm
                           </button>
                         ) : null}
-                        <button type="button" className="btn-danger">
+                        <button
+                          type="button"
+                          className="btn-danger"
+                          disabled={pendingGroupActionKey === `${selectedGroup.id}:leave`}
+                          onClick={() => {
+                            void handleGroupMenuAction(selectedGroup, "leave");
+                          }}
+                        >
                           Rời nhóm
                         </button>
                       </div>

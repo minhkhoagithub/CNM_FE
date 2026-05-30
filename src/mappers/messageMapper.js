@@ -169,6 +169,137 @@ const mapReadReceipts = (message) => {
   };
 };
 
+const parseNumericMessageId = (value) => {
+  const normalizedValue = Number(value);
+  return Number.isFinite(normalizedValue) && normalizedValue > 0
+    ? normalizedValue
+    : null;
+};
+
+const isReadCursorAhead = (nextCursor, currentCursor) => {
+  if (nextCursor == null) {
+    return false;
+  }
+
+  if (currentCursor == null) {
+    return true;
+  }
+
+  return nextCursor > currentCursor;
+};
+
+const mapMemberReadState = (value, fallbackConversationId = null) => {
+  const userId = normalizeUserId(
+    value?.userId || value?.readerUserId || value?.seenByUserId
+  );
+  if (!userId) {
+    return null;
+  }
+
+  return {
+    conversationId: value?.conversationId || fallbackConversationId || null,
+    userId,
+    lastDeliveredMessageId: parseNumericMessageId(
+      value?.lastDeliveredMessageId ??
+        value?.lastDeliveredId ??
+        value?.deliveredMessageId
+    ),
+    deliveredAt: value?.deliveredAt || value?.lastDeliveredAt || null,
+    lastReadMessageId: parseNumericMessageId(
+      value?.lastReadMessageId ?? value?.lastSeenMessageId ?? value?.messageId
+    ),
+    lastReadAt: value?.lastReadAt || value?.readAt || value?.updatedAt || null,
+    displayName:
+      pickFirstText(
+        value?.displayName,
+        value?.username,
+        value?.name,
+        value?.user?.displayName,
+        value?.user?.username,
+        value?.profile?.displayName
+      ) || "",
+    avatarUrl:
+      pickFirstText(
+        value?.avatarUrl,
+        value?.avatar,
+        value?.user?.avatarUrl,
+        value?.user?.avatar,
+        value?.profile?.avatarUrl
+      ) || "",
+    raw: value,
+  };
+};
+
+const mapMemberReadStates = (items, { conversationId = null } = {}) => {
+  const normalizedItems = Array.isArray(items) ? items : [];
+  const stateByUserId = new Map();
+
+  normalizedItems.forEach((item) => {
+    const mappedState = mapMemberReadState(item, conversationId);
+    if (!mappedState) {
+      return;
+    }
+
+    const userId = String(mappedState.userId);
+    const existingState = stateByUserId.get(userId);
+    if (!existingState) {
+      stateByUserId.set(userId, mappedState);
+      return;
+    }
+
+    const nextMergedState = {
+      ...existingState,
+      conversationId:
+        mappedState.conversationId || existingState.conversationId || null,
+      displayName: mappedState.displayName || existingState.displayName || "",
+      avatarUrl: mappedState.avatarUrl || existingState.avatarUrl || "",
+    };
+
+    const nextDeliveredCursor = parseNumericMessageId(
+      mappedState.lastDeliveredMessageId
+    );
+    const currentDeliveredCursor = parseNumericMessageId(
+      existingState.lastDeliveredMessageId
+    );
+    if (isReadCursorAhead(nextDeliveredCursor, currentDeliveredCursor)) {
+      nextMergedState.lastDeliveredMessageId = nextDeliveredCursor;
+      nextMergedState.deliveredAt =
+        mappedState.deliveredAt || existingState.deliveredAt || null;
+    } else if (nextDeliveredCursor === currentDeliveredCursor) {
+      const currentDeliveredAt = existingState.deliveredAt
+        ? new Date(existingState.deliveredAt).getTime()
+        : 0;
+      const nextDeliveredAt = mappedState.deliveredAt
+        ? new Date(mappedState.deliveredAt).getTime()
+        : 0;
+      if (nextDeliveredAt >= currentDeliveredAt && nextDeliveredAt > 0) {
+        nextMergedState.deliveredAt = mappedState.deliveredAt;
+      }
+    }
+
+    const nextReadCursor = parseNumericMessageId(mappedState.lastReadMessageId);
+    const currentReadCursor = parseNumericMessageId(existingState.lastReadMessageId);
+    if (isReadCursorAhead(nextReadCursor, currentReadCursor)) {
+      nextMergedState.lastReadMessageId = nextReadCursor;
+      nextMergedState.lastReadAt = mappedState.lastReadAt || existingState.lastReadAt || null;
+    } else if (nextReadCursor === currentReadCursor) {
+      const currentReadAt = existingState.lastReadAt
+        ? new Date(existingState.lastReadAt).getTime()
+        : 0;
+      const nextReadAt = mappedState.lastReadAt
+        ? new Date(mappedState.lastReadAt).getTime()
+        : 0;
+      if (nextReadAt >= currentReadAt && nextReadAt > 0) {
+        nextMergedState.lastReadAt = mappedState.lastReadAt;
+      }
+    }
+
+    stateByUserId.set(userId, nextMergedState);
+  });
+
+  return Array.from(stateByUserId.values());
+};
+
 const getStorage = () =>
   typeof window !== "undefined" && window.localStorage ? window.localStorage : null;
 
@@ -569,6 +700,16 @@ export const isVideoAttachment = (attachment) => {
   const contentType = String(attachment?.contentType || "").toLowerCase();
   const attachmentType = String(attachment?.type || "").toUpperCase();
   const ext = getAttachmentFileExtension(attachment);
+  const hasAudioMetadata =
+    Number.isFinite(Number(attachment?.durationMs)) ||
+    (Array.isArray(attachment?.waveform) && attachment.waveform.length > 0) ||
+    Boolean(String(attachment?.audioFormat || "").trim());
+
+  // WebM audio recordings can sometimes carry a video/* MIME type depending on browser.
+  // Force audio precedence when the attachment explicitly indicates audio semantics.
+  if (attachmentType === "AUDIO" || contentType.startsWith("audio/") || hasAudioMetadata) {
+    return false;
+  }
 
   if (isRecordedVoiceAttachment(attachment)) {
     return false;
@@ -585,10 +726,16 @@ export const isAudioAttachment = (attachment) => {
   const contentType = String(attachment?.contentType || "").toLowerCase();
   const attachmentType = String(attachment?.type || "").toUpperCase();
   const ext = getAttachmentFileExtension(attachment);
+  const hasAudioMetadata =
+    Number.isFinite(Number(attachment?.durationMs)) ||
+    (Array.isArray(attachment?.waveform) && attachment.waveform.length > 0) ||
+    Boolean(String(attachment?.audioFormat || "").trim());
 
   return (
-    isRecordedVoiceAttachment(attachment) ||
-    ["mp3", "wav", "ogg", "m4a", "aac", "opus", "flac"].includes(ext)
+    contentType.startsWith("audio/") ||
+    attachmentType === "AUDIO" ||
+    (contentType.startsWith("video/") && hasAudioMetadata) ||
+    ["mp3", "wav", "ogg", "m4a", "aac", "opus", "flac", "webm"].includes(ext)
   );
 };
 
@@ -917,6 +1064,9 @@ export const mergePersistedForwardedFlags = ({
 export const mapMessagePage = (messagePage, options = {}) => {
   const items = Array.isArray(messagePage?.items) ? messagePage.items : [];
   const mappedItems = items.slice().reverse().map(mapMessage);
+  const memberReadStates = mapMemberReadStates(messagePage?.memberReadStates, {
+    conversationId: options.conversationId || null,
+  });
   const recalledMergedItems = mergePersistedRecalledMessages({
     conversationId: options.conversationId || null,
     currentUserId: options.currentUserId || null,
@@ -931,6 +1081,7 @@ export const mapMessagePage = (messagePage, options = {}) => {
     }),
     nextCursor: messagePage?.nextCursor || null,
     hasMore: Boolean(messagePage?.hasMore),
+    memberReadStates,
     raw: messagePage,
   };
 };

@@ -1160,6 +1160,12 @@
   align-items: center;
 }
 
+.category-label-wrap {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
 .groups-category-item.active {
   background: #ffffff;
   box-shadow: inset 0 0 0 1px #cbd5f5;
@@ -1173,20 +1179,28 @@
   margin-right: 8px;
 }
 
-.category-dot.engineering {
+.category-dot.blue {
   background: #2563eb;
 }
 
-.category-dot.design {
+.category-dot.violet {
   background: #7c3aed;
 }
 
-.category-dot.marketing {
-  background: #f97316;
+.category-dot.amber {
+  background: #d97706;
 }
 
-.category-dot.other {
-  background: #94a3b8;
+.category-dot.rose {
+  background: #e11d48;
+}
+
+.category-dot.emerald {
+  background: #059669;
+}
+
+.category-dot.slate {
+  background: #64748b;
 }
 
 .category-count {
@@ -1249,6 +1263,12 @@
   border-radius: 16px;
   border: 1px solid #e5eaf1;
   padding: 14px 118px 14px 16px;
+}
+
+.group-action-error {
+  margin: -4px 2px 0;
+  font-size: 12px;
+  color: #b42318;
 }
 
 .groups-search {
@@ -1338,22 +1358,32 @@
   color: #4338ca;
 }
 
-.category-badge.engineering {
+.category-badge.blue {
   background: #e0edff;
   color: #1d4ed8;
 }
 
-.category-badge.design {
+.category-badge.violet {
   background: #f3e8ff;
   color: #7c3aed;
 }
 
-.category-badge.marketing {
-  background: #ffedd5;
-  color: #ea580c;
+.category-badge.amber {
+  background: #fef3c7;
+  color: #b45309;
 }
 
-.category-badge.other {
+.category-badge.rose {
+  background: #ffe4e6;
+  color: #be123c;
+}
+
+.category-badge.emerald {
+  background: #dcfce7;
+  color: #047857;
+}
+
+.category-badge.slate {
   background: #e2e8f0;
   color: #475569;
 }
