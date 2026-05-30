@@ -153,12 +153,15 @@ const unwrapConversationRealtimePayload = (event) => {
   const dataPayload =
     unwrapped?.data && typeof unwrapped.data === "object" ? unwrapped.data : unwrapped;
   const payload =
-    dataPayload?.id || !dataPayload?.conversationId
-      ? dataPayload
-      : {
+    eventType === "CONVERSATION_UPDATED" &&
+    dataPayload &&
+    !dataPayload?.id &&
+    dataPayload?.conversationId
+      ? {
           ...dataPayload,
           id: dataPayload.conversationId,
-        };
+        }
+      : dataPayload;
 
   return { eventType, payload };
 };
@@ -343,6 +346,24 @@ export const ContactProvider = ({ children }) => {
     }
 
     const { eventType, payload } = unwrapConversationRealtimePayload(event);
+    if (eventType && eventType !== "CONVERSATION_UPDATED") {
+      return;
+    }
+
+    const looksLikeMessagePayload = Boolean(
+      payload &&
+        payload.conversationId &&
+        (typeof payload.id === "number" ||
+          payload.senderId ||
+          payload.messageType ||
+          Array.isArray(payload.attachments) ||
+          Object.prototype.hasOwnProperty.call(payload, "replyToMessageId"))
+    );
+
+    if (looksLikeMessagePayload) {
+      return;
+    }
+
     const hasConversationMetadata = Boolean(
       payload &&
         (payload.id ||
@@ -350,12 +371,15 @@ export const ContactProvider = ({ children }) => {
           payload.name ||
           payload.displayName ||
           payload.avatarUrl ||
+          Object.prototype.hasOwnProperty.call(payload, "backgroundType") ||
+          Object.prototype.hasOwnProperty.call(payload, "backgroundColor") ||
+          Object.prototype.hasOwnProperty.call(payload, "backgroundImageUrl") ||
           payload.groupAvatarUrl ||
           payload.members ||
+          Object.prototype.hasOwnProperty.call(payload, "unreadCount") ||
           payload.status)
     );
-    const isConversationUpdatedEvent =
-      eventType === "CONVERSATION_UPDATED" || hasConversationMetadata;
+    const isConversationUpdatedEvent = hasConversationMetadata;
 
     if (!isConversationUpdatedEvent) {
       return;
