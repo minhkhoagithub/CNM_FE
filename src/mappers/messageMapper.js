@@ -470,6 +470,20 @@ const getAttachmentFileExtension = (attachment) => {
   return fileName.split(".").pop() || "";
 };
 
+const isRecordedVoiceAttachment = (attachment) => {
+  const contentType = String(attachment?.contentType || "").toLowerCase();
+  const attachmentType = String(attachment?.type || "").toUpperCase();
+  const fileName = String(attachment?.fileName || attachment?.name || "").toLowerCase();
+
+  return (
+    contentType.startsWith("audio/") ||
+    attachmentType === "AUDIO" ||
+    Boolean(attachment?.audioFormat) ||
+    Array.isArray(attachment?.waveform) ||
+    fileName.startsWith("voice-message-")
+  );
+};
+
 const CALL_LOG_TYPES = new Set(["CALL_LOG", "CALL", "SYSTEM_CALL"]);
 
 const parseDurationSeconds = (value) => {
@@ -556,6 +570,10 @@ export const isVideoAttachment = (attachment) => {
   const attachmentType = String(attachment?.type || "").toUpperCase();
   const ext = getAttachmentFileExtension(attachment);
 
+  if (isRecordedVoiceAttachment(attachment)) {
+    return false;
+  }
+
   return (
     contentType.startsWith("video/") ||
     attachmentType === "VIDEO" ||
@@ -569,9 +587,8 @@ export const isAudioAttachment = (attachment) => {
   const ext = getAttachmentFileExtension(attachment);
 
   return (
-    contentType.startsWith("audio/") ||
-    attachmentType === "AUDIO" ||
-    ["mp3", "wav", "ogg", "m4a", "aac", "opus", "flac", "webm"].includes(ext)
+    isRecordedVoiceAttachment(attachment) ||
+    ["mp3", "wav", "ogg", "m4a", "aac", "opus", "flac"].includes(ext)
   );
 };
 

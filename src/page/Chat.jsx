@@ -35,8 +35,6 @@ import mess from "../resource/svg/chat/chat.svg";
 import addressbook from "../resource/svg/chat/addressbook.svg";
 import todo from "../resource/svg/chat/todo.svg";
 import cloud from "../resource/svg/chat/cloud.svg";
-import toolbox from "../resource/svg/chat/toolbox.svg";
-import setting from "../resource/svg/chat/setting.svg";
 
 const formatSecurityIssue = (issue) => {
   if (issue === null || issue === undefined) {
@@ -81,7 +79,6 @@ function Chat({ handleLogout, onConversationSelect }) {
   const [menuActive, setMenuactive] = useState(0);
   const [isShowStartup, setIsShoeStartup] = useState(false);
   const [showSetting, setShowSetting] = useState(false);
-  const [showSettingMenu, setShowSettingMenu] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState("system");
   const [accountSubSection, setAccountSubSection] = useState(null);
@@ -131,11 +128,7 @@ function Chat({ handleLogout, onConversationSelect }) {
   });
 
   const topMenu = [mess, addressbook, todo];
-  const bottomMenu = [cloud, toolbox, setting];
-
-  const handleShowSettingMenu = () => {
-    setShowSettingMenu(!showSettingMenu);
-  };
+  const bottomMenu = [cloud];
 
   const handleShowStartup = () => {
     isShowStartup ? setIsShoeStartup(false) : setIsShoeStartup(true);
@@ -165,8 +158,6 @@ function Chat({ handleLogout, onConversationSelect }) {
   // Device management is handled by DeviceManager component
   const boxRef = useRef(null);
   const boxAvatar = useRef(null);
-  const boxSettingRef = useRef(null);
-  const settingIconRef = useRef(null);
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -177,21 +168,13 @@ function Chat({ handleLogout, onConversationSelect }) {
       ) {
         setIsShoeStartup(false);
       }
-      if (
-        settingIconRef.current &&
-        !settingIconRef.current.contains(event.target) &&
-        boxSettingRef.current &&
-        !boxSettingRef.current.contains(event.target)
-      ) {
-        setShowSettingMenu(false);
-      }
     }
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [boxRef, setIsShoeStartup, boxSettingRef, setShowSettingMenu]);
+  }, [boxRef, setIsShoeStartup]);
 
   const mergeSettings = useCallback((incomingSettings = {}) => {
     setUserSettings((prev) => ({
@@ -450,7 +433,6 @@ function Chat({ handleLogout, onConversationSelect }) {
 
   const handleChangeMenuActive = (index) => {
     setMenuactive(index);
-    setShowSettingMenu(false);
   };
 
   const openNotificationPanel = useCallback(() => {
@@ -725,32 +707,6 @@ function Chat({ handleLogout, onConversationSelect }) {
             <div>
               <ul>
                 {bottomMenu.map((value, index) => {
-                  if (index === 2) {
-                    return (
-                      <li
-                        key={index}
-                        ref={settingIconRef}
-                        onClick={() => handleShowSettingMenu()}
-                        className={`chat-menu-item-setting ${
-                          showSettingMenu ? "chat-menu-left-active" : ""
-                        }`}
-                      >
-                        <img src={value} alt="" />
-                        {showSettingMenu && (
-                          <div ref={boxSettingRef} className="setting-menu">
-                            <p onClick={() => {
-                              handleShowSetting(true);
-                              setShowSettingMenu(false);
-                            }}>Thông tin cá nhân</p>
-                            <p onClick={() => {
-                              setShowSettingsModal(true);
-                              setShowSettingMenu(false);
-                            }}>Cài đặt</p>
-                          </div>
-                        )}
-                      </li>
-                    );
-                  }
                   return (
                     <li
                       key={index}

@@ -29,6 +29,7 @@ import {
   IoEyeOffOutline,
   IoPersonOutline,
   IoTrashOutline,
+  IoDocumentTextOutline,
 } from "react-icons/io5";
 import { AiOutlineBell, AiOutlineLike, AiFillLike, AiOutlinePicture, AiOutlineSend } from "react-icons/ai";
 import { IoMdClose, IoMdAttach,IoMdMore  } from "react-icons/io";
@@ -1148,6 +1149,7 @@ function ContainerMess({
   const dictationAutoStopTimeoutRef = useRef(null);
   const dictationStartedAtRef = useRef(null);
   const dictationMimeTypeRef = useRef("");
+  const voiceOptionPickerRef = useRef(null);
   const selectedAttachmentsRef = useRef([]);
   const messagesRef = useRef([]);
   const typingStateRef = useRef(false);
@@ -1166,6 +1168,7 @@ function ContainerMess({
   const [dictationRecordingMs, setDictationRecordingMs] = useState(0);
   const [dictationJobId, setDictationJobId] = useState(null);
   const [dictationError, setDictationError] = useState("");
+  const [isVoiceOptionOpen, setIsVoiceOptionOpen] = useState(false);
   const [activeIconSend, setActiveIconSend] = useState(false);
   const [draftText, setDraftText] = useState("");
   const [mentionState, setMentionState] = useState(() => closeMentionState());
@@ -2265,6 +2268,7 @@ function ContainerMess({
     setMenuControl((prevState) =>
       prevState.tableIcon ? { ...prevState, tableIcon: false } : prevState
     );
+    setIsVoiceOptionOpen(false);
     setMentionState(closeMentionState());
     composerSelectionRef.current = null;
     inputMessage.current?.blur();
@@ -2295,6 +2299,13 @@ function ContainerMess({
       if (!event.target.closest(".message-actions-menu")) {
         setOpenMessageMenuId(null);
         setOpenMessageMenuPlacement("down");
+      }
+
+      if (
+        voiceOptionPickerRef.current &&
+        !voiceOptionPickerRef.current.contains(event.target)
+      ) {
+        setIsVoiceOptionOpen(false);
       }
     };
 
@@ -2928,6 +2939,7 @@ function ContainerMess({
       return;
     }
 
+    setIsVoiceOptionOpen(false);
     setMenuControl((prevState) => ({
       ...prevState,
       [name]: !prevState[name],
@@ -3549,6 +3561,59 @@ function ContainerMess({
     setDictationError("");
     resetDictationState();
   }, [resetDictationState, stopDictationRecording]);
+
+  const isVoiceRecordingActive = voiceRecorderState === "recording";
+  const isDictationRecordingActive = dictationState === "recording";
+  const isVoiceModeBusy =
+    voiceRecorderState === "requestingPermission" ||
+    voiceRecorderState === "processing" ||
+    dictationState === "requestingPermission" ||
+    dictationState === "processing";
+  const isVoiceModeDisabled = isComposerInteractionLocked || isVoiceModeBusy;
+
+  const handleVoiceModeClick = useCallback(() => {
+    if (isVoiceModeDisabled) {
+      return;
+    }
+
+    if (isVoiceRecordingActive) {
+      setIsVoiceOptionOpen(false);
+      stopVoiceRecording({ cancel: false });
+      return;
+    }
+
+    if (isDictationRecordingActive) {
+      setIsVoiceOptionOpen(false);
+      stopDictationRecording({ cancel: false });
+      return;
+    }
+
+    if (!guardComposerInteraction()) {
+      return;
+    }
+
+    setMenuControl((prevState) =>
+      prevState.tableIcon ? { ...prevState, tableIcon: false } : prevState
+    );
+    setIsVoiceOptionOpen((value) => !value);
+  }, [
+    guardComposerInteraction,
+    isDictationRecordingActive,
+    isVoiceModeDisabled,
+    isVoiceRecordingActive,
+    stopDictationRecording,
+    stopVoiceRecording,
+  ]);
+
+  const handleSelectVoiceRecording = useCallback(() => {
+    setIsVoiceOptionOpen(false);
+    void handleStartVoiceRecording();
+  }, [handleStartVoiceRecording]);
+
+  const handleSelectDictation = useCallback(() => {
+    setIsVoiceOptionOpen(false);
+    void handleStartDictation();
+  }, [handleStartDictation]);
 
   useEffect(() => {
     if (!dictationJobId || dictationState !== "processing") {
@@ -5342,12 +5407,16 @@ function ContainerMess({
                 ? item.attachments
                 : [];
               const imageAttachments = visibleAttachments.filter(isImageAttachment);
-              const videoAttachments = visibleAttachments.filter(isVideoAttachment);
               const audioAttachments = visibleAttachments.filter(
                 (attachment) =>
                   isAudioAttachment(attachment) &&
+                  !isImageAttachment(attachment)
+              );
+              const videoAttachments = visibleAttachments.filter(
+                (attachment) =>
+                  isVideoAttachment(attachment) &&
                   !isImageAttachment(attachment) &&
-                  !isVideoAttachment(attachment)
+                  !isAudioAttachment(attachment)
               );
               const fileAttachments = visibleAttachments.filter(
                 (attachment) =>
@@ -6040,67 +6109,58 @@ function ContainerMess({
               className={`icon-header ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
               onClick={handleFilePickerOpen}
             />
-            <button
-              type="button"
-              className={`icon-header icon-header-btn ${
-                isComposerInteractionLocked ||
-                voiceRecorderState === "processing" ||
-                dictationState === "recording" ||
-                dictationState === "processing"
-                  ? "composer-icon-disabled"
-                : ""
-              } ${voiceRecorderState === "recording" ? "voice-recording-active" : ""}`}
-              onClick={
-                isComposerInteractionLocked ||
-                voiceRecorderState === "processing" ||
-                dictationState === "recording" ||
-                dictationState === "processing"
-                  ? undefined
-                  : voiceRecorderState === "recording"
-                  ? () => stopVoiceRecording({ cancel: false })
-                  : handleStartVoiceRecording
-              }
-              aria-label={
-                voiceRecorderState === "recording"
-                  ? "Dừng ghi âm"
-                  : "Bắt đầu ghi âm tin nhắn thoại"
-              }
-            >
-              {voiceRecorderState === "recording" ? <IoStop /> : <IoMicOutline />}
-            </button>
-            <button
-              type="button"
-              className={`icon-header icon-header-btn ${
-                isComposerInteractionLocked ||
-                dictationState === "processing" ||
-                voiceRecorderState === "recording" ||
-                voiceRecorderState === "processing"
-                  ? "composer-icon-disabled"
-                  : ""
-              } ${dictationState === "recording" ? "voice-recording-active" : ""}`}
-              onClick={
-                isComposerInteractionLocked ||
-                dictationState === "processing" ||
-                voiceRecorderState === "recording" ||
-                voiceRecorderState === "processing"
-                  ? undefined
-                  : dictationState === "recording"
-                  ? () => stopDictationRecording({ cancel: false })
-                  : handleStartDictation
-              }
-              aria-label={
-                dictationState === "recording"
-                  ? "Dừng nhập giọng nói"
-                  : "Nhập văn bản bằng giọng nói"
-              }
-              title={
-                dictationState === "recording"
-                  ? "Dừng nhập giọng nói"
-                  : "Nhập văn bản bằng giọng nói"
-              }
-            >
-              {dictationState === "recording" ? <IoStop /> : <IoMicOutline />}
-            </button>
+            <div className="voice-option-picker" ref={voiceOptionPickerRef}>
+              <button
+                type="button"
+                className={`icon-header icon-header-btn voice-mode-trigger ${
+                  isVoiceModeDisabled ? "composer-icon-disabled" : ""
+                } ${
+                  isVoiceRecordingActive || isDictationRecordingActive
+                    ? "voice-recording-active"
+                    : ""
+                }`}
+                onClick={handleVoiceModeClick}
+                disabled={isVoiceModeDisabled}
+                aria-haspopup="menu"
+                aria-expanded={isVoiceOptionOpen}
+                aria-label={
+                  isVoiceRecordingActive || isDictationRecordingActive
+                    ? "Dừng ghi âm"
+                    : "Chọn chức năng micro"
+                }
+                title={
+                  isVoiceRecordingActive || isDictationRecordingActive
+                    ? "Dừng ghi âm"
+                    : "Chọn chức năng micro"
+                }
+              >
+                {isVoiceRecordingActive || isDictationRecordingActive ? <IoStop /> : <IoMicOutline />}
+              </button>
+              {isVoiceOptionOpen &&
+              !isVoiceRecordingActive &&
+              !isDictationRecordingActive ? (
+                <div className="voice-option-menu" role="menu">
+                  <button
+                    type="button"
+                    className="voice-option-tab"
+                    onClick={handleSelectVoiceRecording}
+                    role="menuitem"
+                  >
+                    <IoMicOutline />
+                    <span>Gửi giọng nói</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="voice-option-tab"
+                    onClick={handleSelectDictation}
+                    role="menuitem"
+                  >
+                    <IoDocumentTextOutline />
+                    <span>Giọng nói thành văn bản</span>
+                  </button>
+                </div>
+              ) : null}
+            </div>
             <IoCameraOutline
               className={`icon-header ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
             />

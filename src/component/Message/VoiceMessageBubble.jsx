@@ -401,6 +401,7 @@ export default function VoiceMessageBubble({
   return (
     <div className={`voice-message-bubble ${isMine ? "voice-message-bubble--mine" : ""}`}>
       <audio
+        className="voice-message-audio"
         ref={audioRef}
         preload="metadata"
         src={attachment?.url || ""}

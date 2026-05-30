@@ -256,33 +256,35 @@ textarea:focus-visible,
 
 
 /* ============================================================
-   NOTIFICATION BELL & GLOBAL SETTINGS (Top right)
+   NOTIFICATION BELL & GLOBAL SETTINGS (Sidebar actions)
    ============================================================ */
 .notification-bell-wrap,
 .global-settings-wrap {
-  position: fixed !important;
-  top: 14px;
-  z-index: 5000 !important;
-}
-
-.notification-bell-wrap {
-  right: 60px;
-}
-
-.global-settings-wrap {
-  right: 16px;
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  margin: 4px auto 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  z-index: 60 !important;
 }
 
 .notification-bell-wrap .notification-bell-btn,
 .global-settings-wrap .global-settings-btn {
-  width: 36px !important;
-  height: 36px !important;
-  min-height: 36px !important;
+  width: 44px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  min-width: 44px !important;
   border-radius: var(--ui-radius-md) !important;
-  color: var(--ui-text-secondary) !important;
-  background: var(--ui-surface) !important;
-  border: 1px solid var(--ui-border) !important;
-  box-shadow: var(--ui-shadow-sm) !important;
+  color: rgba(255, 255, 255, 0.82) !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
   font-size: 18px;
   display: flex;
   align-items: center;
@@ -295,11 +297,11 @@ textarea:focus-visible,
 .notification-bell-wrap .notification-bell-btn.active,
 .global-settings-wrap .global-settings-btn:hover,
 .global-settings-wrap .global-settings-btn.active {
-  background: var(--ui-primary-soft) !important;
-  color: var(--ui-primary) !important;
-  border-color: #c4d9f5 !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #fff !important;
+  border-color: transparent !important;
   transform: none !important;
-  box-shadow: var(--ui-shadow-sm) !important;
+  box-shadow: none !important;
 }
 
 .notification-badge {
@@ -326,11 +328,12 @@ textarea:focus-visible,
    NOTIFICATION DROPDOWN
    ============================================================ */
 .notification-dropdown {
-  position: fixed !important;
-  top: 56px !important;
-  right: 16px !important;
-  left: auto !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: calc(100% + 10px) !important;
+  right: auto !important;
   width: 360px !important;
+  max-width: calc(100vw - var(--ui-sidebar-width) - 24px) !important;
   max-height: 500px !important;
   border-radius: var(--ui-radius-lg) !important;
   border: 1px solid var(--ui-border) !important;
@@ -2050,8 +2053,8 @@ textarea:focus-visible,
 
 @media (max-width: 1024px) {
   .notification-dropdown {
-    right: 12px !important;
-    width: min(360px, calc(100vw - 100px)) !important;
+    right: auto !important;
+    width: min(360px, calc(100vw - var(--ui-sidebar-width) - 24px)) !important;
   }
 }
 
@@ -2074,6 +2077,20 @@ textarea:focus-visible,
   .startup,
   .setting-menu {
     left: 62px !important;
+  }
+
+  .notification-bell-wrap,
+  .global-settings-wrap,
+  .notification-bell-wrap .notification-bell-btn,
+  .global-settings-wrap .global-settings-btn {
+    width: 40px !important;
+    height: 40px !important;
+    min-width: 40px !important;
+    min-height: 40px !important;
+  }
+
+  .notification-dropdown {
+    width: min(360px, calc(100vw - 80px)) !important;
   }
 
   .settings-modal {
@@ -3112,6 +3129,13 @@ textarea:focus-visible,
   align-items: center !important;
 }
 
+.container-containermess .voice-option-picker {
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
 .container-containermess .chat-input .icon-header,
 .container-containermess .chat-input .icon-header-btn {
   width: 22px !important;
@@ -3141,6 +3165,52 @@ textarea:focus-visible,
 .container-containermess .chat-input .voice-recording-active {
   color: #dc2626 !important;
   background: #fff1f2 !important;
+}
+
+.container-containermess .voice-option-menu {
+  position: absolute !important;
+  left: 50% !important;
+  bottom: calc(100% + 10px) !important;
+  z-index: 80 !important;
+  width: min(260px, calc(100vw - 32px)) !important;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 6px !important;
+  padding: 6px !important;
+  border: 1px solid var(--ui-border) !important;
+  border-radius: 12px !important;
+  background: var(--ui-surface) !important;
+  box-shadow: var(--ui-shadow-popover) !important;
+  transform: translateX(-50%) !important;
+}
+
+.container-containermess .voice-option-tab {
+  border: 0 !important;
+  border-radius: 9px !important;
+  background: #f7f9fc !important;
+  color: #102748 !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  min-height: 38px !important;
+  padding: 8px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 1.2 !important;
+  text-align: center !important;
+}
+
+.container-containermess .voice-option-tab:hover {
+  background: var(--ui-primary-soft) !important;
+  color: var(--ui-primary) !important;
+}
+
+.container-containermess .voice-option-tab svg {
+  flex: 0 0 auto !important;
+  width: 17px !important;
+  height: 17px !important;
 }
 
 .container-containermess .wrap-seticon {
@@ -3256,6 +3326,121 @@ textarea:focus-visible,
 .container-containermess .voice-recorder-status,
 .container-containermess .composer-block-banner {
   margin: 8px 12px 0 !important;
+}
+
+.container-containermess .voice-preview-panel {
+  width: min(520px, calc(100% - 24px)) !important;
+  max-width: 520px !important;
+  margin: 6px 12px 8px auto !important;
+  padding: 8px 10px !important;
+  border-radius: 12px !important;
+  background: #f8fbff !important;
+  box-shadow: none !important;
+}
+
+.container-containermess .voice-preview-meta {
+  margin-bottom: 6px !important;
+}
+
+.container-containermess .voice-preview-title {
+  font-size: 12px !important;
+}
+
+.container-containermess .voice-preview-duration {
+  font-size: 12px !important;
+}
+
+.container-containermess .voice-preview-audio {
+  width: 100% !important;
+  height: 32px !important;
+  margin-bottom: 6px !important;
+}
+
+.container-containermess .voice-preview-waveform {
+  grid-template-columns: repeat(40, minmax(2px, 1fr)) !important;
+  height: 16px !important;
+  margin-bottom: 6px !important;
+  overflow: hidden !important;
+}
+
+.container-containermess .voice-recorder-btn {
+  padding: 5px 10px !important;
+  border-radius: 9px !important;
+  font-size: 12px !important;
+}
+
+.container-containermess .message-audio-list {
+  gap: 6px !important;
+  margin-bottom: 6px !important;
+}
+
+.container-containermess .voice-message-bubble {
+  width: min(290px, 64vw) !important;
+  max-width: 100% !important;
+  padding: 7px 9px !important;
+  border-radius: 13px !important;
+  gap: 8px !important;
+  background: rgba(255, 255, 255, 0.92) !important;
+  border: 1px solid rgba(210, 222, 236, 0.9) !important;
+  box-shadow: none !important;
+}
+
+.container-containermess .my-mess .voice-message-bubble {
+  margin-left: auto !important;
+  background: rgba(255, 255, 255, 0.16) !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+}
+
+.container-containermess .voice-message-audio {
+  display: none !important;
+}
+
+.container-containermess .voice-message-toggle {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  font-size: 15px !important;
+}
+
+.container-containermess .voice-message-main {
+  gap: 4px !important;
+}
+
+.container-containermess .voice-message-waveform {
+  grid-template-columns: repeat(36, minmax(2px, 1fr)) !important;
+  height: 20px !important;
+  overflow: hidden !important;
+}
+
+.container-containermess .voice-message-wave-bar {
+  min-height: 4px !important;
+}
+
+.container-containermess .my-mess .voice-message-wave-bar {
+  background: rgba(255, 255, 255, 0.45) !important;
+}
+
+.container-containermess .my-mess .voice-message-wave-bar.active {
+  background: #ffffff !important;
+}
+
+.container-containermess .voice-message-meta {
+  font-size: 10px !important;
+}
+
+.container-containermess .my-mess .voice-message-meta,
+.container-containermess .my-mess .voice-message-duration {
+  color: rgba(255, 255, 255, 0.82) !important;
+}
+
+.container-containermess .voice-message-format {
+  display: none !important;
+}
+
+.container-containermess .voice-transcript-btn,
+.container-containermess .voice-transcript-toggle {
+  padding: 4px 8px !important;
+  font-size: 10px !important;
 }
 
 @media (max-width: 768px) {
