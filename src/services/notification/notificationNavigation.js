@@ -16,6 +16,12 @@ export const buildNotificationQuery = (notification = {}) => {
   copy("postId", notification.postId);
   copy("commentId", notification.commentId);
   copy("callId", notification.callId || notification.metadata?.callId);
+  copy(
+    "reminderId",
+    notification.targetType === "REMINDER"
+      ? notification.targetId
+      : notification.reminderId || notification.metadata?.reminderId
+  );
   copy("notificationId", notification.id || notification.notificationId);
   copy("actorId", notification.actorId);
 
@@ -26,6 +32,9 @@ export const getNotificationTargetKind = (notification = {}) => {
   const targetType = String(notification.targetType || "").toUpperCase();
   const type = String(notification.type || "").toUpperCase();
 
+  if (targetType === "REMINDER" || type.startsWith("REMINDER")) {
+    return "reminders";
+  }
   if (targetType === "CONVERSATION" || targetType === "MESSAGE" || notification.conversationId) {
     return "conversation";
   }

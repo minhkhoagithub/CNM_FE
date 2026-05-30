@@ -488,6 +488,17 @@ function Chat({ handleLogout, onConversationSelect }) {
         setMenuactive(1);
         return;
       }
+      if (kind === "reminders") {
+        setMenuactive(2);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("reminder:navigate", {
+              detail: { notification },
+            }),
+          );
+        }
+        return;
+      }
       if (kind === "timeline" || kind === "notifications") {
         setMenuactive(5);
       }

@@ -1594,7 +1594,7 @@ textarea:focus-visible,
 .mess-infor-title-text {
   height: 64px !important;
   border-bottom: 1px solid var(--ui-border) !important;
-  padding: 0 16px;
+  padding: 0 18px;
   display: flex;
   align-items: center;
 }
@@ -1608,86 +1608,88 @@ textarea:focus-visible,
 .mess-infor-header-infor {
   background: var(--ui-surface) !important;
   border-bottom: 1px solid var(--ui-border);
-  padding: 20px 16px;
+  padding: 18px 18px 14px;
 }
 
 .mess-infor-avatar-infor {
-  width: 80px !important;
-  height: 80px !important;
+  width: 102px !important;
+  height: 102px !important;
   border-radius: 50%;
-  border: 3px solid var(--ui-surface);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
+  border: 4px solid var(--ui-surface);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.14) !important;
 }
 
 .mess-infor-header-infor-tool {
-  display: flex !important;
-  justify-content: space-between !important;
-  padding: 8px 14px !important;
-  margin: 0 !important;
-  gap: 4px !important;
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 0 !important;
+  margin: 14px 0 2px !important;
+  gap: 8px !important;
 }
 
-.mess-infor-header-infor-tool div.mess-infor-quick-action {
-  width: 68px !important;
-  padding: 8px 4px !important;
+.mess-infor-header-infor-tool .mess-infor-quick-action {
+  width: 100% !important;
+  padding: 10px 6px !important;
   border-radius: var(--ui-radius-md) !important;
   background: transparent !important;
   border: none !important;
   transition: all var(--ui-transition);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
 }
 
-.mess-infor-header-infor-tool div.mess-infor-quick-action:hover {
+.mess-infor-header-infor-tool .mess-infor-quick-action:hover {
   background: var(--ui-surface-hover) !important;
 }
 
 .mess-infor-header-infor-tool .icon-tool-mess {
   background-color: var(--ui-surface-muted) !important;
   color: var(--ui-text-secondary) !important;
-  font-size: 16px !important;
-  padding: 8px !important;
+  font-size: 20px !important;
+  padding: 9px !important;
   border-radius: 50% !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center;
-  width: 32px !important;
-  height: 32px !important;
+  width: 38px !important;
+  height: 38px !important;
   box-sizing: border-box !important;
-  margin: 0 auto 6px !important;
+  margin: 0 !important;
   transition: all var(--ui-transition);
 }
 
-.mess-infor-header-infor-tool div.mess-infor-quick-action:hover .icon-tool-mess {
+.mess-infor-header-infor-tool .mess-infor-quick-action:hover .icon-tool-mess {
   background-color: var(--ui-primary-soft) !important;
   color: var(--ui-primary) !important;
 }
 
 .mess-infor-header-infor-tool p {
-  font-size: 11px !important;
-  font-weight: 500 !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
   color: var(--ui-text-secondary) !important;
   line-height: 1.3 !important;
   margin: 0 !important;
 }
 
 .mess-infor-footer-tool li {
-  border-radius: var(--ui-radius-md) !important;
-  border: 1px solid var(--ui-border) !important;
-  box-shadow: var(--ui-shadow-sm) !important;
+  border-radius: 0 !important;
+  border: none !important;
+  border-top: 1px solid var(--ui-border) !important;
+  box-shadow: none !important;
   transition: all var(--ui-transition);
+  margin: 0 !important;
 }
 
 .mess-infor-footer-tool li:hover {
   background: var(--ui-surface-hover);
-  box-shadow: var(--ui-shadow-md) !important;
+  box-shadow: none !important;
 }
 
 .title-tool p {
   font-weight: 600 !important;
   color: var(--ui-text);
-  font-size: 14px;
+  font-size: 16px;
 }
 
 
@@ -2237,7 +2239,8 @@ textarea:focus-visible,
   background-color: transparent !important;
   border: none !important;
   display: flex !important;
-  align-items: center !important;
+  align-items: stretch !important;
+  flex-direction: column !important;
   padding: 4px 0 !important;
   min-height: 50px !important;
   position: relative !important;
@@ -2246,8 +2249,8 @@ textarea:focus-visible,
 
 .footer-chat form {
   display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
   width: 100% !important;
   max-width: none !important;
   margin: 0 !important;
@@ -2266,7 +2269,7 @@ textarea:focus-visible,
 
 /* Input capsule */
 .chat-input-web .wrap-input-chat {
-  width: calc(100% - 100px) !important;
+  width: 100% !important;
   background-color: var(--ui-surface-muted) !important;
   border-radius: var(--ui-radius-xl) !important;
   border: 1px solid var(--ui-border) !important;
@@ -2307,6 +2310,28 @@ textarea:focus-visible,
 .chat-input-web input {
   width: 100% !important;
   margin: 0 !important;
+}
+
+.chat-input-web .composer-input-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 4px 8px 8px !important;
+}
+
+.chat-input-web .composer-submit-actions {
+  position: static !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex: 0 0 auto !important;
+}
+
+.chat-input-web .composer-action-btn {
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 34px !important;
+  min-height: 34px !important;
 }
 
 /* Send & Like button styling */

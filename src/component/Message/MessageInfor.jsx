@@ -3,11 +3,20 @@ import "../../resource/style/Chat/messageInfor.css";
 import { ThemeContext } from "../../Context/ThemeContext";
 import { ContactContext } from "../../Context/ContactConext";
 import { UserContext } from "../../Context/UserContext";
+import PresenceContext from "../../Context/PresenceContext";
 import { AiOutlineBell } from "react-icons/ai";
 import { GoPin } from "react-icons/go";
 import { HiOutlineArchiveBox } from "react-icons/hi2";
 import { CiEdit } from "react-icons/ci";
-import { IoTriangle } from "react-icons/io5";
+import {
+  IoChevronDownOutline,
+  IoImageOutline,
+  IoLinkOutline,
+  IoPeopleOutline,
+  IoSettingsOutline,
+  IoShieldCheckmarkOutline,
+  IoNotificationsOutline,
+} from "react-icons/io5";
 import { IoMdClose } from "react-icons/io";
 import { TbBackground } from "react-icons/tb";
 import { mapFriendOptions } from "../../mappers/friendOptionMapper";
@@ -23,6 +32,8 @@ import {
   updateConversationArchiveV1,
   updateConversationAvatarV1,
   updateConversationCustomNameV1,
+  updateConversationGroupLabelV1,
+  updateConversationMemberNicknameV1,
   updateConversationMuteV1,
   updateConversationNotificationLevelV1,
   updateConversationBackgroundV1,
@@ -30,9 +41,21 @@ import {
   uploadConversationBackgroundImageV1,
 } from "../../services/chat/conversationApi";
 import {
+  GROUP_LABEL_OPTIONS,
+  resolveGroupLabelMeta,
+} from "../../constants/groupConversationLabels";
+import {
   fetchConversationSharedAttachments,
   fetchConversationSharedLinks,
 } from "./conversationMedia";
+import {
+  ackReminder,
+  cancelReminder,
+  completeReminder,
+  dismissReminder,
+  getConversationReminders,
+  updateReminder,
+} from "../../services/reminder/reminderApi";
 import { getFriendsV2 } from "../../util/api";
 import { uploadAttachmentV1 } from "../../services/chat/messageApi";
 import {
@@ -178,6 +201,103 @@ const formatAttachmentCreatedAt = (value) => {
   });
 };
 
+const SECTION_ICON_BY_TITLE = {
+  "Tùy chỉnh hội thoại": IoSettingsOutline,
+  "Thành viên nhóm": IoPeopleOutline,
+  "Nhắc hẹn": AiOutlineBell,
+  "Tùy chỉnh thông báo": IoNotificationsOutline,
+  "Tệp đã chia sẻ": IoImageOutline,
+  "Liên kết": IoLinkOutline,
+  "Bảo mật": IoShieldCheckmarkOutline,
+};
+
+const REMINDER_STATUS_LABELS = {
+  SCHEDULED: "Đã lên lịch",
+  DUE: "Đến hạn",
+  COMPLETED: "Hoàn thành",
+  CANCELLED: "Đã hủy",
+};
+
+const REMINDER_PARTICIPANT_STATUS_LABELS = {
+  PENDING: "Chờ phản hồi",
+  ACKNOWLEDGED: "Đã xác nhận",
+  DISMISSED: "Đã bỏ qua",
+  DONE: "Đã xong",
+};
+
+const formatReminderTime = (value) => {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+};
+
+const formatMemberPresenceText = (online, lastSeenAt) => {
+  if (online) {
+    return "Đang hoạt động";
+  }
+
+  if (!lastSeenAt) {
+    return "Không hoạt động";
+  }
+
+  const date = new Date(lastSeenAt);
+  if (Number.isNaN(date.getTime())) {
+    return "Không hoạt động";
+  }
+
+  const diffMs = Date.now() - date.getTime();
+  if (diffMs < 60 * 1000) {
+    return "Vừa truy cập";
+  }
+  const diffMinutes = Math.floor(diffMs / (60 * 1000));
+  if (diffMinutes < 60) {
+    return `${diffMinutes} phút trước`;
+  }
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) {
+    return `${diffHours} giờ trước`;
+  }
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) {
+    return `${diffDays} ngày trước`;
+  }
+  return date.toLocaleDateString("vi-VN");
+};
+
+const toDateTimeLocalValue = (value) => {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const timezoneOffsetMs = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - timezoneOffsetMs).toISOString().slice(0, 16);
+};
+
+const parseDateTimeLocalToIso = (value) => {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toISOString();
+};
+
 function MessageInfor({
   contactData,
   onOpenConversationImageGallery,
@@ -187,11 +307,13 @@ function MessageInfor({
 }) {
   const [showTool, setShowTool] = useState([]);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [isCloseGroupModalOpen, setIsCloseGroupModalOpen] = useState(false);
   const [addMemberSearchKeyword, setAddMemberSearchKeyword] = useState("");
   const [groupNameDraft, setGroupNameDraft] = useState("");
   const [customNameDraft, setCustomNameDraft] = useState("");
   const [avatarUrlDraft, setAvatarUrlDraft] = useState("");
   const [notificationLevelDraft, setNotificationLevelDraft] = useState("ALL");
+  const [groupLabelDraft, setGroupLabelDraft] = useState("");
   const [friendOptions, setFriendOptions] = useState([]);
   const [friendOptionsState, setFriendOptionsState] = useState({
     loading: false,
@@ -208,7 +330,9 @@ function MessageInfor({
   const [isUploadingAvatarFile, setIsUploadingAvatarFile] = useState(false);
   const groupAvatarFileInputRef = useRef(null);
   const [isUpdatingPreference, setIsUpdatingPreference] = useState(false);
+  const [isUpdatingGroupLabel, setIsUpdatingGroupLabel] = useState(false);
   const [isUpdatingMembers, setIsUpdatingMembers] = useState(false);
+  const [savingNicknameUserId, setSavingNicknameUserId] = useState(null);
   const [isBackgroundPanelOpen, setIsBackgroundPanelOpen] = useState(false);
   const [backgroundColorDraft, setBackgroundColorDraft] = useState("#f4f7fb");
   const [isUpdatingBackground, setIsUpdatingBackground] = useState(false);
@@ -231,8 +355,16 @@ function MessageInfor({
     isPartial: false,
     conversationId: null,
   });
+  const [reminderState, setReminderState] = useState({
+    loading: false,
+    error: "",
+    items: [],
+    conversationId: null,
+  });
+  const [reminderActionLoadingById, setReminderActionLoadingById] = useState({});
   const { theme } = useContext(ThemeContext);
   const { userData } = useContext(UserContext);
+  const { fetchConversationPresence, getPresenceForUser } = useContext(PresenceContext);
   const {
     currentConversationNormalized,
     selectedConversationId,
@@ -284,6 +416,22 @@ function MessageInfor({
   const isGroupConversation = normalizedConversationType === "group";
   const isPrivateConversation = normalizedConversationType === "private";
   const peerUserId = isPrivateConversation ? activeConversation?.peerUserId || null : null;
+  const activeGroupLabelMeta = useMemo(
+    () =>
+      isGroupConversation
+        ? resolveGroupLabelMeta(
+            activeConversation?.groupLabel,
+            activeConversation?.groupLabelDisplayName || "",
+            activeConversation?.groupLabelColor || ""
+          )
+        : null,
+    [
+      activeConversation?.groupLabel,
+      activeConversation?.groupLabelColor,
+      activeConversation?.groupLabelDisplayName,
+      isGroupConversation,
+    ]
+  );
 
   useEffect(() => {
     if (autoOpenAddMember) {
@@ -298,35 +446,7 @@ function MessageInfor({
     activeConversation?.id !== "AI_ASSISTANT" &&
     Boolean(peerUserId);
   const currentUserId = userData?.userId || userData?._id || null;
-  const nicknameStorageKey =
-    currentUserId && conversationId
-      ? `group-member-nicknames:${currentUserId}:${conversationId}`
-      : null;
-  const [memberNicknames, setMemberNicknames] = useState({});
   const [nicknameDrafts, setNicknameDrafts] = useState({});
-
-  useEffect(() => {
-    if (!nicknameStorageKey) {
-      setMemberNicknames({});
-      setNicknameDrafts({});
-      return;
-    }
-
-    try {
-      const stored = localStorage.getItem(nicknameStorageKey);
-      const parsed = stored ? JSON.parse(stored) : {};
-      setMemberNicknames(parsed && typeof parsed === "object" ? parsed : {});
-      setNicknameDrafts(parsed && typeof parsed === "object" ? parsed : {});
-    } catch (error) {
-      console.error("[GROUP MEMBER MAP]", {
-        source: "web-nickname-load",
-        conversationId,
-        error,
-      });
-      setMemberNicknames({});
-      setNicknameDrafts({});
-    }
-  }, [conversationId, nicknameStorageKey]);
 
   const normalizedMembers = useMemo(
     () =>
@@ -334,7 +454,7 @@ function MessageInfor({
         ? activeConversation.members
         : []
       ).map((member) => {
-        const nickname = memberNicknames[String(member.userId)] || member.nickname || "";
+        const nickname = String(member.nickname || "").trim();
         const safeDisplayName = resolveMemberDisplayName({
           ...member,
           nickname,
@@ -345,8 +465,15 @@ function MessageInfor({
           displayName: safeDisplayName,
         };
       }),
-    [activeConversation?.members, memberNicknames]
+    [activeConversation?.members]
   );
+  useEffect(() => {
+    const nextDrafts = {};
+    normalizedMembers.forEach((member) => {
+      nextDrafts[String(member.userId)] = String(member.nickname || "");
+    });
+    setNicknameDrafts(nextDrafts);
+  }, [conversationId, normalizedMembers]);
   const currentUserMember = useMemo(
     () =>
       normalizedMembers.find(
@@ -362,6 +489,9 @@ function MessageInfor({
   const currentUserIsAdmin = currentUserRole === "ADMIN";
   const currentUserCanManageMembers = currentUserIsOwner || currentUserIsAdmin;
   const groupMemberCount = normalizedMembers.length;
+  const conversationDetailSubtitle = isGroupConversation
+    ? `Kênh nhóm • ${groupMemberCount} thành viên hoạt động`
+    : "Tin nhắn trực tiếp";
   useEffect(() => {
     if (!isGroupConversation) {
       return;
@@ -443,15 +573,27 @@ function MessageInfor({
     [friendOptions, normalizedMembers]
   );
   const listOption = useMemo(
-    () => ["Tùy chỉnh thông báo", "Tệp đã chia sẻ", "Liên kết", "Bảo mật"],
+    () => ["Nhắc hẹn", "Tùy chỉnh thông báo", "Tệp đã chia sẻ", "Liên kết", "Bảo mật"],
     []
   );
   const optionBaseIndex = isGroupConversation ? 2 : 1;
   const isMemberPanelOpen = isGroupConversation && showTool.includes(1);
+  const reminderToolIndex = optionBaseIndex + listOption.indexOf("Nhắc hẹn");
+  const isReminderPanelOpen = showTool.includes(reminderToolIndex);
   const sharedFilesToolIndex = optionBaseIndex + listOption.indexOf("Tệp đã chia sẻ");
   const isSharedFilesPanelOpen = showTool.includes(sharedFilesToolIndex);
   const sharedLinksToolIndex = optionBaseIndex + listOption.indexOf("Liên kết");
   const isSharedLinksPanelOpen = showTool.includes(sharedLinksToolIndex);
+
+  useEffect(() => {
+    if (!isMemberPanelOpen || !conversationId) {
+      return;
+    }
+
+    fetchConversationPresence(conversationId).catch((error) => {
+      console.error("Failed to fetch member presence:", error);
+    });
+  }, [conversationId, fetchConversationPresence, isMemberPanelOpen]);
 
   useEffect(() => {
     if (!isGroupConversation) {
@@ -490,15 +632,19 @@ function MessageInfor({
     );
     setAvatarUrlDraft(activeConversation?.avatarUrl || activeConversation?.trustedAvatarUrl || "");
     setNotificationLevelDraft(activeConversation?.notificationLevel || "ALL");
+    setGroupLabelDraft(activeConversation?.groupLabel || "");
     setBackgroundColorDraft(currentConversationBackgroundColorForPicker);
     setIsBackgroundPanelOpen(false);
     setIsEditingGroupName(false);
+    setIsCloseGroupModalOpen(false);
+    setSavingNicknameUserId(null);
     setSettingsError("");
   }, [
     activeConversation?.avatarUrl,
     activeConversation?.backgroundColor,
     activeConversation?.customName,
     activeConversation?.displayName,
+    activeConversation?.groupLabel,
     activeConversation?.name,
     activeConversation?.notificationLevel,
     activeConversation?.trustedDisplayName,
@@ -671,6 +817,13 @@ function MessageInfor({
       isPartial: false,
       conversationId: conversationId || null,
     });
+    setReminderState({
+      loading: false,
+      error: "",
+      items: [],
+      conversationId: conversationId || null,
+    });
+    setReminderActionLoadingById({});
   }, [conversationId]);
 
   useEffect(() => {
@@ -805,6 +958,80 @@ function MessageInfor({
       shouldIgnore = true;
     };
   }, [conversationId, currentUserId, isSharedLinksPanelOpen]);
+
+  const loadConversationReminders = useCallback(async () => {
+    if (!conversationId) {
+      return;
+    }
+
+    setReminderState({
+      loading: true,
+      error: "",
+      items: [],
+      conversationId,
+    });
+
+    try {
+      const response = await getConversationReminders(conversationId, {
+        page: 0,
+        size: 50,
+      });
+      const items = Array.isArray(response?.items) ? response.items : [];
+      setReminderState({
+        loading: false,
+        error: "",
+        items: items.sort((left, right) => {
+          const leftTime = new Date(left?.remindAt || 0).getTime();
+          const rightTime = new Date(right?.remindAt || 0).getTime();
+          return leftTime - rightTime;
+        }),
+        conversationId,
+      });
+    } catch (error) {
+      setReminderState({
+        loading: false,
+        error:
+          getApiErrorMessage(error, "Không thể tải danh sách nhắc hẹn của hội thoại."),
+        items: [],
+        conversationId,
+      });
+    }
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (!conversationId || !isReminderPanelOpen) {
+      return;
+    }
+    void loadConversationReminders();
+  }, [conversationId, isReminderPanelOpen, loadConversationReminders]);
+
+  useEffect(() => {
+    const handleReminderConversationChanged = (event) => {
+      if (!conversationId || !isReminderPanelOpen) {
+        return;
+      }
+      const changedConversationId =
+        event?.detail?.conversationId || event?.detail?.id || null;
+      if (
+        changedConversationId &&
+        String(changedConversationId) !== String(conversationId)
+      ) {
+        return;
+      }
+      void loadConversationReminders();
+    };
+
+    window.addEventListener(
+      "web:conversation-reminder-changed",
+      handleReminderConversationChanged
+    );
+    return () => {
+      window.removeEventListener(
+        "web:conversation-reminder-changed",
+        handleReminderConversationChanged
+      );
+    };
+  }, [conversationId, isReminderPanelOpen, loadConversationReminders]);
 
   const handleShowTool = (index) => {
     setShowTool((prevState) => {
@@ -951,6 +1178,62 @@ function MessageInfor({
       setSettingsError("Không thể cập nhật tùy chọn hội thoại.");
     } finally {
       setIsUpdatingPreference(false);
+    }
+  };
+
+  const handleConversationGroupLabelChange = async (nextValue) => {
+    if (!conversationId || !isGroupConversation || isUpdatingGroupLabel) {
+      return;
+    }
+
+    const normalizedNextValue = String(nextValue || "").trim().toUpperCase();
+    const payloadLabel = normalizedNextValue || null;
+    const currentLabel = String(activeConversation?.groupLabel || "")
+      .trim()
+      .toUpperCase();
+
+    setGroupLabelDraft(normalizedNextValue);
+    if (payloadLabel === currentLabel) {
+      return;
+    }
+
+    setSettingsError("");
+    setIsUpdatingGroupLabel(true);
+
+    try {
+      const response = await updateConversationGroupLabelV1(
+        conversationId,
+        payloadLabel
+      );
+      const nextMeta = resolveGroupLabelMeta(
+        response?.groupLabel,
+        response?.groupLabelDisplayName || "",
+        response?.groupLabelColor || ""
+      );
+      const nextPatch = {
+        groupLabel: nextMeta?.code || null,
+        groupLabelDisplayName: nextMeta?.label || null,
+        groupLabelColor: nextMeta?.color || null,
+      };
+
+      updateConversationById(conversationId, nextPatch);
+      upsertConversation(
+        {
+          id: conversationId,
+          type: "GROUP",
+          ...nextPatch,
+        },
+        { source: "group-label-update" }
+      );
+      setGroupLabelDraft(nextMeta?.code || "");
+    } catch (error) {
+      console.error("Failed to update group label:", error);
+      setSettingsError(
+        getApiErrorMessage(error, "Không thể cập nhật nhãn nhóm.")
+      );
+      setGroupLabelDraft(activeConversation?.groupLabel || "");
+    } finally {
+      setIsUpdatingGroupLabel(false);
     }
   };
 
@@ -1330,36 +1613,49 @@ function MessageInfor({
     }
   };
 
-  const handleSaveMemberNickname = (memberUserId) => {
-    if (!nicknameStorageKey || !memberUserId) {
+  const handleSaveMemberNickname = async (memberUserId) => {
+    if (!conversationId || !memberUserId || !isGroupConversation) {
       return;
     }
 
     const normalizedUserId = String(memberUserId);
     const nextNickname = String(nicknameDrafts[normalizedUserId] || "").trim();
-    const nextNicknames = {
-      ...memberNicknames,
-    };
+    const currentMember = normalizedMembers.find(
+      (member) => String(member.userId) === normalizedUserId
+    );
+    const currentNickname = String(currentMember?.nickname || "").trim();
 
-    if (nextNickname) {
-      nextNicknames[normalizedUserId] = nextNickname;
-    } else {
-      delete nextNicknames[normalizedUserId];
+    if (nextNickname === currentNickname) {
+      return;
     }
 
+    setSettingsError("");
+    setSavingNicknameUserId(normalizedUserId);
+
     try {
-      localStorage.setItem(nicknameStorageKey, JSON.stringify(nextNicknames));
-      setMemberNicknames(nextNicknames);
+      const response = await updateConversationMemberNicknameV1(
+        conversationId,
+        normalizedUserId,
+        nextNickname || null
+      );
+      if (response?.id) {
+        upsertConversation(response, { source: "group-member-nickname-update" });
+      } else {
+        updateConversationById(conversationId, {
+          __memberMergeMode: "replace",
+          members: normalizedMembers.map((member) =>
+            String(member.userId) === normalizedUserId
+              ? { ...member, nickname: nextNickname || "" }
+              : member
+          ),
+        });
+      }
+
+      await refreshConversationsAfterGroupAction(response, "nickname-update");
       setNicknameDrafts((prevState) => ({
         ...prevState,
         [normalizedUserId]: nextNickname,
       }));
-      console.log("[GROUP MEMBER MAP]", {
-        source: "web-nickname-save",
-        conversationId,
-        memberUserId: normalizedUserId,
-        hasNickname: Boolean(nextNickname),
-      });
     } catch (error) {
       console.error("[GROUP MEMBER MAP]", {
         source: "web-nickname-save",
@@ -1367,7 +1663,11 @@ function MessageInfor({
         memberUserId: normalizedUserId,
         error,
       });
-      setSettingsError("Không thể lưu biệt danh thành viên trên thiết bị này.");
+      setSettingsError(
+        getApiErrorMessage(error, "Không thể cập nhật biệt danh thành viên.")
+      );
+    } finally {
+      setSavingNicknameUserId(null);
     }
   };
 
@@ -1607,8 +1907,11 @@ function MessageInfor({
       return;
     }
 
-    const confirmed = window.confirm("Bạn có chắc muốn đóng nhóm này?");
-    if (!confirmed) {
+    setIsCloseGroupModalOpen(true);
+  };
+
+  const handleConfirmCloseConversation = async () => {
+    if (isUpdatingMembers || !conversationId || !isGroupConversation) {
       return;
     }
 
@@ -1623,6 +1926,7 @@ function MessageInfor({
 
     try {
       await closeConversationV1(conversationId);
+      setIsCloseGroupModalOpen(false);
       removeConversationById(conversationId);
       clearSelectedConversation();
     } catch (error) {
@@ -1638,6 +1942,291 @@ function MessageInfor({
       setIsUpdatingMembers(false);
     }
   };
+
+  const handleOpenReminderModalFromInfo = useCallback(() => {
+    if (!conversationId) {
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent("web:open-conversation-reminder-modal", {
+        detail: { conversationId },
+      })
+    );
+  }, [conversationId]);
+
+  const handleReminderAction = useCallback(
+    async (reminderId, action) => {
+      if (!reminderId) {
+        return;
+      }
+
+      const key = String(reminderId);
+      setReminderActionLoadingById((prevState) => ({
+        ...prevState,
+        [key]: true,
+      }));
+      setReminderState((prevState) => ({ ...prevState, error: "" }));
+
+      try {
+        if (action === "ACK") {
+          await ackReminder(reminderId);
+        } else if (action === "DISMISS") {
+          await dismissReminder(reminderId);
+        } else if (action === "COMPLETE") {
+          await completeReminder(reminderId);
+        } else if (action === "CANCEL") {
+          await cancelReminder(reminderId);
+        }
+
+        window.dispatchEvent(
+          new CustomEvent("web:conversation-reminder-changed", {
+            detail: { conversationId },
+          })
+        );
+        window.dispatchEvent(new CustomEvent("web:reminders-global-refresh"));
+        await loadConversationReminders();
+      } catch (error) {
+        setReminderState((prevState) => ({
+          ...prevState,
+          error: getApiErrorMessage(error, "Không thể cập nhật nhắc hẹn."),
+        }));
+      } finally {
+        setReminderActionLoadingById((prevState) => ({
+          ...prevState,
+          [key]: false,
+        }));
+      }
+    },
+    [conversationId, loadConversationReminders]
+  );
+
+  const handleEditReminder = useCallback(
+    async (reminder) => {
+      const reminderId = reminder?.id;
+      if (!reminderId) {
+        return;
+      }
+
+      const currentTitle = String(reminder?.title || "").trim();
+      const nextTitleInput = window.prompt("Tiêu đề nhắc hẹn", currentTitle);
+      if (nextTitleInput === null) {
+        return;
+      }
+      const nextTitle = String(nextTitleInput || "").trim();
+      if (!nextTitle) {
+        setReminderState((prevState) => ({
+          ...prevState,
+          error: "Tiêu đề nhắc hẹn không được để trống.",
+        }));
+        return;
+      }
+
+      const currentLocalTime = toDateTimeLocalValue(reminder?.remindAt);
+      const nextLocalTime = window.prompt(
+        "Thời gian nhắc (định dạng YYYY-MM-DDTHH:mm)",
+        currentLocalTime
+      );
+      if (nextLocalTime === null) {
+        return;
+      }
+
+      const nextRemindAtIso = parseDateTimeLocalToIso(nextLocalTime);
+      if (!nextRemindAtIso) {
+        setReminderState((prevState) => ({
+          ...prevState,
+          error: "Thời gian nhắc không hợp lệ.",
+        }));
+        return;
+      }
+
+      setReminderState((prevState) => ({ ...prevState, error: "" }));
+      setReminderActionLoadingById((prevState) => ({
+        ...prevState,
+        [String(reminderId)]: true,
+      }));
+
+      try {
+        await updateReminder(reminderId, {
+          title: nextTitle,
+          remindAt: nextRemindAtIso,
+          description:
+            reminder?.description === undefined ? null : reminder.description,
+          timezone:
+            reminder?.timezone ||
+            Intl.DateTimeFormat().resolvedOptions().timeZone ||
+            "UTC",
+        });
+        window.dispatchEvent(
+          new CustomEvent("web:conversation-reminder-changed", {
+            detail: { conversationId },
+          })
+        );
+        window.dispatchEvent(new CustomEvent("web:reminders-global-refresh"));
+        await loadConversationReminders();
+      } catch (error) {
+        setReminderState((prevState) => ({
+          ...prevState,
+          error: getApiErrorMessage(error, "Không thể cập nhật nhắc hẹn."),
+        }));
+      } finally {
+        setReminderActionLoadingById((prevState) => ({
+          ...prevState,
+          [String(reminderId)]: false,
+        }));
+      }
+    },
+    [conversationId, loadConversationReminders]
+  );
+
+  const renderReminderPanel = () => (
+    <div className="mess-infor-panel-body">
+      <div className="mess-infor-inline-actions reminder-panel-actions">
+        <button
+          type="button"
+          className="mess-infor-primary-button"
+          onClick={handleOpenReminderModalFromInfo}
+        >
+          Tạo nhắc hẹn
+        </button>
+        <button
+          type="button"
+          onClick={() => void loadConversationReminders()}
+          disabled={reminderState.loading}
+        >
+          {reminderState.loading ? "Đang tải..." : "Làm mới"}
+        </button>
+      </div>
+      <p className="mess-infor-section-note">
+        Theo dõi các lịch hẹn trong cuộc trò chuyện hiện tại và cập nhật trạng
+        thái ngay tại đây.
+      </p>
+
+      {reminderState.loading ? (
+        <div className="mess-infor-shared-feedback">Đang tải nhắc hẹn...</div>
+      ) : null}
+      {!reminderState.loading && reminderState.error ? (
+        <div className="mess-infor-shared-feedback error">{reminderState.error}</div>
+      ) : null}
+      {!reminderState.loading &&
+      !reminderState.error &&
+      reminderState.items.length === 0 ? (
+        <div className="mess-infor-shared-empty">Chưa có nhắc hẹn nào.</div>
+      ) : null}
+
+      {!reminderState.loading &&
+      !reminderState.error &&
+      reminderState.items.length > 0 ? (
+        <div className="mess-infor-reminder-list">
+          {reminderState.items.map((reminder) => {
+            const reminderId = String(reminder?.id || "");
+            const isCreator =
+              String(reminder?.createdBy || "") === String(currentUserId || "");
+            const myParticipant = Array.isArray(reminder?.participants)
+              ? reminder.participants.find(
+                  (participant) =>
+                    String(participant?.userId || "") === String(currentUserId || "")
+                ) || null
+              : null;
+            const isActionLoading = Boolean(reminderActionLoadingById[reminderId]);
+            const isCancelled = String(reminder?.status || "") === "CANCELLED";
+            const isCompleted = String(reminder?.status || "") === "COMPLETED";
+
+            return (
+              <article key={reminderId} className="mess-infor-reminder-item">
+                <div className="mess-infor-reminder-head">
+                  <div>
+                    <p className="mess-infor-reminder-title">
+                      {reminder?.title || "Nhắc hẹn"}
+                    </p>
+                    <p className="mess-infor-reminder-meta">
+                      {formatReminderTime(reminder?.remindAt)}
+                      {reminder?.participants
+                        ? ` • ${reminder.participants.length} người`
+                        : ""}
+                    </p>
+                  </div>
+                  <span
+                    className={`reminder-status-chip status-${String(
+                      reminder?.status || ""
+                    ).toLowerCase()}`}
+                  >
+                    {REMINDER_STATUS_LABELS[reminder?.status] ||
+                      reminder?.status ||
+                      "N/A"}
+                  </span>
+                </div>
+                {reminder?.description ? (
+                  <p className="mess-infor-reminder-description">
+                    {reminder.description}
+                  </p>
+                ) : null}
+                {myParticipant ? (
+                  <p className="mess-infor-reminder-my-state">
+                    Trạng thái của bạn:{" "}
+                    {REMINDER_PARTICIPANT_STATUS_LABELS[myParticipant.status] ||
+                      myParticipant.status ||
+                      "N/A"}
+                  </p>
+                ) : null}
+                <div className="mess-infor-inline-actions reminder-item-actions">
+                  {isCreator && !isCancelled && !isCompleted ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleEditReminder(reminder)}
+                      disabled={isActionLoading}
+                    >
+                      {isActionLoading ? "Đang xử lý..." : "Sửa"}
+                    </button>
+                  ) : null}
+                  {isCreator && !isCancelled ? (
+                    <button
+                      type="button"
+                      className="mess-infor-danger-outline"
+                      onClick={() => void handleReminderAction(reminderId, "CANCEL")}
+                      disabled={isActionLoading}
+                    >
+                      {isActionLoading ? "Đang xử lý..." : "Hủy"}
+                    </button>
+                  ) : null}
+                  {!isCompleted && !isCancelled ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleReminderAction(reminderId, "COMPLETE")}
+                      disabled={isActionLoading}
+                    >
+                      {isActionLoading ? "Đang xử lý..." : "Hoàn thành"}
+                    </button>
+                  ) : null}
+                  {!isCreator &&
+                  myParticipant &&
+                  myParticipant.status !== "DISMISSED" ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleReminderAction(reminderId, "ACK")}
+                      disabled={isActionLoading}
+                    >
+                      {isActionLoading ? "Đang xử lý..." : "Xác nhận"}
+                    </button>
+                  ) : null}
+                  {!isCreator &&
+                  myParticipant &&
+                  myParticipant.status !== "DONE" ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleReminderAction(reminderId, "DISMISS")}
+                      disabled={isActionLoading}
+                    >
+                      {isActionLoading ? "Đang xử lý..." : "Bỏ qua"}
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
 
   const renderSharedAttachmentPanel = () => {
     const totalSharedAttachments =
@@ -1946,6 +2535,7 @@ function MessageInfor({
             <div className="mess-infor-nickname flex">
               {isGroupConversation && isEditingGroupName ? (
                 <input
+                  className="mess-infor-groupname-input"
                   type="text"
                   value={groupNameDraft}
                   onChange={(event) => setGroupNameDraft(event.target.value)}
@@ -1960,12 +2550,6 @@ function MessageInfor({
                     }
                   }}
                   autoFocus
-                  style={{
-                    border: "1px solid #d6dbe1",
-                    borderRadius: 6,
-                    padding: "6px 8px",
-                    minWidth: 220,
-                  }}
                 />
               ) : (
                 <p>{effectiveDisplayName}</p>
@@ -1993,9 +2577,13 @@ function MessageInfor({
                 />
               )}
             </div>
+            <p className="mess-infor-conversation-subtitle">
+              {conversationDetailSubtitle}
+            </p>
             {isGroupConversation && isEditingGroupName ? (
-              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <div className="mess-infor-groupname-actions">
                 <button
+                  className="mess-infor-primary-button"
                   type="button"
                   onClick={handleRenameGroupFromHeader}
                   disabled={isSavingGroupName || !String(groupNameDraft || "").trim()}
@@ -2003,6 +2591,7 @@ function MessageInfor({
                   {isSavingGroupName ? "Đang lưu..." : "Lưu"}
                 </button>
                 <button
+                  className="mess-infor-secondary-button"
                   type="button"
                   onClick={() => {
                     setIsEditingGroupName(false);
@@ -2021,6 +2610,13 @@ function MessageInfor({
             ) : null}
             {activeConversation?.id !== "AI_ASSISTANT" && (
               <div className="mess-infor-status-chips">
+                {activeGroupLabelMeta ? (
+                  <span
+                    className={`mess-infor-status-chip group-label group-label-${activeGroupLabelMeta.color}`}
+                  >
+                    {activeGroupLabelMeta.label}
+                  </span>
+                ) : null}
                 {activeConversation?.pinned ? (
                   <span className="mess-infor-status-chip pinned">Ghim</span>
                 ) : null}
@@ -2039,14 +2635,7 @@ function MessageInfor({
               </div>
             )}
             {canUpdateGroupAvatar ? (
-              <div
-                style={{
-                  display: "grid",
-                  gap: 8,
-                  width: "100%",
-                  marginTop: 12,
-                }}
-              >
+              <div className="mess-infor-avatar-update-panel">
                 <input
                   ref={groupAvatarFileInputRef}
                   type="file"
@@ -2055,28 +2644,21 @@ function MessageInfor({
                   onChange={handleUploadGroupAvatarFile}
                 />
                 <button
+                  className="mess-infor-outline-button"
                   type="button"
                   onClick={() => groupAvatarFileInputRef.current?.click()}
                   disabled={isUploadingAvatarFile}
-                  style={{
-                    border: "1px solid #d6dbe1",
-                    borderRadius: 8,
-                    padding: "9px 10px",
-                    backgroundColor: "white",
-                    color: "#1f2d3d",
-                    fontWeight: 600,
-                    cursor: isUploadingAvatarFile ? "not-allowed" : "pointer",
-                  }}
                 >
                   {isUploadingAvatarFile ? "Đang tải ảnh..." : "Chọn ảnh từ máy"}
                 </button>
                 {avatarUrlDraft.trim() &&
                 avatarUrlDraft.trim() !== String(avatarUrl || "").trim() ? (
-                  <span style={{ fontSize: 12, color: "#2f6fed" }}>
+                  <span className="mess-infor-avatar-update-note">
                     Đã chọn ảnh mới, nhấn Cập nhật ảnh nhóm để lưu.
                   </span>
                 ) : null}
                 <button
+                  className="mess-infor-primary-button"
                   type="button"
                   onClick={handleSaveGroupAvatar}
                   disabled={
@@ -2085,27 +2667,6 @@ function MessageInfor({
                     !avatarUrlDraft.trim() ||
                     avatarUrlDraft.trim() === String(avatarUrl || "").trim()
                   }
-                  style={{
-                    border: "none",
-                    borderRadius: 8,
-                    padding: "9px 10px",
-                    backgroundColor:
-                      isSavingAvatar ||
-                      isUploadingAvatarFile ||
-                      !avatarUrlDraft.trim() ||
-                      avatarUrlDraft.trim() === String(avatarUrl || "").trim()
-                        ? "#9bbdf4"
-                        : "#0068ff",
-                    color: "white",
-                    fontWeight: 600,
-                    cursor:
-                      isSavingAvatar ||
-                      isUploadingAvatarFile ||
-                      !avatarUrlDraft.trim() ||
-                      avatarUrlDraft.trim() === String(avatarUrl || "").trim()
-                        ? "not-allowed"
-                        : "pointer",
-                  }}
                 >
                   {isSavingAvatar ? "Đang cập nhật..." : "Cập nhật ảnh nhóm"}
                 </button>
@@ -2113,7 +2674,8 @@ function MessageInfor({
             ) : null}
           </div>
           <div className="mess-infor-header-infor-tool flex">
-            <div
+            <button
+              type="button"
               className="mess-infor-quick-action"
               onClick={() =>
                 handleConversationPreferenceUpdate(
@@ -2124,8 +2686,9 @@ function MessageInfor({
             >
               <AiOutlineBell className="icon-tool-mess" />
               <p>{activeConversation?.muted ? "Bật thông báo" : "Tắt thông báo"}</p>
-            </div>
-            <div
+            </button>
+            <button
+              type="button"
               className="mess-infor-quick-action"
               onClick={() =>
                 handleConversationPreferenceUpdate(
@@ -2136,15 +2699,17 @@ function MessageInfor({
             >
               <GoPin className="icon-tool-mess" />
               <p>{activeConversation?.pinned ? "Bỏ ghim" : "Ghim hội thoại"}</p>
-            </div>
-            <div
+            </button>
+            <button
+              type="button"
               className="mess-infor-quick-action"
               onClick={() => setIsBackgroundPanelOpen((prevState) => !prevState)}
             >
               <TbBackground className="icon-tool-mess" />
               <p>Đổi nền chat</p>
-            </div>
-            <div
+            </button>
+            <button
+              type="button"
               className="mess-infor-quick-action"
               onClick={() =>
                 handleConversationPreferenceUpdate(
@@ -2155,7 +2720,7 @@ function MessageInfor({
             >
               <HiOutlineArchiveBox className="icon-tool-mess" />
               <p>{activeConversation?.archived ? "Bỏ lưu trữ" : "Lưu trữ"}</p>
-            </div>
+            </button>
           </div>
           {isBackgroundPanelOpen ? (
             <div className="mess-infor-background-panel">
@@ -2233,13 +2798,16 @@ function MessageInfor({
                 onClick={() => handleShowTool(0)}
                 className="title-tool flex"
               >
-                <p>Tùy chỉnh hội thoại</p>
+                <div className="mess-infor-section-title">
+                  <IoSettingsOutline className="mess-infor-section-title-icon" />
+                  <p>Tùy chỉnh hội thoại</p>
+                </div>
                 <div
                   className={`mess-infor-detial-tool ${
                     showTool.includes(0) ? "mess-infor-tool-active" : ""
                   }`}
                 >
-                  <IoTriangle style={{ color: "#7589a3", fontSize: "11px" }} />
+                  <IoChevronDownOutline />
                 </div>
               </div>
               <div className={showTool.includes(0) ? "li-tool-active" : "li-tool-none"}>
@@ -2268,6 +2836,30 @@ function MessageInfor({
                       </button>
                     </>
                   ) : null}
+                  {isGroupConversation ? (
+                    <label className="mess-infor-field">
+                      <span>Nhãn nhóm</span>
+                      <select
+                        value={groupLabelDraft}
+                        onChange={(event) =>
+                          void handleConversationGroupLabelChange(event.target.value)
+                        }
+                        disabled={isUpdatingGroupLabel}
+                      >
+                        <option value="">Không gắn nhãn</option>
+                        {GROUP_LABEL_OPTIONS.map((labelOption) => (
+                          <option key={labelOption.value} value={labelOption.value}>
+                            {labelOption.label}
+                          </option>
+                        ))}
+                      </select>
+                      <small>
+                        {activeGroupLabelMeta
+                          ? `Hiện tại: ${activeGroupLabelMeta.label}`
+                          : "Chưa gắn nhãn"}
+                      </small>
+                    </label>
+                  ) : null}
                   <label className="mess-infor-field">
                     <span>Tên gọi nhớ</span>
                     <input
@@ -2294,13 +2886,16 @@ function MessageInfor({
                   onClick={() => handleShowTool(1)}
                   className="title-tool flex"
                 >
-                  <p>Thành viên nhóm</p>
+                  <div className="mess-infor-section-title">
+                    <IoPeopleOutline className="mess-infor-section-title-icon" />
+                    <p>Thành viên nhóm</p>
+                  </div>
                   <div
                     className={`mess-infor-detial-tool ${
                       showTool.includes(1) ? "mess-infor-tool-active" : ""
                     }`}
                   >
-                    <IoTriangle style={{ color: "#7589a3", fontSize: "11px" }} />
+                    <IoChevronDownOutline />
                   </div>
                 </div>
                 <div className={showTool.includes(1) ? "li-tool-active" : "li-tool-none"}>
@@ -2312,6 +2907,11 @@ function MessageInfor({
                       {normalizedMembers.map((member) => {
                         const isCurrentUser =
                           String(member.userId) === String(currentUserId);
+                        const memberPresence = getPresenceForUser(member.userId);
+                        const memberPresenceText = formatMemberPresenceText(
+                          Boolean(memberPresence?.online),
+                          memberPresence?.lastSeenAt
+                        );
                         const canTransferOwnership =
                           canTransferOwnershipTo(member);
                         const canPromoteToAdmin = canPromoteAdminFor(member);
@@ -2342,6 +2942,21 @@ function MessageInfor({
                                 <p className="mess-infor-member-role">
                                   {member.role === "OWNER" ? "Trưởng nhóm" : member.role === "ADMIN" ? "Phó nhóm" : "Thành viên"}
                                 </p>
+                                <p className="mess-infor-member-presence">
+                                  <span
+                                    className={`presence-dot ${
+                                      memberPresence?.online
+                                        ? "presence-dot--online"
+                                        : "presence-dot--offline"
+                                    }`}
+                                    aria-label={
+                                      memberPresence?.online
+                                        ? "Đang hoạt động"
+                                        : "Không hoạt động"
+                                    }
+                                  />
+                                  <span>{memberPresenceText}</span>
+                                </p>
                                 <div className="mess-infor-member-nickname-form">
                                   <input
                                     type="text"
@@ -2357,10 +2972,16 @@ function MessageInfor({
                                   />
                                   <button
                                     type="button"
-                                    onClick={() => handleSaveMemberNickname(member.userId)}
+                                    onClick={() => void handleSaveMemberNickname(member.userId)}
                                     className="mess-infor-member-nickname-save"
+                                    disabled={
+                                      savingNicknameUserId === String(member.userId) ||
+                                      isUpdatingMembers
+                                    }
                                   >
-                                    Lưu
+                                    {savingNicknameUserId === String(member.userId)
+                                      ? "Đang lưu..."
+                                      : "Lưu"}
                                   </button>
                                 </div>
                               </div>
@@ -2369,64 +2990,40 @@ function MessageInfor({
                               <div className="mess-infor-member-actions">
                                 {canTransferOwnership ? (
                                   <button
+                                    className="mess-infor-member-action owner-transfer"
                                     type="button"
                                     onClick={() => handleTransferOwnership(member.userId)}
                                     disabled={isUpdatingMembers}
-                                    style={{
-                                      border: "none",
-                                      borderRadius: 8,
-                                      padding: "6px 10px",
-                                      backgroundColor: "#fff1d6",
-                                      cursor: "pointer",
-                                    }}
                                   >
                                     Chuyển chủ nhóm
                                   </button>
                                 ) : null}
                                 {canPromoteToAdmin ? (
                                   <button
+                                    className="mess-infor-member-action promote"
                                     type="button"
                                     onClick={() => handlePromoteAdmin(member.userId)}
                                     disabled={isUpdatingMembers}
-                                    style={{
-                                      border: "none",
-                                      borderRadius: 8,
-                                      padding: "6px 10px",
-                                      backgroundColor: "#e5efff",
-                                      cursor: "pointer",
-                                    }}
                                   >
                                     Lên admin
                                   </button>
                                 ) : null}
                                 {canDemoteAdmin ? (
                                   <button
+                                    className="mess-infor-member-action demote"
                                     type="button"
                                     onClick={() => handleDemoteAdmin(member.userId)}
                                     disabled={isUpdatingMembers}
-                                    style={{
-                                      border: "none",
-                                      borderRadius: 8,
-                                      padding: "6px 10px",
-                                      backgroundColor: "#f1f3f5",
-                                      cursor: "pointer",
-                                    }}
                                   >
                                     Hạ admin
                                   </button>
                                 ) : null}
                                 {canRemoveThisMember ? (
                                   <button
+                                    className="mess-infor-member-action remove"
                                     type="button"
                                     onClick={() => handleRemoveMember(member.userId)}
                                     disabled={isUpdatingMembers}
-                                    style={{
-                                      border: "none",
-                                      borderRadius: 8,
-                                      padding: "6px 10px",
-                                      backgroundColor: "#eaedf0",
-                                      cursor: "pointer",
-                                    }}
                                   >
                                     Xóa
                                   </button>
@@ -2438,22 +3035,12 @@ function MessageInfor({
                       })}
                     </div>
                     {canAddMember ? (
-                      <div className="mess-infor-add-member" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div className="mess-infor-add-member">
                         <button
+                          className="mess-infor-primary-button mess-infor-add-member-button"
                           type="button"
                           onClick={() => setShowAddMemberModal(true)}
                           disabled={isUpdatingMembers || friendOptionsState.loading}
-                          style={{
-                            border: "none",
-                            borderRadius: 8,
-                            padding: "10px 12px",
-                            backgroundColor: "#0068ff",
-                            color: "white",
-                            fontWeight: 600,
-                            cursor: "pointer",
-                            width: "100%",
-                            textAlign: "center",
-                          }}
                         >
                           Thêm thành viên
                         </button>
@@ -2465,15 +3052,6 @@ function MessageInfor({
                         type="button"
                         onClick={handleLeaveConversation}
                         disabled={isUpdatingMembers}
-                        style={{
-                          border: "1px solid #d84747",
-                          borderRadius: 8,
-                          padding: "10px 12px",
-                          backgroundColor: "white",
-                          color: "#d84747",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                        }}
                       >
                         Rời nhóm
                       </button>
@@ -2497,6 +3075,7 @@ function MessageInfor({
                 {(() => {
                   const toolIndex = index + optionBaseIndex;
                   const isToolOpen = showTool.includes(toolIndex);
+                  const SectionIcon = SECTION_ICON_BY_TITLE[data] || IoSettingsOutline;
 
                   return (
                     <>
@@ -2504,7 +3083,10 @@ function MessageInfor({
                   onClick={() => handleShowTool(toolIndex)}
                   className="title-tool flex"
                 >
-                  <p>{data}</p>
+                  <div className="mess-infor-section-title">
+                    <SectionIcon className="mess-infor-section-title-icon" />
+                    <p>{data}</p>
+                  </div>
                   <div
                     className={`mess-infor-detial-tool ${
                       isToolOpen
@@ -2512,7 +3094,7 @@ function MessageInfor({
                         : ""
                     }`}
                   >
-                    <IoTriangle style={{ color: "#7589a3", fontSize: "11px" }} />
+                    <IoChevronDownOutline />
                   </div>
                 </div>
                 <div
@@ -2522,7 +3104,9 @@ function MessageInfor({
                       : "li-tool-none"
                   }
                 >
-                  {data === "Tùy chỉnh thông báo" ? (
+                  {data === "Nhắc hẹn" ? (
+                    renderReminderPanel()
+                  ) : data === "Tùy chỉnh thông báo" ? (
                     renderNotificationSettingsPanel()
                   ) : data === "Tệp đã chia sẻ" ? (
                     renderSharedAttachmentPanel()
@@ -2548,6 +3132,46 @@ function MessageInfor({
             <p className="mess-infor-feedback-error">
               {settingsError}
             </p>
+          ) : null}
+          {isCloseGroupModalOpen ? (
+            <div className="screen-mask" style={{ zIndex: 1003 }}>
+              <div className="mess-infor-confirm-modal">
+                <div className="mess-infor-confirm-modal-header">
+                  <h4>Giải tán nhóm</h4>
+                  <button
+                    type="button"
+                    className="mess-infor-confirm-close"
+                    onClick={() => setIsCloseGroupModalOpen(false)}
+                    disabled={isUpdatingMembers}
+                    aria-label="Đóng hộp thoại"
+                  >
+                    <IoMdClose />
+                  </button>
+                </div>
+                <p className="mess-infor-confirm-modal-body">
+                  Nhóm sẽ bị giải tán cho toàn bộ thành viên và biến mất khỏi danh sách hội thoại.
+                  Hành động này không thể hoàn tác.
+                </p>
+                <div className="mess-infor-confirm-modal-actions">
+                  <button
+                    type="button"
+                    className="mess-infor-confirm-cancel"
+                    onClick={() => setIsCloseGroupModalOpen(false)}
+                    disabled={isUpdatingMembers}
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    className="mess-infor-confirm-danger"
+                    onClick={() => void handleConfirmCloseConversation()}
+                    disabled={isUpdatingMembers}
+                  >
+                    {isUpdatingMembers ? "Đang giải tán..." : "Giải tán nhóm"}
+                  </button>
+                </div>
+              </div>
+            </div>
           ) : null}
           {showAddMemberModal && (
             <div className="screen-mask" style={{ zIndex: 1002 }}>

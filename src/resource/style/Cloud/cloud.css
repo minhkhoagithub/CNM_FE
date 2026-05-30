@@ -1,0 +1,794 @@
+.cloud-library-shell {
+  min-height: 100vh;
+  background: #f6f8fc;
+  color: #0f172a;
+  display: flex;
+  flex-direction: column;
+}
+
+.cloud-library-header {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(240px, 420px) minmax(300px, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.cloud-library-header-title h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.cloud-library-header-title p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.cloud-library-header-center-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.cloud-library-tab-btn {
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #334155;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cloud-library-tab-btn:hover {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.cloud-library-tab-btn.active {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.cloud-library-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.cloud-library-search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #dbe2ef;
+  border-radius: 12px;
+  height: 44px;
+  min-width: 250px;
+  padding: 0 12px;
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.cloud-library-search-box input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.cloud-library-upload-btn {
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 16px;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.28);
+}
+
+.cloud-library-upload-btn:hover {
+  filter: brightness(1.02);
+}
+
+.cloud-library-breadcrumbs {
+  justify-content: flex-start;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.cloud-library-hidden-input {
+  display: none;
+}
+
+.cloud-library-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.cloud-library-sidebar {
+  border-right: 1px solid #e2e8f0;
+  background: #f8faff;
+  padding: 18px 14px;
+  overflow-y: auto;
+}
+
+.cloud-library-side-section h3 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  text-transform: uppercase;
+  color: #475569;
+  letter-spacing: 0.08em;
+}
+
+.cloud-library-folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cloud-library-folder-item {
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #1e293b;
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  padding: 12px 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cloud-library-folder-item:hover {
+  background: #eef2ff;
+  color: #1d4ed8;
+}
+
+.cloud-library-folder-item.active {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.cloud-library-folder-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #eff6ff;
+}
+
+.cloud-library-storage {
+  margin-top: 24px;
+  border-radius: 14px;
+  border: 1px solid #dbe2ef;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.cloud-library-storage h4 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #475569;
+}
+
+.cloud-library-storage-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.cloud-library-storage-row strong {
+  font-size: 15px;
+  color: #0f172a;
+}
+
+.cloud-library-storage-row.warning strong {
+  color: #b45309;
+}
+
+.cloud-library-storage-bar {
+  margin-top: 10px;
+  width: 100%;
+  height: 9px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.cloud-library-storage-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+}
+
+.cloud-library-quota-warning {
+  margin-top: 10px;
+  border-radius: 10px;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  color: #b45309;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 10px;
+}
+
+.cloud-library-storage button {
+  margin-top: 12px;
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  background: #e8f0fe;
+  color: #1d4ed8;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 10px;
+  cursor: pointer;
+}
+
+.cloud-library-content {
+  background: #ffffff;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.cloud-library-filter-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.cloud-library-type-pills {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cloud-library-pill {
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.cloud-library-pill.active {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.cloud-library-filter-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cloud-library-filter-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cloud-library-sort-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cloud-library-sort-box select {
+  border: 1px solid #dbe2ef;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 600;
+  height: 32px;
+  padding: 0 10px;
+  outline: none;
+}
+
+.cloud-library-notice {
+  margin-bottom: 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 12px;
+}
+
+.cloud-library-notice--error {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cloud-library-inline-retry {
+  border: 0;
+  border-radius: 8px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.cloud-library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 16px;
+}
+
+.cloud-library-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+}
+
+.cloud-library-card.is-trash-item {
+  background: #f8fafc;
+}
+
+.cloud-library-card-preview {
+  height: 156px;
+  position: relative;
+}
+
+.cloud-library-card-preview.has-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cloud-library-card-preview.is-generic {
+  background: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cloud-library-generic-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: #dbeafe;
+  color: #2563eb;
+  font-size: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cloud-library-video-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 48px;
+  text-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+}
+
+.cloud-library-video-duration {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.8);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 7px;
+}
+
+.cloud-library-card-body {
+  padding: 12px;
+}
+
+.cloud-library-card-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.cloud-library-card-title-row h4 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.35;
+  color: #0f172a;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.cloud-library-format-tag {
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+}
+
+.cloud-library-card-meta {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.cloud-library-card-actions {
+  margin-top: auto;
+  border-top: 1px solid #eef2f7;
+  padding: 10px 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.cloud-library-card-actions--grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cloud-library-card-actions button {
+  flex: 1;
+  border: 1px solid #dbe2ef;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 700;
+  height: 36px;
+  cursor: pointer;
+}
+
+.cloud-library-card-actions button.ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.cloud-library-card-actions button:last-child {
+  border-color: #2563eb;
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+.cloud-library-link-button {
+  flex: 1;
+  border: 1px solid #dbe2ef;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 700;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  min-width: 0;
+}
+
+.cloud-library-delete-button {
+  border-color: #fecaca !important;
+  color: #b91c1c !important;
+  background: #fef2f2 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.cloud-library-empty {
+  border: 1px dashed #cbd5e1;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 48px 16px;
+  text-align: center;
+  color: #64748b;
+}
+
+.cloud-library-empty svg {
+  font-size: 36px;
+  color: #94a3b8;
+}
+
+.cloud-library-empty h4 {
+  margin: 10px 0 6px;
+  color: #0f172a;
+  font-size: 18px;
+}
+
+.cloud-library-empty p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.cloud-send-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(3px);
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.cloud-send-modal {
+  width: min(640px, 100%);
+  max-height: 84vh;
+  border-radius: 16px;
+  border: 1px solid #dbe2ef;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28);
+  display: flex;
+  flex-direction: column;
+}
+
+.cloud-send-modal-header {
+  padding: 16px 18px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.cloud-send-modal-header h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.cloud-send-modal-header p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.cloud-send-close {
+  width: 34px;
+  height: 34px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.cloud-send-conversations {
+  padding: 14px 18px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.cloud-send-conversation-item {
+  border: 1px solid #dbe2ef;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.cloud-send-conversation-item input {
+  margin: 0;
+}
+
+.cloud-send-conversation-item .text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cloud-send-conversation-item .text strong {
+  font-size: 14px;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cloud-send-conversation-item .text small {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.cloud-send-no-conversation {
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 18px 14px;
+  text-align: center;
+  color: #64748b;
+}
+
+.cloud-send-no-conversation svg {
+  font-size: 22px;
+}
+
+.cloud-send-no-conversation p {
+  margin: 8px 0 0;
+  font-size: 14px;
+}
+
+.cloud-send-note {
+  margin: 14px 18px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cloud-send-note span {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.cloud-send-note textarea {
+  resize: vertical;
+  min-height: 72px;
+  max-height: 140px;
+  border: 1px solid #dbe2ef;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.cloud-library-modal-input {
+  border: 1px solid #dbe2ef;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: #0f172a;
+  outline: none;
+}
+
+.cloud-send-footer {
+  margin-top: 16px;
+  padding: 14px 18px;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.cloud-send-footer button {
+  height: 38px;
+  border-radius: 10px;
+  border: 0;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 0 16px;
+}
+
+.cloud-send-footer button.ghost {
+  border: 1px solid #dbe2ef;
+  background: #ffffff;
+  color: #1e293b;
+}
+
+.cloud-send-footer button:not(.ghost) {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: #ffffff;
+}
+
+.cloud-send-footer button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@media (max-width: 1280px) {
+  .cloud-library-header {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .cloud-library-header-center-tabs {
+    justify-content: flex-start;
+  }
+
+  .cloud-library-header-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 1024px) {
+  .cloud-library-body {
+    grid-template-columns: 1fr;
+  }
+
+  .cloud-library-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid #e2e8f0;
+  }
+}
+
+@media (max-width: 680px) {
+  .cloud-library-search-box {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .cloud-library-upload-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .cloud-library-card-title-row h4 {
+    font-size: 18px;
+  }
+}

@@ -94,6 +94,26 @@ export const NOTIFICATION_META = {
     fallbackTitle: "Bài viết được chia sẻ",
     fallbackBody: "Có người đã chia sẻ bài viết của bạn",
   },
+  REMINDER_CREATED: {
+    icon: FiBell,
+    fallbackTitle: "Nhắc hẹn mới",
+    fallbackBody: "Bạn có một nhắc hẹn mới",
+  },
+  REMINDER_DUE: {
+    icon: FiBell,
+    fallbackTitle: "Nhắc hẹn đến giờ",
+    fallbackBody: "Bạn có một nhắc hẹn đến hạn",
+  },
+  REMINDER_UPDATED: {
+    icon: FiBell,
+    fallbackTitle: "Nhắc hẹn cập nhật",
+    fallbackBody: "Một nhắc hẹn đã được cập nhật",
+  },
+  REMINDER_CANCELLED: {
+    icon: FiBell,
+    fallbackTitle: "Nhắc hẹn đã hủy",
+    fallbackBody: "Một nhắc hẹn đã bị hủy",
+  },
 };
 
 export const getNotificationMeta = (type) =>

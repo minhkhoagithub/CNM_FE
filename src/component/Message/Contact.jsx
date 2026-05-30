@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { UserContext } from "../../Context/UserContext";
 import { ContactContext } from "../../Context/ContactConext";
+import PresenceContext from "../../Context/PresenceContext";
 import "../../resource/style/Chat/contact.css";
 import { CiSearch } from "react-icons/ci";
 import { HiOutlineUserPlus } from "react-icons/hi2";
@@ -17,7 +18,6 @@ import { IoIosMore } from "react-icons/io";
 import { IoMdClose } from "react-icons/io";
 import { IoTriangle } from "react-icons/io5";
 import { BsFillCameraFill } from "react-icons/bs";
-import { RxDotFilled } from "react-icons/rx";
 import {
   createConversationV1,
   updateConversationAvatarV1,
@@ -30,11 +30,19 @@ import {
   getFriendRealtimeDestination,
   isFriendRealtimeEvent,
 } from "../../services/friendRealtimeService";
+import {
+  CLOSE_FRIEND_STATUS_CHANGED_EVENT,
+  getCloseFriendIdsForCurrentUser,
+} from "../../services/closeFriendApi";
 import { uploadAttachmentV1 } from "../../services/chat/messageApi";
 import {
   mapConversation,
   resolveConversationPreviewText,
 } from "../../mappers/conversationMapper";
+import {
+  GROUP_LABEL_OPTIONS,
+  resolveGroupLabelMeta,
+} from "../../constants/groupConversationLabels";
 import "../../resource/style/AddressBook/menuContact.css";
 import {
   crudFriend,
@@ -72,6 +80,7 @@ const getUnreadConversationCount = (conversation) =>
   Number(conversation?.unreadCount || 0);
 const PRIVATE_CONVERSATION_LABEL = "Người dùng";
 const GROUP_CONVERSATION_LABEL = "Nhóm";
+const GROUP_LABEL_FILTER_ALL = "ALL";
 
 const getConversationDisplayName = (conversation) =>
   conversation?.displayName ||
@@ -87,11 +96,95 @@ const getConversationPreview = (conversation) =>
   resolveConversationPreviewText(conversation?.lastMessage) ||
   `Gửi lời chào đến ${getConversationDisplayName(conversation)}`;
 
+const formatPresenceLastSeenText = (value) => {
+  if (!value) {
+    return "Không hoạt động";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "Không hoạt động";
+  }
+
+  const diffMs = Date.now() - date.getTime();
+  if (diffMs < 60 * 1000) {
+    return "Vừa truy cập";
+  }
+
+  const diffMinutes = Math.floor(diffMs / (60 * 1000));
+  if (diffMinutes < 60) {
+    return `Hoạt động ${diffMinutes} phút trước`;
+  }
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) {
+    return `Hoạt động ${diffHours} giờ trước`;
+  }
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) {
+    return `Hoạt động ${diffDays} ngày trước`;
+  }
+
+  return `Hoạt động ${date.toLocaleDateString("vi-VN")}`;
+};
+
+const resolveConversationPresenceStatus = (conversation, getPresenceForUser) => {
+  const normalizedType = String(conversation?.type || "").toLowerCase();
+  if (normalizedType === "private") {
+    const peerUserId = String(conversation?.peerUserId || "").trim();
+    if (peerUserId) {
+      const presence = getPresenceForUser(peerUserId);
+      if (presence?.online) {
+        return {
+          online: true,
+          text: "Đang hoạt động",
+        };
+      }
+      return {
+        online: false,
+        text: formatPresenceLastSeenText(presence?.lastSeenAt),
+      };
+    }
+  }
+
+  if (conversation?.lastActive === "Active") {
+    return {
+      online: true,
+      text: "Đang hoạt động",
+    };
+  }
+
+  if (conversation?.lastActive) {
+    return {
+      online: false,
+      text: conversation.lastActive,
+    };
+  }
+
+  return {
+    online: false,
+    text: "Không hoạt động",
+  };
+};
+
 const getApiErrorMessage = (error, fallback) =>
   error?.response?.data?.message ||
   error?.response?.data?.error ||
   error?.message ||
   fallback;
+
+const resolveConversationGroupLabel = (conversation) => {
+  if (String(conversation?.type || "").toLowerCase() !== "group") {
+    return null;
+  }
+
+  return resolveGroupLabelMeta(
+    conversation?.groupLabel,
+    conversation?.groupLabelDisplayName || "",
+    conversation?.groupLabelColor || ""
+  );
+};
 
 function Contact({
   handleChangeContact,
@@ -116,6 +209,10 @@ function Contact({
   const [openConversationMenuId, setOpenConversationMenuId] = useState(null);
   const [conversationSettingsError, setConversationSettingsError] = useState("");
   const [pendingConversationId, setPendingConversationId] = useState(null);
+  const [closeFriendIds, setCloseFriendIds] = useState(() => new Set());
+  const [selectedGroupLabelFilter, setSelectedGroupLabelFilter] = useState(
+    GROUP_LABEL_FILTER_ALL
+  );
 
   const [dataUserPhone, setDataUserPhone] = useState({
     username: "",
@@ -175,6 +272,7 @@ function Contact({
     selectedConversationId,
     updateConversationById,
   } = useContext(ContactContext);
+  const { fetchBatchPresence, getPresenceForUser } = useContext(PresenceContext);
   const { userData } = useContext(UserContext);
   const currentUserId = userData?._id || userData?.userId || null;
   const getRecentSearchStorageKey = (userId) =>
@@ -183,14 +281,112 @@ function Contact({
 const getSearchItemId = (item) => item?.userId || item?._id || item?.id || null;
 
   const searchTimeout = useRef(null);
-  const displayedConversationList = (showArchived ? archivedConversations : conversations)
-    ?.filter(conversation => conversation.id !== "AI_ASSISTANT");
+  const baseDisplayedConversationList = useMemo(
+    () =>
+      (showArchived ? archivedConversations : conversations)?.filter(
+        (conversation) => conversation.id !== "AI_ASSISTANT"
+      ) || [],
+    [archivedConversations, conversations, showArchived]
+  );
+  const displayedConversationList = useMemo(() => {
+    if (selectedGroupLabelFilter === GROUP_LABEL_FILTER_ALL) {
+      return baseDisplayedConversationList;
+    }
+
+    return baseDisplayedConversationList.filter((conversation) => {
+      const groupLabelMeta = resolveConversationGroupLabel(conversation);
+      return (
+        String(conversation?.type || "").toLowerCase() === "group" &&
+        String(groupLabelMeta?.code || "").toUpperCase() === selectedGroupLabelFilter
+      );
+    });
+  }, [baseDisplayedConversationList, selectedGroupLabelFilter]);
   const displayedConversationListNotSeen = useMemo(
     () =>
       displayedConversationList.filter(
         (item) => getUnreadConversationCount(item) > 0
       ),
     [displayedConversationList]
+  );
+
+  useEffect(() => {
+    const peerUserIds = displayedConversationList
+      .filter((conversation) => String(conversation?.type || "").toLowerCase() === "private")
+      .map((conversation) => conversation?.peerUserId)
+      .filter(Boolean);
+
+    if (!peerUserIds.length) {
+      return;
+    }
+
+    fetchBatchPresence(peerUserIds).catch((error) => {
+      console.error("Failed to fetch presence for conversation list:", error);
+    });
+  }, [displayedConversationList, fetchBatchPresence]);
+  const isGroupLabelFilterActive =
+    selectedGroupLabelFilter !== GROUP_LABEL_FILTER_ALL;
+  const loadCloseFriendIds = useCallback(async () => {
+    if (!currentUserId) {
+      setCloseFriendIds(new Set());
+      return;
+    }
+
+    try {
+      const nextCloseFriendIds = await getCloseFriendIdsForCurrentUser();
+      setCloseFriendIds(nextCloseFriendIds);
+    } catch (error) {
+      console.error("Failed to load close friend list:", error);
+      setCloseFriendIds(new Set());
+    }
+  }, [currentUserId]);
+
+  useEffect(() => {
+    void loadCloseFriendIds();
+  }, [loadCloseFriendIds]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleCloseFriendSync = (event) => {
+      const friendId = String(event?.detail?.friendId || "").trim();
+      if (!friendId) {
+        return;
+      }
+
+      const isCloseFriend = Boolean(event?.detail?.isCloseFriend);
+      setCloseFriendIds((prevState) => {
+        const nextState = new Set(prevState);
+        if (isCloseFriend) {
+          nextState.add(friendId);
+        } else {
+          nextState.delete(friendId);
+        }
+        return nextState;
+      });
+    };
+
+    window.addEventListener(CLOSE_FRIEND_STATUS_CHANGED_EVENT, handleCloseFriendSync);
+    return () => {
+      window.removeEventListener(CLOSE_FRIEND_STATUS_CHANGED_EVENT, handleCloseFriendSync);
+    };
+  }, []);
+
+  const isCloseFriendConversation = useCallback(
+    (conversation) => {
+      if (!conversation || String(conversation.type || "").toLowerCase() !== "private") {
+        return false;
+      }
+
+      const peerUserId = String(conversation.peerUserId || "").trim();
+      if (!peerUserId) {
+        return false;
+      }
+
+      return closeFriendIds.has(peerUserId);
+    },
+    [closeFriendIds]
   );
   const loadFriendOptionsForCreateGroup = useCallback(async () => {
     const currentUserId = userData?._id || userData?.userId;
@@ -1511,22 +1707,43 @@ const isCreateGroupSubmitDisabled =
           ) : null}
           {!isSearch.state ? (
             <div className="contact-list-status-row">
-              <button
-                type="button"
-                className={`contact-list-scope-chip ${showArchived ? "archived" : "active"}`}
-                onClick={handleToggleArchivedView}
-                title={
-                  showArchived
-                    ? "Chuyển sang danh sách hội thoại"
-                    : "Chuyển sang danh sách lưu trữ"
-                }
-              >
-                {showArchived ? "Xem hội thoại" : "Xem lưu trữ"}
-              </button>
-              <span className="contact-list-scope-subtle">
-                {displayedConversationList.length}
+              <div className="contact-list-status-main">
+                <button
+                  type="button"
+                  className={`contact-list-scope-chip ${showArchived ? "archived" : "active"}`}
+                  onClick={handleToggleArchivedView}
+                  title={
+                    showArchived
+                      ? "Chuyển sang danh sách hội thoại"
+                      : "Chuyển sang danh sách lưu trữ"
+                  }
+                >
+                  {showArchived ? "Xem hội thoại" : "Xem lưu trữ"}
+                </button>
+                <span className="contact-list-scope-subtle">
+                  {displayedConversationList.length}
                   {showArchived ? " mục" : " hội thoại"}
-              </span>
+                </span>
+              </div>
+              <div className="contact-group-label-filter-wrap">
+                <label htmlFor="contact-group-label-filter">Nhãn nhóm</label>
+                <select
+                  id="contact-group-label-filter"
+                  value={selectedGroupLabelFilter}
+                  onChange={(event) =>
+                    setSelectedGroupLabelFilter(
+                      String(event.target.value || GROUP_LABEL_FILTER_ALL)
+                    )
+                  }
+                >
+                  <option value={GROUP_LABEL_FILTER_ALL}>Tất cả</option>
+                  {GROUP_LABEL_OPTIONS.map((labelOption) => (
+                    <option key={labelOption.value} value={labelOption.value}>
+                      {labelOption.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           ) : null}
         </div>
@@ -1626,45 +1843,62 @@ const isCreateGroupSubmitDisabled =
                 {allMessActive ? (
                   <ul>
                     {/* Hàng Trợ lý AI cố định */}
-                    <li
-                      className={
-                        selectedConversationId === "AI_ASSISTANT"
-                          ? "conversation-active"
-                          : ""
-                      }
-                      onClick={() => {
-                        handleChangeContact({
-                          id: "AI_ASSISTANT",
-                          displayName: "Trợ lý AI",
-                          trustedDisplayName: "Trợ lý AI",
-                          peerDisplayName: "Trợ lý AI",
-                          type: "AI",
-                          avatarUrl: "https://cdn-icons-png.flaticon.com/512/4712/4712035.png",
-                          trustedAvatarUrl: "https://cdn-icons-png.flaticon.com/512/4712/4712035.png",
-                        });
-                      }}
-                    >
-                      <div className="contact-detial-conversation flex">
-                        <div className="flex">
-                          <div className="contact-avatar-friend">
-                            <img
-                              src="https://cdn-icons-png.flaticon.com/512/4712/4712035.png"
-                              alt="AI"
-                            />
-                          </div>
-                          <div className="contact-overview-mess">
-                            <h3>
-                              <span>Trợ lý AI</span>
-                              <span className="contact-conversation-pill muted" style={{ marginLeft: "5px", backgroundColor: "#e0f2f1", color: "#00796b" }}>Hệ thống</span>
-                            </h3>
-                            <p>Hỏi tôi bất cứ điều gì!</p>
+                    {!isGroupLabelFilterActive ? (
+                      <li
+                        className={
+                          selectedConversationId === "AI_ASSISTANT"
+                            ? "conversation-active"
+                            : ""
+                        }
+                        onClick={() => {
+                          handleChangeContact({
+                            id: "AI_ASSISTANT",
+                            displayName: "Trợ lý AI",
+                            trustedDisplayName: "Trợ lý AI",
+                            peerDisplayName: "Trợ lý AI",
+                            type: "AI",
+                            avatarUrl:
+                              "https://cdn-icons-png.flaticon.com/512/4712/4712035.png",
+                            trustedAvatarUrl:
+                              "https://cdn-icons-png.flaticon.com/512/4712/4712035.png",
+                          });
+                        }}
+                      >
+                        <div className="contact-detial-conversation flex">
+                          <div className="flex">
+                            <div className="contact-avatar-friend">
+                              <img
+                                src="https://cdn-icons-png.flaticon.com/512/4712/4712035.png"
+                                alt="AI"
+                              />
+                            </div>
+                            <div className="contact-overview-mess">
+                              <h3>
+                                <span>Trợ lý AI</span>
+                                <span
+                                  className="contact-conversation-pill muted"
+                                  style={{
+                                    marginLeft: "5px",
+                                    backgroundColor: "#e0f2f1",
+                                    color: "#00796b",
+                                  }}
+                                >
+                                  Hệ thống
+                                </span>
+                              </h3>
+                              <p>Hỏi tôi bất cứ điều gì!</p>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </li>
+                      </li>
+                    ) : null}
 
                     {displayedConversationList &&
-                      displayedConversationList.map((data, index) => (
+                      displayedConversationList.map((data, index) => {
+                        const conversationPresenceStatus =
+                          resolveConversationPresenceStatus(data, getPresenceForUser);
+
+                        return (
                         <li
                           className={
                             data?.id === selectedConversationId
@@ -1693,6 +1927,25 @@ const isCreateGroupSubmitDisabled =
                                 <h3>
                                   <span>{getConversationDisplayName(data)}</span>
                                   <span className="contact-conversation-flags">
+                                    {isCloseFriendConversation(data) ? (
+                                      <span className="contact-conversation-pill close-friend">
+                                        Bạn thân
+                                      </span>
+                                    ) : null}
+                                    {(() => {
+                                      const groupLabelMeta =
+                                        resolveConversationGroupLabel(data);
+                                      if (!groupLabelMeta) {
+                                        return null;
+                                      }
+                                      return (
+                                        <span
+                                          className={`contact-conversation-pill group-label group-label-${groupLabelMeta.color}`}
+                                        >
+                                          {groupLabelMeta.label}
+                                        </span>
+                                      );
+                                    })()}
                                     {data.pinned ? (
                                       <span className="contact-conversation-pill pinned">
                                         Ghim
@@ -1712,16 +1965,21 @@ const isCreateGroupSubmitDisabled =
                             </div>
                             <div className="contact-last-onl flex">
                               <p className="contact-row-status">
-                                {data.lastActive === "Active" ? (
-                                  <RxDotFilled
-                                    style={{
-                                      fontSize: "20px",
-                                      color: "#30a04b",
-                                    }}
-                                  />
-                                ) : (
-                                  data.lastActive
-                                )}
+                                <span
+                                  className={`presence-dot ${
+                                    conversationPresenceStatus?.online
+                                      ? "presence-dot--online"
+                                      : "presence-dot--offline"
+                                  }`}
+                                  aria-label={
+                                    conversationPresenceStatus?.online
+                                      ? "Đang hoạt động"
+                                      : "Không hoạt động"
+                                  }
+                                />
+                                <span className="presence-status-text">
+                                  {conversationPresenceStatus?.text || "Không hoạt động"}
+                                </span>
                               </p>
 
                               <div
@@ -1817,12 +2075,23 @@ const isCreateGroupSubmitDisabled =
                             </div>
                           </div>
                         </li>
-                      ))}
+                        );
+                      })}
+                    {isGroupLabelFilterActive &&
+                    displayedConversationList.length === 0 ? (
+                      <li className="contact-group-label-empty">
+                        Không có nhóm nào trong nhãn này.
+                      </li>
+                    ) : null}
                   </ul>
                 ) : (
                   <ul>
                     {displayedConversationListNotSeen &&
-                      displayedConversationListNotSeen.map((data, index) => (
+                      displayedConversationListNotSeen.map((data, index) => {
+                        const conversationPresenceStatus =
+                          resolveConversationPresenceStatus(data, getPresenceForUser);
+
+                        return (
                         <li
                           className={data?.id === selectedConversationId ? "conversation-active" : ""}
                           key={data?.id || index}
@@ -1847,6 +2116,25 @@ const isCreateGroupSubmitDisabled =
                                 <h3>
                                   <span>{getConversationDisplayName(data)}</span>
                                   <span className="contact-conversation-flags">
+                                    {isCloseFriendConversation(data) ? (
+                                      <span className="contact-conversation-pill close-friend">
+                                        Bạn thân
+                                      </span>
+                                    ) : null}
+                                    {(() => {
+                                      const groupLabelMeta =
+                                        resolveConversationGroupLabel(data);
+                                      if (!groupLabelMeta) {
+                                        return null;
+                                      }
+                                      return (
+                                        <span
+                                          className={`contact-conversation-pill group-label group-label-${groupLabelMeta.color}`}
+                                        >
+                                          {groupLabelMeta.label}
+                                        </span>
+                                      );
+                                    })()}
                                     {data?.pinned ? (
                                       <span className="contact-conversation-pill pinned">Ghim</span>
                                     ) : null}
@@ -1860,16 +2148,21 @@ const isCreateGroupSubmitDisabled =
                             </div>
                             <div className="contact-last-onl flex">
                               <p className="contact-row-status">
-                                {data?.lastActive === "Active" ? (
-                                  <RxDotFilled
-                                    style={{
-                                      fontSize: "20px",
-                                      color: "#30a04b",
-                                    }}
-                                  />
-                                ) : (
-                                  data?.lastActive
-                                )}
+                                <span
+                                  className={`presence-dot ${
+                                    conversationPresenceStatus?.online
+                                      ? "presence-dot--online"
+                                      : "presence-dot--offline"
+                                  }`}
+                                  aria-label={
+                                    conversationPresenceStatus?.online
+                                      ? "Đang hoạt động"
+                                      : "Không hoạt động"
+                                  }
+                                />
+                                <span className="presence-status-text">
+                                  {conversationPresenceStatus?.text || "Không hoạt động"}
+                                </span>
                               </p>
                               {getUnreadConversationCount(data) > 0 ? (
                                 <div className="wrap-count-seen">
@@ -1879,7 +2172,14 @@ const isCreateGroupSubmitDisabled =
                             </div>
                           </div>
                         </li>
-                      ))}
+                        );
+                      })}
+                    {isGroupLabelFilterActive &&
+                    displayedConversationListNotSeen.length === 0 ? (
+                      <li className="contact-group-label-empty">
+                        Không có nhóm nào trong nhãn này.
+                      </li>
+                    ) : null}
                   </ul>
                 )}
               </div>

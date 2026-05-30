@@ -3,9 +3,14 @@ import { mapConversation } from "../../mappers/conversationMapper";
 
 const unwrapResponseData = (response) => response.data?.data ?? response.data;
 
-export const getConversations = async ({ archived = false } = {}) => {
+export const getConversations = async ({ archived = false, groupLabel = null } = {}) => {
+  const params = { archived };
+  if (groupLabel) {
+    params.groupLabel = groupLabel;
+  }
+
   const response = await chatHttpClient.get("/conversations", {
-    params: { archived },
+    params,
   });
 
   return unwrapResponseData(response);
@@ -143,6 +148,37 @@ export const addConversationMemberV1 = async (conversationId, userId) => {
 export const removeConversationMemberV1 = async (conversationId, memberUserId) => {
   const response = await chatHttpClient.delete(
     `/conversations/${conversationId}/members/${memberUserId}`
+  );
+  return unwrapResponseData(response);
+};
+
+export const getConversationGroupLabelPresetsV1 = async () => {
+  const response = await chatHttpClient.get("/conversations/group-labels");
+  return unwrapResponseData(response);
+};
+
+export const getConversationGroupLabelV1 = async (conversationId) => {
+  const response = await chatHttpClient.get(`/conversations/${conversationId}/group-label`);
+  return unwrapResponseData(response);
+};
+
+export const updateConversationGroupLabelV1 = async (conversationId, groupLabel) => {
+  const response = await chatHttpClient.patch(`/conversations/${conversationId}/group-label`, {
+    groupLabel,
+  });
+  return unwrapResponseData(response);
+};
+
+export const updateConversationMemberNicknameV1 = async (
+  conversationId,
+  memberUserId,
+  nickname
+) => {
+  const response = await chatHttpClient.patch(
+    `/conversations/${conversationId}/members/${memberUserId}/nickname`,
+    {
+      nickname,
+    }
   );
   return unwrapResponseData(response);
 };

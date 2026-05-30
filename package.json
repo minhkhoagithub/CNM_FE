@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "browser:smoke": "dev-browser --headless run scripts/dev-browser/smoke-home.js",
+    "browser:console": "dev-browser --headless run scripts/dev-browser/check-console.js",
+    "browser:screenshot": "dev-browser --headless run scripts/dev-browser/screenshot-home.js",
+    "browser:navigation": "dev-browser --headless run scripts/dev-browser/basic-navigation.js"
   },
   "dependencies": {
     "@fingerprintjs/fingerprintjs": "^5.2.0",
