@@ -2,7 +2,14 @@
 import { useNavigate } from "react-router-dom";
 import { CiLock } from "react-icons/ci";
 import { IoIosPhonePortrait } from "react-icons/io";
-import "../resource/style/Login/login.css";
+import {
+  MdOutlineCake,
+  MdOutlineCheckCircle,
+  MdOutlineEmail,
+  MdOutlinePerson,
+  MdOutlineWc,
+} from "react-icons/md";
+import "../resource/style/Login/register.css";
 import {
   checkEmailExists,
   sendRegisterOtp,
@@ -14,6 +21,33 @@ const extractPayload = (response) =>
   response?.data?.data ?? response?.data ?? response ?? null;
 
 const normalizeEmail = (rawEmail) => String(rawEmail || "").trim().toLowerCase();
+
+const REGISTER_STEPS = [
+  {
+    key: "EMAIL",
+    label: "Email",
+    title: "Bắt đầu với email",
+    description: "Nhập email bạn muốn dùng cho tài khoản Zalo.",
+  },
+  {
+    key: "REGISTER_FORM",
+    label: "Thông tin",
+    title: "Tạo hồ sơ cá nhân",
+    description: "Điền thông tin cơ bản để hoàn tất bước xác thực.",
+  },
+  {
+    key: "REGISTER_OTP",
+    label: "OTP",
+    title: "Xác thực email",
+    description: "Nhập mã OTP đã được gửi đến email của bạn.",
+  },
+  {
+    key: "REGISTER_SUBMIT",
+    label: "Hoàn tất",
+    title: "Sẵn sàng tạo tài khoản",
+    description: "Email đã được xác thực, bấm hoàn tất để đăng ký.",
+  },
+];
 
 export default function Register() {
   const navigate = useNavigate();
@@ -134,179 +168,268 @@ export default function Register() {
     }
   };
 
+  const activeStepIndex = Math.max(
+    0,
+    REGISTER_STEPS.findIndex((item) => item.key === step)
+  );
+  const currentStep = REGISTER_STEPS[activeStepIndex] || REGISTER_STEPS[0];
+
   return (
-    <div className="login-container">
-      <div className="login-title-container text-center mb-20">
-        <h2 className="login-title">Zalo</h2>
-        <p>Đăng ký tài khoản Zalo</p>
-      </div>
-
-      <div className="login-form-login p-20 bg-white br-8">
-        {error ? <div className="error-box mb-10">{error}</div> : null}
-
-        {step === "EMAIL" ? (
-          <div className="flex align-center mb-20">
-            <IoIosPhonePortrait className="icon-login" />
-            <input
-              className="input-login"
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
+    <main className="register-page">
+      <section className="register-shell">
+        <aside className="register-brand-panel">
+          <div>
+            <div className="register-brand-wordmark">Zalo</div>
+            <h1>Tạo tài khoản để bắt đầu kết nối</h1>
+            <p>
+              Hoàn tất vài thông tin cơ bản, xác thực email và sử dụng Zalo trên web.
+            </p>
           </div>
-        ) : null}
 
-        {step === "REGISTER_FORM" ? (
-          <div className="register-step-3">
-            <div className="flex align-center mb-20">
-              <IoIosPhonePortrait className="icon-login" />
-              <input className="input-login" type="text" value={email} disabled />
+          <div className="register-brand-highlights" aria-hidden="true">
+            <div className="register-highlight-item">
+              <span>01</span>
+              <p>Email xác thực rõ ràng</p>
             </div>
-            <div className="flex align-center mb-20">
-              <IoIosPhonePortrait className="icon-login" />
-              <input
-                className="input-login"
-                placeholder="Họ"
-                value={registerData.firstName}
-                onChange={(event) =>
-                  setRegisterData((prev) => ({ ...prev, firstName: event.target.value }))
-                }
-              />
-              <input
-                className="input-login"
-                placeholder="Tên"
-                value={registerData.lastName}
-                onChange={(event) =>
-                  setRegisterData((prev) => ({ ...prev, lastName: event.target.value }))
-                }
-              />
+            <div className="register-highlight-item">
+              <span>02</span>
+              <p>Thông tin cá nhân gọn gàng</p>
             </div>
-            <div className="flex align-center mb-20">
-              <IoIosPhonePortrait className="icon-login" />
-              <input
-                className="input-login"
-                placeholder="Số điện thoại"
-                value={registerData.phone}
-                onChange={(event) =>
-                  setRegisterData((prev) => ({ ...prev, phone: event.target.value }))
-                }
-              />
+            <div className="register-highlight-item">
+              <span>03</span>
+              <p>Sẵn sàng đăng nhập sau khi hoàn tất</p>
             </div>
-            <div className="flex align-center mb-20">
-              <IoIosPhonePortrait className="icon-login" />
-              <input
-                className="input-login"
-                type="date"
-                value={registerData.dob}
-                onChange={(event) =>
-                  setRegisterData((prev) => ({ ...prev, dob: event.target.value }))
-                }
-              />
-            </div>
-            <div className="flex align-center mb-20">
-              <IoIosPhonePortrait className="icon-login" />
-              <select
-                className="input-login"
-                value={registerData.gender}
-                onChange={(event) =>
-                  setRegisterData((prev) => ({
-                    ...prev,
-                    gender: String(event.target.value || "").toUpperCase(),
-                  }))
-                }
+          </div>
+        </aside>
+
+        <section className="register-card">
+          <header className="register-card-header">
+            <p className="register-kicker">Đăng ký tài khoản</p>
+            <h2>{currentStep.title}</h2>
+            <p>{currentStep.description}</p>
+          </header>
+
+          <div className="register-stepper" aria-label="Tiến trình đăng ký">
+            {REGISTER_STEPS.map((item, index) => (
+              <div
+                className={`register-step-item ${index <= activeStepIndex ? "is-active" : ""}`}
+                key={item.key}
               >
-                <option value="MALE">Nam</option>
-                <option value="FEMALE">Nữ</option>
-                <option value="OTHER">Khác</option>
-              </select>
-            </div>
-            <div className="flex align-center mb-20">
-              <CiLock className="icon-login" />
-              <input
-                className="input-login"
-                type="password"
-                placeholder="Mật khẩu"
-                value={registerData.password}
-                onChange={(event) =>
-                  setRegisterData((prev) => ({ ...prev, password: event.target.value }))
-                }
-              />
-            </div>
-            <div className="flex align-center mb-20">
-              <CiLock className="icon-login" />
-              <input
-                className="input-login"
-                type="password"
-                placeholder="Xác nhận mật khẩu"
-                value={registerData.confirmPassword}
-                onChange={(event) =>
-                  setRegisterData((prev) => ({ ...prev, confirmPassword: event.target.value }))
-                }
-              />
+                <span>{index + 1}</span>
+                <p>{item.label}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="register-form-body">
+            {error ? <div className="register-error-box">{error}</div> : null}
+
+            {step === "EMAIL" ? (
+              <div className="register-field">
+                <label>Email</label>
+                <div className="register-input-shell">
+                  <MdOutlineEmail />
+                  <input
+                    type="email"
+                    placeholder="Nhập email của bạn"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {step === "REGISTER_FORM" ? (
+              <div className="register-form-grid">
+                <div className="register-field register-field-full">
+                  <label>Email đăng ký</label>
+                  <div className="register-input-shell is-disabled">
+                    <MdOutlineEmail />
+                    <input type="text" value={email} disabled />
+                  </div>
+                </div>
+
+                <div className="register-field">
+                  <label>Họ</label>
+                  <div className="register-input-shell">
+                    <MdOutlinePerson />
+                    <input
+                      placeholder="Nhập họ"
+                      value={registerData.firstName}
+                      onChange={(event) =>
+                        setRegisterData((prev) => ({ ...prev, firstName: event.target.value }))
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="register-field">
+                  <label>Tên</label>
+                  <div className="register-input-shell">
+                    <MdOutlinePerson />
+                    <input
+                      placeholder="Nhập tên"
+                      value={registerData.lastName}
+                      onChange={(event) =>
+                        setRegisterData((prev) => ({ ...prev, lastName: event.target.value }))
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="register-field">
+                  <label>Số điện thoại</label>
+                  <div className="register-input-shell">
+                    <IoIosPhonePortrait />
+                    <input
+                      placeholder="Nhập số điện thoại"
+                      value={registerData.phone}
+                      onChange={(event) =>
+                        setRegisterData((prev) => ({ ...prev, phone: event.target.value }))
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="register-field">
+                  <label>Ngày sinh</label>
+                  <div className="register-input-shell">
+                    <MdOutlineCake />
+                    <input
+                      type="date"
+                      value={registerData.dob}
+                      onChange={(event) =>
+                        setRegisterData((prev) => ({ ...prev, dob: event.target.value }))
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="register-field">
+                  <label>Giới tính</label>
+                  <div className="register-input-shell">
+                    <MdOutlineWc />
+                    <select
+                      value={registerData.gender}
+                      onChange={(event) =>
+                        setRegisterData((prev) => ({
+                          ...prev,
+                          gender: String(event.target.value || "").toUpperCase(),
+                        }))
+                      }
+                    >
+                      <option value="MALE">Nam</option>
+                      <option value="FEMALE">Nữ</option>
+                      <option value="OTHER">Khác</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="register-field">
+                  <label>Mật khẩu</label>
+                  <div className="register-input-shell">
+                    <CiLock />
+                    <input
+                      type="password"
+                      placeholder="Nhập mật khẩu"
+                      value={registerData.password}
+                      onChange={(event) =>
+                        setRegisterData((prev) => ({ ...prev, password: event.target.value }))
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="register-field register-field-full">
+                  <label>Xác nhận mật khẩu</label>
+                  <div className="register-input-shell">
+                    <CiLock />
+                    <input
+                      type="password"
+                      placeholder="Nhập lại mật khẩu"
+                      value={registerData.confirmPassword}
+                      onChange={(event) =>
+                        setRegisterData((prev) => ({
+                          ...prev,
+                          confirmPassword: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {step === "REGISTER_OTP" ? (
+              <div className="register-field">
+                <label>Mã OTP email</label>
+                <div className="register-input-shell">
+                  <CiLock />
+                  <input
+                    type="text"
+                    placeholder="Nhập OTP email"
+                    value={otpCode}
+                    onChange={(event) => setOtpCode(event.target.value)}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {step === "REGISTER_SUBMIT" ? (
+              <div className="register-success-box">
+                <MdOutlineCheckCircle />
+                <div>
+                  <h3>Đã xác thực email</h3>
+                  <p>Sẵn sàng tạo tài khoản Zalo với email {normalizeEmail(email)}.</p>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="register-actions">
+              {step === "EMAIL" ? (
+                <button className="register-primary-btn" disabled={loading} onClick={handleCheckEmail}>
+                  {loading ? "Đang kiểm tra..." : "Tiếp tục"}
+                </button>
+              ) : null}
+              {step === "REGISTER_FORM" ? (
+                <button
+                  className="register-primary-btn"
+                  disabled={loading}
+                  onClick={handleSendRegisterOtp}
+                >
+                  {loading ? "Đang gửi OTP..." : "Xác thực email"}
+                </button>
+              ) : null}
+              {step === "REGISTER_OTP" ? (
+                <button
+                  className="register-primary-btn"
+                  disabled={loading || !otpCode}
+                  onClick={handleVerifyOtp}
+                >
+                  {loading ? "Đang xác thực..." : "Xác thực OTP"}
+                </button>
+              ) : null}
+              {step === "REGISTER_SUBMIT" ? (
+                <button
+                  className="register-primary-btn"
+                  disabled={loading || !registerToken}
+                  onClick={handleRegister}
+                >
+                  {loading ? "Đang đăng ký..." : "Hoàn tất đăng ký"}
+                </button>
+              ) : null}
+
+              <button
+                className="register-secondary-btn"
+                onClick={() => navigate("/auth/login")}
+                type="button"
+              >
+                Trở về đăng nhập
+              </button>
             </div>
           </div>
-        ) : null}
-
-        {step === "REGISTER_OTP" ? (
-          <div className="flex align-center mb-20">
-            <CiLock className="icon-login" />
-            <input
-              className="input-login"
-              type="text"
-              placeholder="Nhập OTP email"
-              value={otpCode}
-              onChange={(event) => setOtpCode(event.target.value)}
-            />
-          </div>
-        ) : null}
-
-        {step === "REGISTER_SUBMIT" ? (
-          <div className="flex align-center mb-20">
-            <IoIosPhonePortrait className="icon-login" />
-            <input
-              className="input-login"
-              type="text"
-              value="Đã xác thực email, sẵn sàng đăng ký"
-              disabled
-            />
-          </div>
-        ) : null}
-
-        {step === "EMAIL" ? (
-          <button className="full-btn btn-login" disabled={loading} onClick={handleCheckEmail}>
-            Tiếp tục
-          </button>
-        ) : null}
-        {step === "REGISTER_FORM" ? (
-          <button className="full-btn btn-login" disabled={loading} onClick={handleSendRegisterOtp}>
-            Xác thực email
-          </button>
-        ) : null}
-        {step === "REGISTER_OTP" ? (
-          <button className="full-btn btn-login" disabled={loading || !otpCode} onClick={handleVerifyOtp}>
-            Xác thực OTP
-          </button>
-        ) : null}
-        {step === "REGISTER_SUBMIT" ? (
-          <button
-            className="full-btn btn-login"
-            disabled={loading || !registerToken}
-            onClick={handleRegister}
-          >
-            Hoàn tất đăng ký
-          </button>
-        ) : null}
-
-        <button
-          className="full-btn btn-login mt-10"
-          style={{ background: "#e0e0e0", color: "#333" }}
-          onClick={() => navigate("/auth/login")}
-          type="button"
-        >
-          Trở về đăng nhập
-        </button>
-      </div>
-    </div>
+        </section>
+      </section>
+    </main>
   );
 }

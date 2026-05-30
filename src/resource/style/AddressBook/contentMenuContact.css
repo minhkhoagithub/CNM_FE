@@ -1262,7 +1262,7 @@
   background: #ffffff;
   border-radius: 16px;
   border: 1px solid #e5eaf1;
-  padding: 14px 16px;
+  padding: 14px 118px 14px 16px;
 }
 
 .group-action-error {
@@ -1297,6 +1297,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 0 0 auto;
 }
 
 .groups-sort {
@@ -1520,6 +1521,7 @@
   .groups-toolbar {
     flex-direction: column;
     align-items: stretch;
+    padding-right: 16px;
   }
 
   .groups-toolbar-actions {
@@ -1533,5 +1535,391 @@
 
   .group-detail-drawer {
     width: 100%;
+  }
+}
+
+/* Friend list reference refresh: card grid layout, actions kept in the 3-dot menu. */
+.waper-content-menu-contact:has(.friend-list-grid) {
+  background: #ffffff;
+}
+
+.friend-list-header {
+  height: 74px;
+  padding: 0 140px 0 28px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: none;
+  background: #ffffff;
+  box-shadow: none;
+  box-sizing: border-box;
+}
+
+.friend-list-header h3 {
+  height: auto;
+  margin: 0;
+  color: #061735;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.friend-list-header-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.friend-list-header-filters .close-friend-filter-btn {
+  min-width: 78px;
+  height: 34px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 999px;
+  background: #e5eaff;
+  color: #283044;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.friend-list-header-filters .close-friend-filter-btn.active {
+  background: #075bd8;
+  color: #ffffff;
+  box-shadow: 0 10px 18px rgba(7, 91, 216, 0.16);
+}
+
+.friend-list-total {
+  display: none;
+}
+
+.list-fetch-contact .friend-list-content {
+  height: calc(100vh - 74px);
+  margin: 0;
+  padding: 0 28px 22px;
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+.friend-search-row {
+  max-width: 300px;
+  margin: 0 0 14px;
+}
+
+.friend-list-content .friend-search-row input {
+  width: 100%;
+  height: 32px;
+  margin: 0;
+  border: none;
+  border-radius: 8px;
+  background: #f1f2f5;
+  color: #18243a;
+  font-size: 14px;
+  box-shadow: none;
+}
+
+.friend-list-content .friend-search-row input:focus {
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(7, 91, 216, 0.16);
+}
+
+.content-fetch-contact .friend-list-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  grid-auto-rows: max-content;
+  align-content: start;
+  align-items: start;
+  gap: 12px 14px;
+  height: 100%;
+  padding: 0 0 16px;
+  overflow-y: auto;
+}
+
+.list-fetch-contact .friend-list-grid .friend-card {
+  min-height: 74px;
+  height: auto;
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid #e3e7ee;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.list-fetch-contact .friend-list-grid .friend-card:hover {
+  background: #ffffff;
+  border-color: #cdd7ea;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+.friend-list-grid .friend-card-main {
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.friend-card-avatar {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+}
+
+.friend-list-grid .friend-card .friend-card-avatar img {
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+}
+
+.friend-presence-dot {
+  position: absolute;
+  right: -1px;
+  bottom: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  background: #a5afbd;
+}
+
+.friend-presence-dot.online {
+  background: #22c55e;
+}
+
+.friend-list-grid .friend-item-name-wrap {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.friend-card-name-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.friend-list-grid .friend-card-name-row p {
+  color: #061735;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.2;
+  max-width: 190px;
+}
+
+.friend-list-grid .friend-close-badge {
+  display: none;
+}
+
+.friend-close-icon-badge {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 16px;
+  background: #075bd8;
+  color: #ffffff;
+  font-size: 10px;
+}
+
+.friend-card-subtitle {
+  color: #313447;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.25;
+}
+
+.friend-list-grid .friend-card-actions {
+  position: relative;
+  margin: 0;
+  gap: 8px;
+  flex-wrap: nowrap;
+  flex: 0 0 auto;
+}
+
+.friend-primary-message-btn {
+  width: 78px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 9px;
+  background: #075bd8;
+  color: #ffffff;
+  border: none;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.friend-primary-message-btn:hover {
+  background: #044fc2;
+}
+
+.friend-actions-menu {
+  position: relative;
+}
+
+.friend-actions-menu summary {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  list-style: none;
+  cursor: pointer;
+  color: #475569;
+  background: #f3f5f8;
+  border: none;
+}
+
+.friend-actions-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.friend-actions-menu summary svg {
+  width: 18px;
+  height: 18px;
+}
+
+.friend-actions-menu[open] summary,
+.friend-actions-menu summary:hover {
+  background: #e9effb;
+  color: #075bd8;
+}
+
+.friend-actions-menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  width: 176px;
+  padding: 8px;
+  border: 1px solid #e0e4ec;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.friend-actions-menu-panel button {
+  width: 100%;
+  margin: 0;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #18243a;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+
+.friend-actions-menu-panel button:hover {
+  background: #f1f5f9;
+}
+
+.friend-actions-menu-panel button.danger {
+  color: #b42318;
+}
+
+.friend-actions-menu-panel button.danger:hover {
+  background: #fff1f2;
+}
+
+.friend-actions-menu-panel button:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+@media (max-width: 1280px) {
+  .friend-list-header {
+    padding: 0 28px;
+  }
+
+  .list-fetch-contact .friend-list-content {
+    padding: 0 28px 28px;
+  }
+
+  .content-fetch-contact .friend-list-grid {
+    gap: 22px;
+  }
+
+  .list-fetch-contact .friend-list-grid .friend-card {
+    padding: 24px;
+  }
+
+  .friend-list-grid .friend-card-name-row p {
+    font-size: 22px;
+  }
+
+  .friend-card-subtitle,
+  .friend-primary-message-btn {
+    font-size: 18px;
+  }
+}
+
+@media (max-width: 980px) {
+  .friend-list-header {
+    height: auto;
+    min-height: 110px;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 18px;
+    padding: 24px;
+  }
+
+  .friend-list-header-filters {
+    width: 100%;
+    gap: 10px;
+    overflow-x: auto;
+  }
+
+  .friend-list-header-filters .close-friend-filter-btn {
+    min-width: 98px;
+    height: 44px;
+    font-size: 16px;
+  }
+
+  .list-fetch-contact .friend-list-content {
+    height: calc(100vh - 148px);
+    padding: 0 24px 24px;
+  }
+
+  .content-fetch-contact .friend-list-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .friend-list-header h3 {
+    font-size: 26px;
+  }
+
+  .list-fetch-contact .friend-list-grid .friend-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .friend-list-grid .friend-card-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 }
