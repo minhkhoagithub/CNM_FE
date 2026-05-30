@@ -1,7 +1,7 @@
-import apiClient from "../../util/api/axiosConfig";
+import chatHttpClient from "./chatHttpClient";
 
 export const getLinkPreview = async (url) => {
-  const response = await apiClient.get("/link-preview", {
+  const response = await chatHttpClient.get("/link-preview", {
     params: { url },
   });
   return response?.data?.data ?? response?.data ?? null;

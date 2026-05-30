@@ -88,6 +88,7 @@ import {
   getProcessingJob,
   requestDictationSpeechToText,
 } from "../../services/messageProcessing/messageProcessingApi";
+import { getLinkPreview } from "../../services/chat/linkPreviewApi";
 
 const REACTION_OPTIONS = ["LIKE", "LOVE", "WOW", "HAHA"];
 const POLL_CREATE_PREFIX = "[[POLL_CREATE]]";
@@ -864,8 +865,8 @@ const resolveTypingStatusText = (typingUsers, conversationType) => {
 };
 
 const EMOJI_PATTERN = /[\p{Extended_Pictographic}\uFE0F\u200D]/u;
-const MENTION_QUERY_PATTERN = /^[A-Za-z0-9._]*$/;
-const MENTION_TOKEN_PATTERN = /(^|[^A-Za-z0-9._])@([A-Za-z0-9._]+)/g;
+const MENTION_QUERY_PATTERN = /^[^\s@]*$/;
+const MENTION_TOKEN_PATTERN = /(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g;
 
 const closeMentionState = () => ({
   open: false,
@@ -878,7 +879,7 @@ const normalizeMentionHandle = (value) =>
   String(value || "")
     .trim()
     .replace(/^@+/, "")
-    .replace(/[^A-Za-z0-9._]/g, "");
+    .replace(/[^A-Za-z0-9._-]/g, "");
 
 const getNestedValue = (value, path) =>
   path.reduce((currentValue, key) => currentValue?.[key], value);
@@ -969,6 +970,57 @@ const resolveMemberUsername = (member) => {
   return "";
 };
 
+const extractMentionHandlesFromText = (text) => {
+  if (!text) {
+    return [];
+  }
+
+  const matches = [];
+  const pattern = /(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g;
+  String(text).replace(pattern, (match, prefix, handle) => {
+    if (handle) {
+      matches.push(handle.toLowerCase());
+    }
+    return match;
+  });
+
+  return matches;
+};
+
+const buildMentionPayloadFromMessageText = (
+  messageText,
+  mentionCandidates,
+  currentUserId
+) => {
+  if (!messageText || !Array.isArray(mentionCandidates) || !mentionCandidates.length) {
+    return [];
+  }
+
+  const mentionedHandles = new Set(extractMentionHandlesFromText(messageText));
+  if (!mentionedHandles.size) {
+    return [];
+  }
+
+  const dedupUserIds = new Set();
+  return mentionCandidates
+    .filter((candidate) => mentionedHandles.has(String(candidate?.username || "").toLowerCase()))
+    .filter((candidate) => {
+      const normalizedUserId = String(candidate?.userId || "").trim();
+      if (!normalizedUserId || normalizedUserId === String(currentUserId || "")) {
+        return false;
+      }
+      if (dedupUserIds.has(normalizedUserId)) {
+        return false;
+      }
+      dedupUserIds.add(normalizedUserId);
+      return true;
+    })
+    .map((candidate) => ({
+      userId: candidate.userId,
+      displayName: candidate.displayName || candidate.username || "",
+    }));
+};
+
 const getComposerCaretTextOffset = (composer) => {
   const selection = window.getSelection?.();
 
@@ -1044,7 +1096,7 @@ const resolveActiveMentionQuery = (text, caretOffset) => {
   }
 
   const previousChar = triggerStart > 0 ? prefixText[triggerStart - 1] : "";
-  if (previousChar && /[A-Za-z0-9._]/.test(previousChar)) {
+  if (previousChar && /[A-Za-z0-9._-]/.test(previousChar)) {
     return closeMentionState();
   }
 
@@ -1148,6 +1200,7 @@ function ContainerMess({
   const dictationAutoStopTimeoutRef = useRef(null);
   const dictationStartedAtRef = useRef(null);
   const dictationMimeTypeRef = useRef("");
+  const dictationCancelPendingRef = useRef(false);
   const selectedAttachmentsRef = useRef([]);
   const messagesRef = useRef([]);
   const typingStateRef = useRef(false);
@@ -1429,7 +1482,7 @@ function ContainerMess({
       .filter((member) => String(member.userId) !== String(currentUserId))
       .map((member) => {
         const mentionHandle = normalizeMentionHandle(
-          member.username || resolveMemberUsername(member)
+          member.username || resolveMemberUsername(member) || String(member.userId || "")
         );
 
         if (!mentionHandle) {
@@ -1439,7 +1492,11 @@ function ContainerMess({
 
         return {
           userId: member.userId,
-          displayName: member.displayName || member.username || mentionHandle,
+          displayName:
+            String(member.nickname || "").trim() ||
+            member.displayName ||
+            member.username ||
+            mentionHandle,
           username: mentionHandle,
           mentionToken: `@${mentionHandle}`,
           avatarUrl: member.avatarUrl || "",
@@ -3137,7 +3194,11 @@ function ContainerMess({
     if (voiceRecorderState === "recording" || voiceRecorderState === "processing") {
       return;
     }
-    if (dictationState === "recording" || dictationState === "processing") {
+    if (
+      dictationState === "recording" ||
+      dictationState === "processing" ||
+      dictationState === "stopping"
+    ) {
       setActionError("Đang nhập giọng nói. Hãy hoàn tất trước khi ghi âm tin nhắn thoại.");
       return;
     }
@@ -3316,6 +3377,7 @@ function ContainerMess({
     dictationChunksRef.current = [];
     dictationStartedAtRef.current = null;
     dictationMimeTypeRef.current = "";
+    dictationCancelPendingRef.current = false;
     setDictationRecordingMs(0);
     setDictationState("idle");
   }, [clearDictationTimers, stopDictationStreamTracks]);
@@ -3348,6 +3410,19 @@ function ContainerMess({
   const resolveDictationFailureMessage = useCallback(
     (jobPayload) => {
       const backendMessage = String(jobPayload?.errorMessage || "").trim();
+      const normalized = backendMessage.toLowerCase();
+      if (normalized.includes("timeout") || normalized.includes("timed out")) {
+        return "Hệ thống xử lý chậm hơn bình thường. Vui lòng thử lại.";
+      }
+      if (normalized.includes("too many") || normalized.includes("quá nhiều")) {
+        return "Bạn đang gửi quá nhiều yêu cầu chuyển giọng nói. Vui lòng thử lại sau.";
+      }
+      if (normalized.includes("unsupported") || normalized.includes("định dạng")) {
+        return "Định dạng âm thanh chưa được hỗ trợ.";
+      }
+      if (normalized.includes("401") || normalized.includes("403")) {
+        return "Dịch vụ chuyển giọng nói hiện chưa sẵn sàng. Vui lòng thử lại sau.";
+      }
       if (backendMessage) {
         return backendMessage;
       }
@@ -3373,7 +3448,7 @@ function ContainerMess({
       }
 
       if (normalizedStatus === "FAILED") {
-        setDictationState("idle");
+        setDictationState("failed");
         setDictationRecordingMs(0);
         setDictationJobId(null);
         setDictationError(resolveDictationFailureMessage(jobPayload));
@@ -3393,10 +3468,11 @@ function ContainerMess({
       }
 
       if (cancel) {
+        dictationCancelPendingRef.current = true;
         dictationChunksRef.current = [];
       }
 
-      setDictationState("processing");
+      setDictationState("stopping");
       try {
         recorder.requestData?.();
       } catch (error) {
@@ -3427,7 +3503,11 @@ function ContainerMess({
       setDictationError("Đang ghi âm tin nhắn thoại. Hãy hoàn tất trước khi nhập giọng nói.");
       return;
     }
-    if (dictationState === "recording" || dictationState === "processing") {
+    if (
+      dictationState === "recording" ||
+      dictationState === "processing" ||
+      dictationState === "stopping"
+    ) {
       return;
     }
 
@@ -3449,6 +3529,13 @@ function ContainerMess({
       dictationChunksRef.current = [];
       dictationStartedAtRef.current = Date.now();
       setDictationState("recording");
+      stream.getTracks().forEach((track) => {
+        track.onended = () => {
+          setDictationError("Kết nối micro bị ngắt.");
+          setDictationState("failed");
+          resetDictationState();
+        };
+      });
 
       recorder.ondataavailable = (event) => {
         if (event?.data && event.data.size > 0) {
@@ -3462,6 +3549,8 @@ function ContainerMess({
       };
 
       recorder.onstop = async () => {
+        const wasCancelled = Boolean(dictationCancelPendingRef.current);
+        dictationCancelPendingRef.current = false;
         const chunks = Array.isArray(dictationChunksRef.current)
           ? [...dictationChunksRef.current]
           : [];
@@ -3475,12 +3564,19 @@ function ContainerMess({
         dictationRecorderRef.current = null;
         dictationStartedAtRef.current = null;
 
+        if (wasCancelled) {
+          setDictationError("");
+          resetDictationState();
+          return;
+        }
+
         if (!chunks.length) {
           resetDictationState();
           return;
         }
 
         try {
+          setDictationState("processing");
           const mimeType = dictationMimeTypeRef.current || "audio/webm";
           const blob = new Blob(chunks, { type: mimeType });
           const audioFormat = resolveAudioFormatFromMimeType(mimeType);
@@ -3502,7 +3598,7 @@ function ContainerMess({
           setDictationError(
             String(responseMessage || "Không thể chuyển giọng nói thành văn bản. Vui lòng thử lại.")
           );
-          setDictationState("idle");
+          setDictationState("failed");
           setDictationRecordingMs(0);
           setDictationJobId(null);
         } finally {
@@ -3522,9 +3618,18 @@ function ContainerMess({
       dictationAutoStopTimeoutRef.current = setTimeout(() => {
         stopDictationRecording({ cancel: false });
       }, DICTATION_RECORDING_MAX_DURATION_MS);
-    } catch {
-      setDictationState("idle");
-      setDictationError("Bạn chưa cấp quyền micro hoặc trình duyệt từ chối ghi âm.");
+    } catch (error) {
+      const errorName = String(error?.name || "").toLowerCase();
+      let message = "Không thể dùng micro lúc này. Vui lòng thử lại.";
+      if (errorName.includes("notallowed")) {
+        message = "Bạn chưa cấp quyền micro.";
+      } else if (errorName.includes("notfound")) {
+        message = "Không tìm thấy thiết bị micro.";
+      } else if (errorName.includes("notreadable")) {
+        message = "Micro đang được ứng dụng khác sử dụng.";
+      }
+      setDictationState("failed");
+      setDictationError(message);
       resetDictationState();
     }
   }, [
@@ -3561,9 +3666,9 @@ function ContainerMess({
       attempts += 1;
       if (attempts > DICTATION_MAX_POLL_ATTEMPTS) {
         clearInterval(intervalId);
-        setDictationState("idle");
+        setDictationState("failed");
         setDictationJobId(null);
-        setDictationError("Không nhận được kết quả chuyển giọng nói. Vui lòng thử lại.");
+        setDictationError("Quá thời gian chờ, vui lòng thử lại.");
         return;
       }
       try {
@@ -3949,11 +4054,20 @@ function ContainerMess({
             selectedAttachments.map((attachment) => uploadAttachmentV1(attachment.file))
           )
         : [];
+      const mentionPayload =
+        activeConversation?.type === "group"
+          ? buildMentionPayloadFromMessageText(
+              messageText,
+              mentionCandidates,
+              currentUserId
+            )
+          : [];
       const isLinkTextMessage = Boolean(linkUrl && messageText && uploadedAttachments.length === 0);
       const sendPayload = {
         conversationId: backendConversationId,
         ...(messageText ? { content: messageText } : {}),
         ...(uploadedAttachments.length ? { attachments: uploadedAttachments } : {}),
+        ...(mentionPayload.length ? { mentions: mentionPayload } : {}),
         ...(replyingToMessage?.id ? { replyToMessageId: replyingToMessage.id } : {}),
       };
 
@@ -4629,8 +4743,7 @@ function ContainerMess({
 
     let isUnmounted = false;
     unresolvedUrls.forEach((targetUrl) => {
-      fetch(`https://jsonlink.io/api/extract?url=${encodeURIComponent(targetUrl)}`)
-        .then((response) => response.json())
+      getLinkPreview(targetUrl)
         .then((payload) => {
           if (isUnmounted) {
             return;
@@ -4641,9 +4754,9 @@ function ContainerMess({
             [targetUrl]: {
               title: payload?.title || "",
               description: payload?.description || "",
-              image: payload?.images?.[0] || payload?.image || "",
+              image: payload?.image || "",
               url: payload?.url || targetUrl,
-              host: (() => {
+              host: payload?.host || (() => {
                 try {
                   return new URL(targetUrl).hostname;
                 } catch {
@@ -5341,13 +5454,16 @@ function ContainerMess({
                 : Array.isArray(item.attachments)
                 ? item.attachments
                 : [];
+              const isAudioMessage = String(item?.type || "").toUpperCase() === "AUDIO";
               const imageAttachments = visibleAttachments.filter(isImageAttachment);
-              const videoAttachments = visibleAttachments.filter(isVideoAttachment);
+              const videoAttachments = visibleAttachments.filter(
+                (attachment) => !isAudioMessage && isVideoAttachment(attachment)
+              );
               const audioAttachments = visibleAttachments.filter(
                 (attachment) =>
-                  isAudioAttachment(attachment) &&
                   !isImageAttachment(attachment) &&
-                  !isVideoAttachment(attachment)
+                  (isAudioAttachment(attachment) ||
+                    isAudioMessage)
               );
               const fileAttachments = visibleAttachments.filter(
                 (attachment) =>
@@ -6046,7 +6162,8 @@ function ContainerMess({
                 isComposerInteractionLocked ||
                 voiceRecorderState === "processing" ||
                 dictationState === "recording" ||
-                dictationState === "processing"
+                dictationState === "processing" ||
+                dictationState === "stopping"
                   ? "composer-icon-disabled"
                 : ""
               } ${voiceRecorderState === "recording" ? "voice-recording-active" : ""}`}
@@ -6054,7 +6171,8 @@ function ContainerMess({
                 isComposerInteractionLocked ||
                 voiceRecorderState === "processing" ||
                 dictationState === "recording" ||
-                dictationState === "processing"
+                dictationState === "processing" ||
+                dictationState === "stopping"
                   ? undefined
                   : voiceRecorderState === "recording"
                   ? () => stopVoiceRecording({ cancel: false })
@@ -6073,6 +6191,7 @@ function ContainerMess({
               className={`icon-header icon-header-btn ${
                 isComposerInteractionLocked ||
                 dictationState === "processing" ||
+                dictationState === "stopping" ||
                 voiceRecorderState === "recording" ||
                 voiceRecorderState === "processing"
                   ? "composer-icon-disabled"
@@ -6081,6 +6200,7 @@ function ContainerMess({
               onClick={
                 isComposerInteractionLocked ||
                 dictationState === "processing" ||
+                dictationState === "stopping" ||
                 voiceRecorderState === "recording" ||
                 voiceRecorderState === "processing"
                   ? undefined
@@ -6272,6 +6392,9 @@ function ContainerMess({
             ) : null}
             {dictationState === "processing" ? (
               <div className="voice-recorder-status">Đang chuyển giọng nói thành văn bản...</div>
+            ) : null}
+            {dictationState === "stopping" ? (
+              <div className="voice-recorder-status">Đang hoàn tất ghi âm...</div>
             ) : null}
             <ul className="list-img flex">
               {selectedAttachments.map((attachment) => (

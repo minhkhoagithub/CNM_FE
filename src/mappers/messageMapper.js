@@ -555,6 +555,16 @@ export const isVideoAttachment = (attachment) => {
   const contentType = String(attachment?.contentType || "").toLowerCase();
   const attachmentType = String(attachment?.type || "").toUpperCase();
   const ext = getAttachmentFileExtension(attachment);
+  const hasAudioMetadata =
+    Number.isFinite(Number(attachment?.durationMs)) ||
+    (Array.isArray(attachment?.waveform) && attachment.waveform.length > 0) ||
+    Boolean(String(attachment?.audioFormat || "").trim());
+
+  // WebM audio recordings can sometimes carry a video/* MIME type depending on browser.
+  // Force audio precedence when the attachment explicitly indicates audio semantics.
+  if (attachmentType === "AUDIO" || contentType.startsWith("audio/") || hasAudioMetadata) {
+    return false;
+  }
 
   return (
     contentType.startsWith("video/") ||
@@ -567,10 +577,15 @@ export const isAudioAttachment = (attachment) => {
   const contentType = String(attachment?.contentType || "").toLowerCase();
   const attachmentType = String(attachment?.type || "").toUpperCase();
   const ext = getAttachmentFileExtension(attachment);
+  const hasAudioMetadata =
+    Number.isFinite(Number(attachment?.durationMs)) ||
+    (Array.isArray(attachment?.waveform) && attachment.waveform.length > 0) ||
+    Boolean(String(attachment?.audioFormat || "").trim());
 
   return (
     contentType.startsWith("audio/") ||
     attachmentType === "AUDIO" ||
+    (contentType.startsWith("video/") && hasAudioMetadata) ||
     ["mp3", "wav", "ogg", "m4a", "aac", "opus", "flac", "webm"].includes(ext)
   );
 };
