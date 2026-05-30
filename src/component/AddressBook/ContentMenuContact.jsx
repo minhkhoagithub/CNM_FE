@@ -54,6 +54,7 @@ export const BO_BAN_THAN = "Bỏ bạn thân";
 
 const FRIEND_FILTER_ALL = "all";
 const FRIEND_FILTER_CLOSE = "close";
+const FRIEND_FILTER_RECENT = "recent";
 
 const GROUP_SECTION_ALL = "all";
 const GROUP_SECTION_MY = "my";
@@ -1389,14 +1390,55 @@ const handleSeachContact = (e) => {
             </div>
           ) : (
             <>
-              <div className="header-content-menu-contact flex">
+              <div
+                className={`header-content-menu-contact flex ${
+                  isFriendListView ? "friend-list-header" : ""
+                }`}
+              >
                 <h3>{title}</h3>
+                {isFriendListView ? (
+                  <div className="close-friend-filter-row friend-list-header-filters">
+                    <button
+                      type="button"
+                      className={`close-friend-filter-btn ${
+                        friendFilter === FRIEND_FILTER_ALL ? "active" : ""
+                      }`}
+                      onClick={() => setFriendFilter(FRIEND_FILTER_ALL)}
+                    >
+                      Tất cả
+                    </button>
+                    <button
+                      type="button"
+                      className={`close-friend-filter-btn ${
+                        friendFilter === FRIEND_FILTER_CLOSE ? "active" : ""
+                      }`}
+                      onClick={() => setFriendFilter(FRIEND_FILTER_CLOSE)}
+                    >
+                      Bạn thân
+                    </button>
+                    <button
+                      type="button"
+                      className={`close-friend-filter-btn ${
+                        friendFilter === FRIEND_FILTER_RECENT ? "active" : ""
+                      }`}
+                      onClick={() => setFriendFilter(FRIEND_FILTER_RECENT)}
+                    >
+                      Gần đây
+                    </button>
+                  </div>
+                ) : null}
               </div>
               <div className="list-fetch-contact">
-                <div className="total-fetch">{count}</div>
-                <div className="content-fetch-contact">
+                <div className={`total-fetch ${isFriendListView ? "friend-list-total" : ""}`}>
+                  {count}
+                </div>
+                <div
+                  className={`content-fetch-contact ${
+                    isFriendListView ? "friend-list-content" : ""
+                  }`}
+                >
                   {(title === DanhSachBanBe || title === LoiMoiKetBan) && listData?.size > 0 ? (
-                    <div>
+                    <div className={isFriendListView ? "friend-search-row" : ""}>
                       <input
                         type="text"
                         placeholder="Tìm bạn bè"
@@ -1405,33 +1447,12 @@ const handleSeachContact = (e) => {
                       />
                     </div>
                   ) : null}
-                  {title === DanhSachBanBe ? (
-                    <div className="close-friend-filter-row">
-                      <button
-                        type="button"
-                        className={`close-friend-filter-btn ${
-                          friendFilter === FRIEND_FILTER_ALL ? "active" : ""
-                        }`}
-                        onClick={() => setFriendFilter(FRIEND_FILTER_ALL)}
-                      >
-                        Tất cả
-                      </button>
-                      <button
-                        type="button"
-                        className={`close-friend-filter-btn ${
-                          friendFilter === FRIEND_FILTER_CLOSE ? "active" : ""
-                        }`}
-                        onClick={() => setFriendFilter(FRIEND_FILTER_CLOSE)}
-                      >
-                        Bạn thân
-                      </button>
-                    </div>
-                  ) : null}
                   {closeFriendActionError ? (
                     <p className="close-friend-action-error">{closeFriendActionError}</p>
                   ) : null}
 
                   <ul
+                    className={isFriendListView ? "friend-list-grid" : ""}
                     style={{
                       display: listData.size === 0 ? "flex" : undefined,
                       justifyContent: listData.size === 0 ? "center" : undefined,
@@ -1444,10 +1465,12 @@ const handleSeachContact = (e) => {
                           <li
                             key={index}
                             style={{ justifyContent: "space-between" }}
-                            className="flex"
+                            className={`flex ${isFriendListView ? "friend-card" : ""}`}
                           >
                             <div
-                              className="item-fetch flex"
+                              className={`item-fetch flex ${
+                                isFriendListView ? "friend-card-main" : ""
+                              }`}
                               onClick={() =>
                                 handleShowSoftConversation({
                                   ...item,
@@ -1455,84 +1478,177 @@ const handleSeachContact = (e) => {
                                 })
                               }
                             >
-                              <img
-                                src={item.avatar || item.avatarUrl}
-                                alt={`avatar by ${item.username || item.displayName}`}
-                              />
+                              {isFriendListView ? (
+                                <div className="friend-card-avatar">
+                                  <img
+                                    src={item.avatar || item.avatarUrl}
+                                    alt={`avatar by ${item.username || item.displayName}`}
+                                  />
+                                  <span
+                                    className={`friend-presence-dot ${
+                                      item.isCloseFriend ? "online" : ""
+                                    }`}
+                                  />
+                                </div>
+                              ) : (
+                                <img
+                                  src={item.avatar || item.avatarUrl}
+                                  alt={`avatar by ${item.username || item.displayName}`}
+                                />
+                              )}
                               <div className="friend-item-name-wrap">
-                                <p>{item.username || item.displayName}</p>
+                                <div className="friend-card-name-row">
+                                  <p>{item.username || item.displayName}</p>
+                                  {isFriendListView && item.isCloseFriend ? (
+                                    <span className="friend-close-icon-badge">
+                                      <HiOutlineStar />
+                                    </span>
+                                  ) : null}
+                                </div>
                                 {item.isCloseFriend ? (
                                   <span className="friend-close-badge">Bạn thân</span>
                                 ) : null}
+                                {isFriendListView ? (
+                                  <span className="friend-card-subtitle">
+                                    {item.isCloseFriend ? "Bạn thân" : "Bạn bè"}
+                                  </span>
+                                ) : null}
                               </div>
                             </div>
-                            <div className="btn-state-contact" >
-                              {item.BanBe ? (
-                                <button
-                                  style={{ backgroundColor: "rgb(220 224 227)", color: "black" }}
-                                  onClick={(e) => handleCrudFriend(item, e, key)}
-                                >
-                                  {XOA_BAN_BE}
-                                </button>
-                              ) : null}
-                              {item.BanBe ? (
-                                <button onClick={(e) => handleCrudFriend(item, e, key)}>
-                                  {BAN_BE}
-                                </button>
-                              ) : null}
-                              {item.BanBe ? (
-                                <button
-                                  style={{
-                                    backgroundColor: item.isCloseFriend ? "#ffe8ef" : "#eaf2ff",
-                                    color: item.isCloseFriend ? "#a61b43" : "#1d4ed8",
-                                  }}
-                                  onClick={() => handleToggleCloseFriend(item)}
-                                  disabled={pendingCloseFriendId === String(item.userId || item._id)}
-                                >
-                                  {pendingCloseFriendId === String(item.userId || item._id)
-                                    ? "Đang cập nhật..."
-                                    : item.isCloseFriend
-                                    ? BO_BAN_THAN
-                                    : GAN_BAN_THAN}
-                                </button>
-                              ) : null}
-                              {item.KetBan ? (
-                                <button onClick={(e) => handleCrudFriend(item, e, key)}>
-                                  {KET_BAN}
-                                </button>
-                              ) : null}
-                              {item.DongY ? (
-                                <button onClick={(e) => handleCrudFriend(item, e, key)}>
-                                  {BO_QUA}
-                                </button>
-                              ) : null}
-                              {item.DongY ? (
-                                <button onClick={(e) => handleCrudFriend(item, e, key)}>
-                                  {DONG_Y}
-                                </button>
-                              ) : null}
-                              {item.ThuHoiLoiMoi ? (
-                                <button onClick={(e) => handleCrudFriend(item, e, key)}>
-                                  {HUY_LOI_MOI_KET_BAN}
-                                </button>
-                              ) : null}
-                              {item.Chan ? (
-                                <button
-                                  style={{ backgroundColor: "#fff1d6", color: "#92400e" }}
-                                  onClick={(e) => handleCrudFriend(item, e, key)}
-                                >
-                                  {CHAN}
-                                </button>
-                              ) : null}
+                            <div
+                              className={`btn-state-contact ${
+                                isFriendListView ? "friend-card-actions" : ""
+                              }`}
+                            >
+                              {isFriendListView ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="friend-primary-message-btn"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleShowSoftConversation({
+                                        ...item,
+                                        userId: item.userId || item._id,
+                                      });
+                                    }}
+                                  >
+                                    Nhắn tin
+                                  </button>
+                                  <details
+                                    className="friend-actions-menu"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    <summary aria-label="Mở tùy chọn bạn bè">
+                                      <HiOutlineEllipsisHorizontal />
+                                    </summary>
+                                    <div className="friend-actions-menu-panel">
+                                      {item.BanBe ? (
+                                        <button onClick={(e) => handleCrudFriend(item, e, key)}>
+                                          {BAN_BE}
+                                        </button>
+                                      ) : null}
+                                      {item.BanBe ? (
+                                        <button
+                                          onClick={() => handleToggleCloseFriend(item)}
+                                          disabled={
+                                            pendingCloseFriendId ===
+                                            String(item.userId || item._id)
+                                          }
+                                        >
+                                          {pendingCloseFriendId === String(item.userId || item._id)
+                                            ? "Đang cập nhật..."
+                                            : item.isCloseFriend
+                                            ? BO_BAN_THAN
+                                            : GAN_BAN_THAN}
+                                        </button>
+                                      ) : null}
+                                      {item.BanBe ? (
+                                        <button
+                                          className="danger"
+                                          onClick={(e) => handleCrudFriend(item, e, key)}
+                                        >
+                                          {XOA_BAN_BE}
+                                        </button>
+                                      ) : null}
+                                      {item.Chan ? (
+                                        <button onClick={(e) => handleCrudFriend(item, e, key)}>
+                                          {CHAN}
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                  </details>
+                                </>
+                              ) : (
+                                <>
+                                  {item.BanBe ? (
+                                    <button
+                                      style={{ backgroundColor: "rgb(220 224 227)", color: "black" }}
+                                      onClick={(e) => handleCrudFriend(item, e, key)}
+                                    >
+                                      {XOA_BAN_BE}
+                                    </button>
+                                  ) : null}
+                                  {item.BanBe ? (
+                                    <button onClick={(e) => handleCrudFriend(item, e, key)}>
+                                      {BAN_BE}
+                                    </button>
+                                  ) : null}
+                                  {item.BanBe ? (
+                                    <button
+                                      style={{
+                                        backgroundColor: item.isCloseFriend ? "#ffe8ef" : "#eaf2ff",
+                                        color: item.isCloseFriend ? "#a61b43" : "#1d4ed8",
+                                      }}
+                                      onClick={() => handleToggleCloseFriend(item)}
+                                      disabled={pendingCloseFriendId === String(item.userId || item._id)}
+                                    >
+                                      {pendingCloseFriendId === String(item.userId || item._id)
+                                        ? "Đang cập nhật..."
+                                        : item.isCloseFriend
+                                        ? BO_BAN_THAN
+                                        : GAN_BAN_THAN}
+                                    </button>
+                                  ) : null}
+                                  {item.KetBan ? (
+                                    <button onClick={(e) => handleCrudFriend(item, e, key)}>
+                                      {KET_BAN}
+                                    </button>
+                                  ) : null}
+                                  {item.DongY ? (
+                                    <button onClick={(e) => handleCrudFriend(item, e, key)}>
+                                      {BO_QUA}
+                                    </button>
+                                  ) : null}
+                                  {item.DongY ? (
+                                    <button onClick={(e) => handleCrudFriend(item, e, key)}>
+                                      {DONG_Y}
+                                    </button>
+                                  ) : null}
+                                  {item.ThuHoiLoiMoi ? (
+                                    <button onClick={(e) => handleCrudFriend(item, e, key)}>
+                                      {HUY_LOI_MOI_KET_BAN}
+                                    </button>
+                                  ) : null}
+                                  {item.Chan ? (
+                                    <button
+                                      style={{ backgroundColor: "#fff1d6", color: "#92400e" }}
+                                      onClick={(e) => handleCrudFriend(item, e, key)}
+                                    >
+                                      {CHAN}
+                                    </button>
+                                  ) : null}
 
-                              {item.BoChan ? (
-                                <button
-                                  style={{ backgroundColor: "#eaedf0", color: "black" }}
-                                  onClick={(e) => handleCrudFriend(item, e, key)}
-                                >
-                                  {BO_CHAN}
-                                </button>
-                              ) : null}
+                                  {item.BoChan ? (
+                                    <button
+                                      style={{ backgroundColor: "#eaedf0", color: "black" }}
+                                      onClick={(e) => handleCrudFriend(item, e, key)}
+                                    >
+                                      {BO_CHAN}
+                                    </button>
+                                  ) : null}
+                                </>
+                              )}
                             </div>
                           </li>
                         )

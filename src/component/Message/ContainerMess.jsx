@@ -6339,6 +6339,7 @@ function ContainerMess({
                   contentEditable={!isComposerInteractionLocked}
                   suppressContentEditableWarning
                   spellCheck="false"
+                  data-placeholder={`Nhập @, tin nhắn tới ${conversationName}`}
                   className="contentEditable"
                   ref={inputMessage}
                   onInput={syncComposerState}
