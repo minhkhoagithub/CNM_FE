@@ -29,6 +29,7 @@ import {
   IoEyeOffOutline,
   IoPersonOutline,
   IoTrashOutline,
+  IoDocumentTextOutline,
 } from "react-icons/io5";
 import { AiOutlineBell, AiOutlineLike, AiFillLike, AiOutlinePicture, AiOutlineSend } from "react-icons/ai";
 import { IoMdClose, IoMdAttach,IoMdMore  } from "react-icons/io";
@@ -1648,6 +1649,7 @@ function ContainerMess({
   const [dictationRecordingMs, setDictationRecordingMs] = useState(0);
   const [dictationJobId, setDictationJobId] = useState(null);
   const [dictationError, setDictationError] = useState("");
+  const [isVoiceOptionOpen, setIsVoiceOptionOpen] = useState(false);
   const [activeIconSend, setActiveIconSend] = useState(false);
   const [draftText, setDraftText] = useState("");
   const [mentionState, setMentionState] = useState(() => closeMentionState());
@@ -3273,6 +3275,7 @@ function ContainerMess({
     setMenuControl((prevState) =>
       prevState.tableIcon ? { ...prevState, tableIcon: false } : prevState
     );
+    setIsVoiceOptionOpen(false);
     setMentionState(closeMentionState());
     composerSelectionRef.current = null;
     inputMessage.current?.blur();
@@ -3303,6 +3306,13 @@ function ContainerMess({
       if (!event.target.closest(".message-actions-menu")) {
         setOpenMessageMenuId(null);
         setOpenMessageMenuPlacement("down");
+      }
+
+      if (
+        voiceOptionPickerRef.current &&
+        !voiceOptionPickerRef.current.contains(event.target)
+      ) {
+        setIsVoiceOptionOpen(false);
       }
     };
 
@@ -4177,6 +4187,7 @@ function ContainerMess({
       return;
     }
 
+    setIsVoiceOptionOpen(false);
     setMenuControl((prevState) => ({
       ...prevState,
       [name]: !prevState[name],
@@ -4846,6 +4857,59 @@ function ContainerMess({
     setDictationError("");
     resetDictationState();
   }, [resetDictationState, stopDictationRecording]);
+
+  const isVoiceRecordingActive = voiceRecorderState === "recording";
+  const isDictationRecordingActive = dictationState === "recording";
+  const isVoiceModeBusy =
+    voiceRecorderState === "requestingPermission" ||
+    voiceRecorderState === "processing" ||
+    dictationState === "requestingPermission" ||
+    dictationState === "processing";
+  const isVoiceModeDisabled = isComposerInteractionLocked || isVoiceModeBusy;
+
+  const handleVoiceModeClick = useCallback(() => {
+    if (isVoiceModeDisabled) {
+      return;
+    }
+
+    if (isVoiceRecordingActive) {
+      setIsVoiceOptionOpen(false);
+      stopVoiceRecording({ cancel: false });
+      return;
+    }
+
+    if (isDictationRecordingActive) {
+      setIsVoiceOptionOpen(false);
+      stopDictationRecording({ cancel: false });
+      return;
+    }
+
+    if (!guardComposerInteraction()) {
+      return;
+    }
+
+    setMenuControl((prevState) =>
+      prevState.tableIcon ? { ...prevState, tableIcon: false } : prevState
+    );
+    setIsVoiceOptionOpen((value) => !value);
+  }, [
+    guardComposerInteraction,
+    isDictationRecordingActive,
+    isVoiceModeDisabled,
+    isVoiceRecordingActive,
+    stopDictationRecording,
+    stopVoiceRecording,
+  ]);
+
+  const handleSelectVoiceRecording = useCallback(() => {
+    setIsVoiceOptionOpen(false);
+    void handleStartVoiceRecording();
+  }, [handleStartVoiceRecording]);
+
+  const handleSelectDictation = useCallback(() => {
+    setIsVoiceOptionOpen(false);
+    void handleStartDictation();
+  }, [handleStartDictation]);
 
   useEffect(() => {
     if (!dictationJobId || dictationState !== "processing") {

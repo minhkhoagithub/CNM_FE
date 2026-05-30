@@ -886,6 +886,53 @@
   align-items: center;
   justify-content: center;
 }
+.voice-option-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.voice-option-menu {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  z-index: 40;
+  width: 260px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid #d6dce5;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  transform: translateX(-50%);
+}
+.voice-option-tab {
+  border: 0;
+  border-radius: 9px;
+  background: #f7f9fc;
+  color: #102748;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+}
+.voice-option-tab:hover {
+  background: #eef4ff;
+  color: #1c5fd0;
+}
+.voice-option-tab svg {
+  flex: 0 0 auto;
+  font-size: 17px;
+}
 .voice-recording-active {
   color: #d92d20 !important;
 }
@@ -900,11 +947,13 @@
 }
 .voice-recorder-panel,
 .voice-preview-panel {
-  margin: 0 8px 8px;
-  padding: 10px 12px;
+  margin: 6px 12px 8px auto;
+  padding: 8px 10px;
   border: 1px solid #d6dce5;
   border-radius: 12px;
   background-color: #f8fbff;
+  max-width: 520px;
+  box-sizing: border-box;
 }
 .voice-recorder-panel {
   display: flex;
@@ -962,7 +1011,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 .voice-preview-title {
   font-size: 13px;
@@ -976,15 +1025,17 @@
 }
 .voice-preview-audio {
   width: 100%;
-  margin-bottom: 8px;
+  height: 32px;
+  margin-bottom: 6px;
 }
 .voice-preview-waveform {
   display: grid;
-  grid-template-columns: repeat(64, minmax(2px, 1fr));
+  grid-template-columns: repeat(40, minmax(2px, 1fr));
   align-items: end;
   gap: 2px;
-  height: 28px;
-  margin-bottom: 8px;
+  height: 16px;
+  margin-bottom: 6px;
+  overflow: hidden;
 }
 .voice-preview-wave-bar {
   width: 100%;
@@ -1270,18 +1321,22 @@
 }
 .message-audio-list {
   display: grid;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: 6px;
+  margin-bottom: 6px;
 }
 .voice-message-bubble {
   display: flex;
   align-items: center;
-  gap: 10px;
-  max-width: 340px;
-  padding: 10px 12px;
-  border-radius: 14px;
+  gap: 8px;
+  width: min(290px, 64vw);
+  max-width: 100%;
+  padding: 7px 9px;
+  border-radius: 13px;
   border: 1px solid #dbe4ee;
   background-color: #f6f9fd;
+}
+.voice-message-audio {
+  display: none;
 }
 .voice-message-bubble--mine {
   margin-left: auto;
@@ -1289,8 +1344,9 @@
   border-color: #cfe0f8;
 }
 .voice-message-toggle {
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
   border: none;
   border-radius: 999px;
   display: inline-flex;
@@ -1298,29 +1354,30 @@
   justify-content: center;
   background-color: #0a84ff;
   color: #fff;
-  font-size: 18px;
+  font-size: 15px;
   cursor: pointer;
 }
 .voice-message-main {
   min-width: 0;
   flex: 1;
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 .voice-message-waveform {
   display: grid;
-  grid-template-columns: repeat(48, minmax(2px, 1fr));
+  grid-template-columns: repeat(36, minmax(2px, 1fr));
   align-items: end;
   gap: 2px;
-  height: 34px;
+  height: 20px;
   cursor: pointer;
+  overflow: hidden;
 }
 .voice-message-wave-bar {
   display: inline-block;
   width: 100%;
   border-radius: 999px;
   background-color: #b3c5da;
-  min-height: 6px;
+  min-height: 4px;
 }
 .voice-message-wave-bar.active {
   background-color: #0a84ff;
@@ -1330,7 +1387,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11px;
+  font-size: 10px;
   color: #5f7184;
 }
 .voice-message-error {
@@ -1341,7 +1398,7 @@
   font-weight: 600;
 }
 .voice-message-format {
-  display: inline-flex;
+  display: none;
   align-items: center;
   justify-content: center;
   padding: 2px 6px;
@@ -1353,7 +1410,7 @@
 .voice-transcript-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 .voice-transcript-btn,
