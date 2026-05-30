@@ -150,12 +150,19 @@ class WebSocketService {
         }
       });
 
+      const notificationsTopic = `/topic/users/${userId}/notifications`;
+      subscribeJson(notificationsTopic, "notifications", (event) => {
+        console.log("[WebSocket] Notification event:", event);
+        this.emitEvent("notification", event);
+      });
+
       console.log(`[WebSocket] Subscribed topics for userId: ${userId}`);
       console.log(`[WebSocket]    - ${deviceLogoutTopic}`);
       console.log(`[WebSocket]    - ${devicesTopic}`);
       console.log(`[WebSocket]    - ${deviceLoginRequestTopic}`);
       console.log('[WebSocket]    - /topic/auth/error');
       console.log(`[WebSocket]    - ${callsTopic}`);
+      console.log(`[WebSocket]    - ${notificationsTopic}`);
     } catch (error) {
       console.error('[WebSocket] Error setting up subscriptions:', error);
     }

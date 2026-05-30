@@ -1,5 +1,32 @@
 ﻿const PRIVATE_CONVERSATION_PLACEHOLDER = "Người dùng";
 const GROUP_CONVERSATION_PLACEHOLDER = "Nhóm";
+const GROUP_SYSTEM_PREFIX = "[[GROUP_SYSTEM]]";
+const GROUP_LABEL_META_BY_CODE = {
+  FRIENDS: { label: "Bạn bè", color: "blue" },
+  WORK: { label: "Công việc", color: "violet" },
+  STUDY: { label: "Học tập", color: "amber" },
+  FAMILY: { label: "Gia đình", color: "rose" },
+  PROJECT: { label: "Dự án", color: "emerald" },
+  OTHER: { label: "Khác", color: "slate" },
+};
+
+const resolveGroupLabelMeta = (
+  groupLabel,
+  fallbackDisplayName = "",
+  fallbackColor = ""
+) => {
+  const normalizedCode = String(groupLabel || "").trim().toUpperCase();
+  if (!normalizedCode) {
+    return null;
+  }
+
+  const knownOption = GROUP_LABEL_META_BY_CODE[normalizedCode];
+  return {
+    code: normalizedCode,
+    label: fallbackDisplayName || knownOption?.label || normalizedCode,
+    color: fallbackColor || knownOption?.color || "slate",
+  };
+};
 
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key);
 
@@ -23,6 +50,69 @@ const pickFirstString = (...values) => {
   }
 
   return "";
+};
+
+const parseGroupSystemPreviewPayload = (value) => {
+  const content = typeof value === "string" ? value.trim() : "";
+  if (!content.startsWith(GROUP_SYSTEM_PREFIX)) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(content.slice(GROUP_SYSTEM_PREFIX.length));
+    return payload && typeof payload === "object" ? payload : null;
+  } catch {
+    return null;
+  }
+};
+
+export const resolveConversationPreviewText = (value) => {
+  const content = typeof value === "string" ? value.trim() : "";
+  if (!content) {
+    return "";
+  }
+
+  const payload = parseGroupSystemPreviewPayload(content);
+  if (!payload) {
+    return content;
+  }
+
+  const kind = String(payload.kind || "");
+  const actorName = String(payload.actorName || "Ai đó");
+  const targetName = String(payload.targetName || "một thành viên");
+  const groupName = String(payload.name || payload.conversationName || "nhóm");
+
+  switch (kind) {
+    case "group_member_added":
+      return `${actorName} đã thêm ${targetName} vào nhóm`;
+    case "group_member_removed":
+      return `${actorName} đã xóa ${targetName} khỏi nhóm`;
+    case "group_left":
+      return `${actorName} đã rời nhóm`;
+    case "group_admin_promoted":
+      return `${actorName} đã cấp phó nhóm cho ${targetName}`;
+    case "group_admin_demoted":
+      return `${actorName} đã thu hồi phó nhóm của ${targetName}`;
+    case "group_owner_transferred":
+      return `${actorName} đã chuyển quyền trưởng nhóm cho ${targetName}`;
+    case "group_renamed":
+      return `${actorName} đã đổi tên nhóm thành "${groupName}"`;
+    case "group_avatar_changed":
+      return `${actorName} đã cập nhật ảnh nhóm`;
+    case "group_background_changed":
+      return `${actorName} đã đổi nền chat`;
+    case "group_nickname_changed": {
+      const nickname = String(payload.nickname || "").trim();
+      if (nickname) {
+        return `${actorName} đã đổi biệt danh của ${targetName} thành "${nickname}"`;
+      }
+      return `${actorName} đã xóa biệt danh của ${targetName}`;
+    }
+    case "group_disbanded":
+      return `${actorName} đã giải tán nhóm`;
+    default:
+      return "Hoạt động nhóm";
+  }
 };
 
 const resolveConversationBackgroundColor = (conversation, rawConversation) =>
@@ -124,6 +214,7 @@ const normalizeMemberEntry = (member) => {
       member.phone,
       String(userId)
     ),
+    nickname: pickFirstString(source?.nickname, member.nickname),
     avatarUrl: pickFirstString(
       source?.avatarUrl,
       source?.avatar,
@@ -191,6 +282,7 @@ const mergeMemberEntry = (currentMember, incomingMember) => {
     userId: incoming.userId || current.userId,
     username: pickFirstString(incoming.username, current.username),
     displayName: pickFirstString(incoming.displayName, current.displayName, incoming.username, current.username, incoming.userId),
+    nickname: pickFirstString(incoming.nickname, current.nickname),
     avatarUrl: pickFirstString(incoming.avatarUrl, current.avatarUrl),
     role: normalizeMemberRole(
       resolveMemberRoleValue(incomingMember) ? incoming.role : current.role || incoming.role
@@ -568,6 +660,29 @@ export const normalizeConversationInput = (conversation, options = {}) => {
   const isDisbanded = Boolean(
     conversation?.isDisbanded ?? rawConversation?.isDisbanded
   );
+  const rawGroupLabelCode = toNullableString(
+    pickFirstString(conversation?.groupLabel, rawConversation?.groupLabel)
+  );
+  const rawGroupLabelDisplayName = toNullableString(
+    pickFirstString(
+      conversation?.groupLabelDisplayName,
+      rawConversation?.groupLabelDisplayName
+    )
+  );
+  const rawGroupLabelColor = toNullableString(
+    pickFirstString(
+      conversation?.groupLabelColor,
+      rawConversation?.groupLabelColor
+    )
+  );
+  const resolvedGroupLabel =
+    normalizedType === "group"
+      ? resolveGroupLabelMeta(
+          rawGroupLabelCode,
+          rawGroupLabelDisplayName || "",
+          rawGroupLabelColor || ""
+        )
+      : null;
 
   return {
     id: conversation?.id || rawConversation?.id || null,
@@ -581,7 +696,9 @@ export const normalizeConversationInput = (conversation, options = {}) => {
     unreadCount: Number(
       conversation?.unreadCount ?? rawConversation?.unreadCount ?? 0
     ),
-    lastMessage: conversation?.lastMessage ?? rawConversation?.lastMessage ?? "",
+    lastMessage: resolveConversationPreviewText(
+      conversation?.lastMessage ?? rawConversation?.lastMessage ?? ""
+    ),
     lastMessageTime:
       conversation?.lastMessageTime ?? rawConversation?.lastMessageTime ?? null,
     lastActive: conversation?.lastActive ?? rawConversation?.lastActive ?? null,
@@ -591,6 +708,9 @@ export const normalizeConversationInput = (conversation, options = {}) => {
     notificationLevel:
       conversation?.notificationLevel || rawConversation?.notificationLevel || "ALL",
     customName,
+    groupLabel: resolvedGroupLabel?.code || null,
+    groupLabelDisplayName: resolvedGroupLabel?.label || null,
+    groupLabelColor: resolvedGroupLabel?.color || null,
     isDisbanded,
     backgroundColor,
     backgroundImageUrl,
@@ -607,5 +727,3 @@ export const mapConversation = (conversation, options = {}) =>
 
 export const mapConversationList = (conversations = [], options = {}) =>
   conversations.map((conversation) => mapConversation(conversation, options));
-
-

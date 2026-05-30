@@ -7,11 +7,16 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "browser:smoke": "dev-browser --headless run scripts/dev-browser/smoke-home.js",
+    "browser:console": "dev-browser --headless run scripts/dev-browser/check-console.js",
+    "browser:screenshot": "dev-browser --headless run scripts/dev-browser/screenshot-home.js",
+    "browser:navigation": "dev-browser --headless run scripts/dev-browser/basic-navigation.js"
   },
   "dependencies": {
     "@fingerprintjs/fingerprintjs": "^5.2.0",
     "axios": "^1.14.0",
+    "firebase": "^12.13.0",
     "mediasoup-client": "^3.18.8",
     "qrcode": "^1.5.4",
     "react": "^19.2.4",

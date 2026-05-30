@@ -3,6 +3,7 @@ import { getConversationMessages } from "../../services/chat/messageApi";
 
 const SHARED_ATTACHMENT_PAGE_SIZE = 100;
 const SHARED_ATTACHMENT_MAX_PAGES = 20;
+const URL_PATTERN = /\bhttps?:\/\/[^\s<>"')]+/gi;
 
 export const buildConversationSharedAttachments = (messages) => {
   const normalizedMessages = Array.isArray(messages) ? messages : [];
@@ -49,13 +50,77 @@ export const buildConversationSharedAttachments = (messages) => {
   });
 };
 
-export const fetchConversationSharedAttachments = async ({
-  conversationId,
-  currentUserId,
-}) => {
+const normalizeSharedLinkUrl = (value) => {
+  const rawUrl = String(value || "").trim();
+  if (!rawUrl) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(rawUrl);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return "";
+    }
+
+    return parsed.href;
+  } catch {
+    return "";
+  }
+};
+
+const getSharedLinkTitle = (url) => {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname.replace(/^www\./i, "");
+  } catch {
+    return url;
+  }
+};
+
+export const buildConversationSharedLinks = (messages) => {
+  const normalizedMessages = Array.isArray(messages) ? messages : [];
+  const links = [];
+  const seenUrls = new Set();
+
+  normalizedMessages.forEach((message) => {
+    const candidateUrls = [
+      message?.originalLinkUrl,
+      ...(String(message?.content || "").match(URL_PATTERN) || []),
+    ];
+
+    candidateUrls.forEach((candidateUrl) => {
+      const url = normalizeSharedLinkUrl(candidateUrl);
+      if (!url || seenUrls.has(url)) {
+        return;
+      }
+
+      seenUrls.add(url);
+      links.push({
+        id: `${message?.id || "message"}-${url}`,
+        messageId: message?.id || null,
+        url,
+        title: message?.linkPreviewTitle || message?.originalLinkTitle || getSharedLinkTitle(url),
+        description:
+          message?.linkPreviewDescription ||
+          message?.originalLinkDescription ||
+          "",
+        imageUrl: message?.linkPreviewImageUrl || message?.originalLinkImageUrl || "",
+        createdAt: message?.createdAt || null,
+      });
+    });
+  });
+
+  return links.sort((leftLink, rightLink) => {
+    const leftTime = new Date(leftLink.createdAt || 0).getTime();
+    const rightTime = new Date(rightLink.createdAt || 0).getTime();
+    return rightTime - leftTime;
+  });
+};
+
+const collectConversationMessages = async ({ conversationId, currentUserId }) => {
   if (!conversationId) {
     return {
-      attachments: [],
+      messages: [],
       isPartial: false,
     };
   }
@@ -82,7 +147,37 @@ export const fetchConversationSharedAttachments = async ({
   }
 
   return {
-    attachments: buildConversationSharedAttachments(collectedMessages),
+    messages: collectedMessages,
     isPartial: hasMore,
+  };
+};
+
+export const fetchConversationSharedAttachments = async ({
+  conversationId,
+  currentUserId,
+}) => {
+  const { messages, isPartial } = await collectConversationMessages({
+    conversationId,
+    currentUserId,
+  });
+
+  return {
+    attachments: buildConversationSharedAttachments(messages),
+    isPartial,
+  };
+};
+
+export const fetchConversationSharedLinks = async ({
+  conversationId,
+  currentUserId,
+}) => {
+  const { messages, isPartial } = await collectConversationMessages({
+    conversationId,
+    currentUserId,
+  });
+
+  return {
+    links: buildConversationSharedLinks(messages),
+    isPartial,
   };
 };

@@ -10,11 +10,27 @@ import React, {
 import "../../resource/style/Chat/containermess.css";
 import { UserContext } from "../../Context/UserContext";
 import { ContactContext } from "../../Context/ContactConext";
+import PresenceContext from "../../Context/PresenceContext";
+import MessageProcessingContext from "../../Context/MessageProcessingContext";
 import Icon from "./Icon";
-import { HiOutlineUserGroup } from "react-icons/hi2";
+import { HiOutlineUserGroup, HiOutlineUserPlus } from "react-icons/hi2";
 import { CiSearch } from "react-icons/ci";
-import { IoVideocamOutline, IoCameraOutline, IoCallOutline, IoBarChartOutline } from "react-icons/io5";
-import { AiOutlineLike, AiOutlinePicture, AiOutlineSend } from "react-icons/ai";
+import {
+  IoVideocamOutline,
+  IoCameraOutline,
+  IoMicOutline,
+  IoStop,
+  IoCallOutline,
+  IoBarChartOutline,
+  IoArrowUndoOutline,
+  IoArrowDown,
+  IoAddOutline,
+  IoCheckboxOutline,
+  IoEyeOffOutline,
+  IoPersonOutline,
+  IoTrashOutline,
+} from "react-icons/io5";
+import { AiOutlineBell, AiOutlineLike, AiFillLike, AiOutlinePicture, AiOutlineSend } from "react-icons/ai";
 import { IoMdClose, IoMdAttach,IoMdMore  } from "react-icons/io";
 import { MdOutlineContactMail } from "react-icons/md";
 import {
@@ -23,7 +39,6 @@ import {
   RiSidebarFoldLine,
   RiSidebarUnfoldLine,
 } from "react-icons/ri";
-import { RxDotFilled } from "react-icons/rx";
 import {
   addOrUpdateReactionV1,
   deleteMessageV1,
@@ -39,6 +54,7 @@ import {
   sendTypingState,
   uploadAttachmentV1,
 } from "../../services/chat/messageApi";
+import { createConversationReminder } from "../../services/reminder/reminderApi";
 import chatRealtimeService from "../../services/chat/chatRealtimeService";
 import { askAi, getChatSummary } from "../../services/ai/aiApi";
 import { initiateGroupCallApi } from "../../services/call/groupCallApi";
@@ -47,6 +63,7 @@ import {
   RECALLED_MESSAGE_PLACEHOLDER,
   createReplyPreviewText,
   createAttachmentPreviewText,
+  isAudioAttachment,
   isImageAttachment,
   isVideoAttachment,
   mapMessage,
@@ -66,11 +83,22 @@ import {
   USER_BLOCK_STATUS_CHANGED_EVENT,
   isUserBlockedByCurrentUser,
 } from "../../services/userBlockApi";
+import VoiceMessageBubble from "./VoiceMessageBubble";
+import {
+  getProcessingJob,
+  requestDictationSpeechToText,
+} from "../../services/messageProcessing/messageProcessingApi";
 
 const REACTION_OPTIONS = ["LIKE", "LOVE", "WOW", "HAHA"];
 const POLL_CREATE_PREFIX = "[[POLL_CREATE]]";
 const POLL_VOTE_PREFIX = "[[POLL_VOTE]]";
 const POLL_ADD_OPTION_PREFIX = "[[POLL_ADD_OPTION]]";
+const GROUP_SYSTEM_PREFIX = "[[GROUP_SYSTEM]]";
+const VOICE_RECORDING_MAX_DURATION_MS = 300000;
+const VOICE_WAVEFORM_SAMPLE_SIZE = 64;
+const DICTATION_RECORDING_MAX_DURATION_MS = 90000;
+const DICTATION_POLL_INTERVAL_MS = 2500;
+const DICTATION_MAX_POLL_ATTEMPTS = 20;
 const TYPING_DEBOUNCE_MS = 400;
 const TYPING_IDLE_MS = 900;
 const REMOTE_TYPING_TIMEOUT_MS = 3000;
@@ -124,8 +152,192 @@ const formatTime = (value) => {
   });
 };
 
+const formatPresenceStatusText = (online, lastSeenAt, fallbackText) => {
+  if (online) {
+    return "Đang hoạt động";
+  }
+
+  if (lastSeenAt) {
+    const date = new Date(lastSeenAt);
+    if (!Number.isNaN(date.getTime())) {
+      const diffMs = Date.now() - date.getTime();
+      if (diffMs < 60 * 1000) {
+        return "Vừa truy cập";
+      }
+      const diffMinutes = Math.floor(diffMs / (60 * 1000));
+      if (diffMinutes < 60) {
+        return `Hoạt động ${diffMinutes} phút trước`;
+      }
+      const diffHours = Math.floor(diffMinutes / 60);
+      if (diffHours < 24) {
+        return `Hoạt động ${diffHours} giờ trước`;
+      }
+      const diffDays = Math.floor(diffHours / 24);
+      if (diffDays < 7) {
+        return `Hoạt động ${diffDays} ngày trước`;
+      }
+      return `Hoạt động ${date.toLocaleDateString("vi-VN")}`;
+    }
+  }
+
+  const fallback = String(fallbackText || "").trim();
+  if (fallback && fallback !== "Active") {
+    return fallback;
+  }
+
+  return "Không hoạt động";
+};
+
 const isImageFile = (file) => String(file?.type || "").startsWith("image/");
 const isVideoFile = (file) => String(file?.type || "").startsWith("video/");
+const isAudioFile = (file) => String(file?.type || "").startsWith("audio/");
+
+const pickRecorderMimeType = () => {
+  if (typeof window === "undefined" || typeof window.MediaRecorder === "undefined") {
+    return "";
+  }
+
+  const preferredTypes = [
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/webm;codecs=opus",
+    "audio/ogg;codecs=opus",
+    "audio/mp4",
+  ];
+
+  return preferredTypes.find((type) => window.MediaRecorder.isTypeSupported(type)) || "";
+};
+
+const resolveAudioFormatFromMimeType = (mimeType) => {
+  const normalized = String(mimeType || "").toLowerCase();
+  if (!normalized) {
+    return "audio";
+  }
+
+  if (normalized.includes("mpeg") || normalized.includes("mp3")) {
+    return "mp3";
+  }
+  if (normalized.includes("webm")) {
+    return "webm";
+  }
+  if (normalized.includes("ogg")) {
+    return "ogg";
+  }
+  if (normalized.includes("mp4") || normalized.includes("m4a")) {
+    return "m4a";
+  }
+  if (normalized.includes("wav")) {
+    return "wav";
+  }
+  if (normalized.includes("aac")) {
+    return "aac";
+  }
+
+  return normalized.split("/").pop()?.split(";")[0] || "audio";
+};
+
+const formatRecordingDuration = (milliseconds) => {
+  const totalSeconds = Math.max(0, Math.floor(Number(milliseconds || 0) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+};
+
+const toDateTimeLocalValue = (dateValue) => {
+  const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const timezoneOffsetMs = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - timezoneOffsetMs).toISOString().slice(0, 16);
+};
+
+const buildDefaultReminderLocalValue = () => {
+  const date = new Date(Date.now() + 30 * 60 * 1000);
+  date.setSeconds(0, 0);
+  return toDateTimeLocalValue(date);
+};
+
+const parseLocalDateTimeToIso = (localValue) => {
+  if (!localValue) {
+    return "";
+  }
+  const parsed = new Date(localValue);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  return parsed.toISOString();
+};
+
+const resolveBrowserTimeZone = () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+};
+
+const clampWaveSample = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return Math.min(1, Math.max(0, numeric));
+};
+
+const buildFallbackWaveformSamples = (size = VOICE_WAVEFORM_SAMPLE_SIZE) =>
+  Array.from({ length: size }, (_, index) => {
+    const angle = (index / Math.max(1, size - 1)) * Math.PI * 3;
+    return clampWaveSample(Math.abs(Math.sin(angle)) * 0.75 + 0.2);
+  });
+
+const generateWaveformFromBlob = async (audioBlob, samples = VOICE_WAVEFORM_SAMPLE_SIZE) => {
+  if (!audioBlob || typeof window === "undefined") {
+    return buildFallbackWaveformSamples(samples);
+  }
+
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) {
+    return buildFallbackWaveformSamples(samples);
+  }
+
+  const audioContext = new AudioContextClass();
+  try {
+    const arrayBuffer = await audioBlob.arrayBuffer();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+    const channelData = audioBuffer.getChannelData(0);
+    const step = Math.max(1, Math.floor(channelData.length / samples));
+    const waveform = [];
+
+    for (let index = 0; index < samples; index += 1) {
+      const start = index * step;
+      const end = Math.min(channelData.length, start + step);
+      let peak = 0;
+
+      for (let cursor = start; cursor < end; cursor += 1) {
+        const amplitude = Math.abs(channelData[cursor] || 0);
+        if (amplitude > peak) {
+          peak = amplitude;
+        }
+      }
+
+      waveform.push(clampWaveSample(peak));
+    }
+
+    const maxPeak = Math.max(...waveform, 0);
+    if (maxPeak > 0) {
+      return waveform.map((value) => clampWaveSample(value / maxPeak));
+    }
+
+    return buildFallbackWaveformSamples(samples);
+  } catch (error) {
+    console.error("Failed to decode voice waveform:", error);
+    return buildFallbackWaveformSamples(samples);
+  } finally {
+    await audioContext.close().catch(() => {});
+  }
+};
 
 const formatCallDuration = (value) => {
   const seconds = Number(value);
@@ -191,6 +403,7 @@ const parseSystemMessage = (content) => {
     { kind: "poll_create", prefix: POLL_CREATE_PREFIX },
     { kind: "poll_vote", prefix: POLL_VOTE_PREFIX },
     { kind: "poll_add_option", prefix: POLL_ADD_OPTION_PREFIX },
+    { kind: "group_system", prefix: GROUP_SYSTEM_PREFIX },
   ];
 
   for (const matcher of matchers) {
@@ -199,9 +412,13 @@ const parseSystemMessage = (content) => {
     }
 
     try {
+      const payload = JSON.parse(normalizedContent.slice(matcher.prefix.length).trim());
       return {
-        kind: matcher.kind,
-        payload: JSON.parse(normalizedContent.slice(matcher.prefix.length)),
+        kind:
+          matcher.kind === "group_system"
+            ? payload?.kind || matcher.kind
+            : matcher.kind,
+        payload,
       };
     } catch {
       return null;
@@ -209,6 +426,62 @@ const parseSystemMessage = (content) => {
   }
 
   return null;
+};
+
+const resolveGroupSystemMessageText = (systemMessage, options = {}) => {
+  const payload = systemMessage?.payload || {};
+  const kind = String(systemMessage?.kind || payload.kind || "");
+  const actorName = String(options.actorName || payload.actorName || "Ai đó");
+  const targetName = String(options.targetName || payload.targetName || "một thành viên");
+  const groupName = String(payload.name || payload.conversationName || "nhóm");
+
+  switch (kind) {
+    case "group_member_added":
+      return `${actorName} đã thêm ${targetName} vào nhóm`;
+    case "group_member_removed":
+      return `${actorName} đã xóa ${targetName} khỏi nhóm`;
+    case "group_left":
+      return `${actorName} đã rời nhóm`;
+    case "group_admin_promoted":
+      return `${actorName} đã cấp phó nhóm cho ${targetName}`;
+    case "group_admin_demoted":
+      return `${actorName} đã thu hồi phó nhóm của ${targetName}`;
+    case "group_owner_transferred":
+      return `${actorName} đã chuyển quyền trưởng nhóm cho ${targetName}`;
+    case "group_renamed":
+      return `${actorName} đã đổi tên nhóm thành "${groupName}"`;
+    case "group_avatar_changed":
+      return `${actorName} đã cập nhật ảnh nhóm`;
+    case "group_background_changed":
+      return `${actorName} đã đổi nền chat`;
+    case "group_nickname_changed": {
+      const nickname = String(payload.nickname || "").trim();
+      if (nickname) {
+        return `${actorName} đã đổi biệt danh của ${targetName} thành "${nickname}"`;
+      }
+      return `${actorName} đã xóa biệt danh của ${targetName}`;
+    }
+    case "group_disbanded":
+      return `${actorName} đã giải tán nhóm`;
+    default:
+      return "";
+  }
+};
+
+const resolveSystemUserNameFallback = (member) => {
+  if (!member || typeof member !== "object") {
+    return "";
+  }
+
+  const nickname = String(member.nickname || "").trim().toLowerCase();
+  const displayName = String(member.displayName || "").trim();
+  const username = String(member.username || "").trim();
+
+  if (displayName && nickname && displayName.toLowerCase() === nickname) {
+    return username || displayName;
+  }
+
+  return displayName || username;
 };
 
 const buildPollMessageContent = (kind, payload) => {
@@ -850,6 +1123,7 @@ function ContainerMess({
   onOpenConversationImageGallery,
   isInfoPanelVisible = true,
   onToggleInfoPanel,
+  onOpenAddMember,
 }) {
   const scrollRef = useRef(null);
   const messageScrollContainerRef = useRef(null);
@@ -857,6 +1131,23 @@ function ContainerMess({
   const composerSelectionRef = useRef(null);
   const imageInputRef = useRef(null);
   const fileInputRef = useRef(null);
+  const voiceRecorderRef = useRef(null);
+  const voiceStreamRef = useRef(null);
+  const voiceChunksRef = useRef([]);
+  const voiceTimerRef = useRef(null);
+  const voiceAutoStopTimeoutRef = useRef(null);
+  const voiceRecordingStartedAtRef = useRef(null);
+  const isStoppingVoiceRecordingRef = useRef(false);
+  const voiceCancelPendingRef = useRef(false);
+  const voiceMimeTypeRef = useRef("");
+  const voicePreviewUrlRef = useRef(null);
+  const dictationRecorderRef = useRef(null);
+  const dictationStreamRef = useRef(null);
+  const dictationChunksRef = useRef([]);
+  const dictationTimerRef = useRef(null);
+  const dictationAutoStopTimeoutRef = useRef(null);
+  const dictationStartedAtRef = useRef(null);
+  const dictationMimeTypeRef = useRef("");
   const selectedAttachmentsRef = useRef([]);
   const messagesRef = useRef([]);
   const typingStateRef = useRef(false);
@@ -868,6 +1159,13 @@ function ContainerMess({
     tableIcon: false,
   });
   const [selectedAttachments, setSelectedAttachments] = useState([]);
+  const [voiceRecorderState, setVoiceRecorderState] = useState("idle");
+  const [voiceRecordingMs, setVoiceRecordingMs] = useState(0);
+  const [voicePreview, setVoicePreview] = useState(null);
+  const [dictationState, setDictationState] = useState("idle");
+  const [dictationRecordingMs, setDictationRecordingMs] = useState(0);
+  const [dictationJobId, setDictationJobId] = useState(null);
+  const [dictationError, setDictationError] = useState("");
   const [activeIconSend, setActiveIconSend] = useState(false);
   const [draftText, setDraftText] = useState("");
   const [mentionState, setMentionState] = useState(() => closeMentionState());
@@ -885,6 +1183,16 @@ function ContainerMess({
   const [forwardSearchQuery, setForwardSearchQuery] = useState("");
   const [isForwarding, setIsForwarding] = useState(false);
   const [forwardNotice, setForwardNotice] = useState("");
+  const [isReminderModalOpen, setIsReminderModalOpen] = useState(false);
+  const [isReminderSubmitting, setIsReminderSubmitting] = useState(false);
+  const [reminderError, setReminderError] = useState("");
+  const [reminderNotice, setReminderNotice] = useState("");
+  const [reminderDraft, setReminderDraft] = useState(() => ({
+    title: "",
+    description: "",
+    remindAtLocal: buildDefaultReminderLocalValue(),
+    timezone: resolveBrowserTimeZone(),
+  }));
   const [openMessageMenuId, setOpenMessageMenuId] = useState(null);
   const [openMessageMenuPlacement, setOpenMessageMenuPlacement] = useState("down");
   const [pinningMessageId, setPinningMessageId] = useState(null);
@@ -918,6 +1226,7 @@ function ContainerMess({
   const [selectedContactProfile, setSelectedContactProfile] = useState(null);
   const [isSendingFriendRequest, setIsSendingFriendRequest] = useState(false);
   const forwardNoticeTimeoutRef = useRef(null);
+  const reminderNoticeTimeoutRef = useRef(null);
   const messageActionMenuRefs = useRef(new Map());
   const { userData } = useContext(UserContext);
   const {
@@ -928,7 +1237,10 @@ function ContainerMess({
     upsertConversation,
     updateConversationById,
   } = useContext(ContactContext);
+  const { fetchBatchPresence, getPresenceForUser } = useContext(PresenceContext);
+  const { getJobRealtime } = useContext(MessageProcessingContext);
   const currentUserId = userData?.userId || userData?._id || null;
+  const dictationRealtimeEvent = getJobRealtime(dictationJobId);
   const currentUserDisplayName =
     userData?.displayName || userData?.username || "Ban";
   const activeConversation = useMemo(() => {
@@ -969,6 +1281,10 @@ function ContainerMess({
 
   const backendConversationId = activeConversation?.id || null;
   const peerUserId = isPrivateConversation ? activeConversation?.peerUserId || null : null;
+  const peerPresence = useMemo(
+    () => (peerUserId ? getPresenceForUser(peerUserId) : null),
+    [getPresenceForUser, peerUserId]
+  );
   const canManagePrivateBlock =
     isPrivateConversation &&
     backendConversationId !== "AI_ASSISTANT" &&
@@ -1001,6 +1317,15 @@ function ContainerMess({
     : {
         background: conversationBackgroundColor,
       };
+
+  useEffect(() => {
+    if (!isPrivateConversation || !peerUserId) {
+      return;
+    }
+    fetchBatchPresence([peerUserId]).catch((error) => {
+      console.error("Failed to fetch peer presence:", error);
+    });
+  }, [fetchBatchPresence, isPrivateConversation, peerUserId]);
 
   const availableForwardConversations = useMemo(() => {
     const mergedConversations = [
@@ -1079,9 +1404,14 @@ function ContainerMess({
           .map((member) => [
             String(member.userId),
             {
-              displayName: member.displayName || member.username || "",
+              displayName:
+                String(member.nickname || "").trim() ||
+                member.displayName ||
+                member.username ||
+                "",
               avatarUrl: member.avatarUrl || "",
               username: member.username || "",
+              nickname: String(member.nickname || "").trim(),
             },
           ])
       ),
@@ -1226,6 +1556,8 @@ function ContainerMess({
   const resolveMessageSenderIdentity = useCallback(
     (message) => {
       const senderId = message?.senderId || null;
+      const isGroupConversation =
+        String(activeConversation?.type || "").toLowerCase() === "group";
       const dtoDisplayName =
         message?.senderDisplayName ||
         message?.raw?.senderDisplayName ||
@@ -1245,8 +1577,9 @@ function ContainerMess({
         : null;
       const resolvedIdentity = {
         displayName:
-          dtoDisplayName ||
-          fallbackIdentity?.displayName ||
+          (isGroupConversation
+            ? fallbackIdentity?.displayName || dtoDisplayName
+            : dtoDisplayName || fallbackIdentity?.displayName) ||
           (senderId && String(senderId) === String(currentUserId)
             ? currentUserDisplayName
             : senderId
@@ -1273,6 +1606,7 @@ function ContainerMess({
       return resolvedIdentity;
     },
     [
+      activeConversation?.type,
       backendConversationId,
       currentUserAvatar,
       currentUserDisplayName,
@@ -2028,11 +2362,43 @@ function ContainerMess({
       if (forwardNoticeTimeoutRef.current) {
         clearTimeout(forwardNoticeTimeoutRef.current);
       }
+      if (reminderNoticeTimeoutRef.current) {
+        clearTimeout(reminderNoticeTimeoutRef.current);
+      }
 
       remoteTypingTimeoutsRef.current.forEach((timeoutId) => {
         clearTimeout(timeoutId);
       });
       remoteTypingTimeoutsRef.current.clear();
+
+      if (voiceTimerRef.current) {
+        clearInterval(voiceTimerRef.current);
+        voiceTimerRef.current = null;
+      }
+      if (voiceAutoStopTimeoutRef.current) {
+        clearTimeout(voiceAutoStopTimeoutRef.current);
+        voiceAutoStopTimeoutRef.current = null;
+      }
+      if (voicePreviewUrlRef.current) {
+        URL.revokeObjectURL(voicePreviewUrlRef.current);
+        voicePreviewUrlRef.current = null;
+      }
+      if (voiceStreamRef.current) {
+        voiceStreamRef.current.getTracks().forEach((track) => track.stop());
+        voiceStreamRef.current = null;
+      }
+      if (dictationTimerRef.current) {
+        clearInterval(dictationTimerRef.current);
+        dictationTimerRef.current = null;
+      }
+      if (dictationAutoStopTimeoutRef.current) {
+        clearTimeout(dictationAutoStopTimeoutRef.current);
+        dictationAutoStopTimeoutRef.current = null;
+      }
+      if (dictationStreamRef.current) {
+        dictationStreamRef.current.getTracks().forEach((track) => track.stop());
+        dictationStreamRef.current = null;
+      }
     };
   }, []);
 
@@ -2065,6 +2431,62 @@ function ContainerMess({
       clearTimeout(timeoutId);
     });
     remoteTypingTimeoutsRef.current.clear();
+    setVoicePreview((previousPreview) => {
+      if (previousPreview?.previewUrl) {
+        URL.revokeObjectURL(previousPreview.previewUrl);
+      }
+      voicePreviewUrlRef.current = null;
+      return null;
+    });
+    if (voiceTimerRef.current) {
+      clearInterval(voiceTimerRef.current);
+      voiceTimerRef.current = null;
+    }
+    if (voiceAutoStopTimeoutRef.current) {
+      clearTimeout(voiceAutoStopTimeoutRef.current);
+      voiceAutoStopTimeoutRef.current = null;
+    }
+    if (voiceStreamRef.current) {
+      voiceStreamRef.current.getTracks().forEach((track) => track.stop());
+      voiceStreamRef.current = null;
+    }
+    voiceRecorderRef.current = null;
+    voiceChunksRef.current = [];
+    voiceMimeTypeRef.current = "";
+    voiceRecordingStartedAtRef.current = null;
+    voiceCancelPendingRef.current = false;
+    isStoppingVoiceRecordingRef.current = false;
+    setVoiceRecorderState("idle");
+    setVoiceRecordingMs(0);
+    if (dictationTimerRef.current) {
+      clearInterval(dictationTimerRef.current);
+      dictationTimerRef.current = null;
+    }
+    if (dictationAutoStopTimeoutRef.current) {
+      clearTimeout(dictationAutoStopTimeoutRef.current);
+      dictationAutoStopTimeoutRef.current = null;
+    }
+    if (dictationStreamRef.current) {
+      dictationStreamRef.current.getTracks().forEach((track) => track.stop());
+      dictationStreamRef.current = null;
+    }
+    dictationRecorderRef.current = null;
+    dictationChunksRef.current = [];
+    dictationStartedAtRef.current = null;
+    dictationMimeTypeRef.current = "";
+    setDictationState("idle");
+    setDictationRecordingMs(0);
+    setDictationJobId(null);
+    setDictationError("");
+    setIsReminderModalOpen(false);
+    setIsReminderSubmitting(false);
+    setReminderError("");
+    setReminderDraft({
+      title: "",
+      description: "",
+      remindAtLocal: buildDefaultReminderLocalValue(),
+      timezone: resolveBrowserTimeZone(),
+    });
   }, [backendConversationId, clearForwardState]);
 
   useEffect(() => {
@@ -2086,6 +2508,26 @@ function ContainerMess({
       }
     };
   }, [forwardNotice]);
+
+  useEffect(() => {
+    if (!reminderNotice) {
+      return undefined;
+    }
+
+    if (reminderNoticeTimeoutRef.current) {
+      clearTimeout(reminderNoticeTimeoutRef.current);
+    }
+
+    reminderNoticeTimeoutRef.current = setTimeout(() => {
+      setReminderNotice("");
+    }, 2200);
+
+    return () => {
+      if (reminderNoticeTimeoutRef.current) {
+        clearTimeout(reminderNoticeTimeoutRef.current);
+      }
+    };
+  }, [reminderNotice]);
 
   useEffect(() => {
     const fetchMessages = async () => {
@@ -2165,10 +2607,70 @@ function ContainerMess({
 
           if (event.type === "MESSAGE_CREATED") {
             const mappedMessage = mapMessage(event.payload);
+            const mappedSystemMessage = parseSystemMessage(mappedMessage?.content);
+            const mappedSystemKind = String(mappedSystemMessage?.kind || "");
+            const mappedSystemPayload = mappedSystemMessage?.payload || {};
+            const mappedConversationId =
+              mappedMessage?.conversationId || event.payload?.conversationId || backendConversationId;
             const messageId = mappedMessage?.id || event.payload?.id;
             const isAlreadyVisible = messagesRef.current.some(
               (message) => String(message?.id || "") === String(messageId || "")
             );
+
+            if (
+              mappedConversationId &&
+              mappedSystemKind === "group_renamed" &&
+              String(mappedSystemPayload?.name || "").trim()
+            ) {
+              const nextGroupName = String(mappedSystemPayload.name || "").trim();
+              updateConversationById(mappedConversationId, {
+                name: nextGroupName,
+                displayName: nextGroupName,
+                trustedDisplayName: nextGroupName,
+              });
+            }
+
+            if (
+              mappedConversationId &&
+              mappedSystemKind === "group_avatar_changed" &&
+              String(mappedSystemPayload?.avatarUrl || "").trim()
+            ) {
+              const nextAvatarUrl = String(mappedSystemPayload.avatarUrl || "").trim();
+              updateConversationById(mappedConversationId, {
+                avatarUrl: nextAvatarUrl,
+                trustedAvatarUrl: nextAvatarUrl,
+              });
+            }
+
+            if (
+              mappedConversationId &&
+              mappedSystemKind === "group_nickname_changed" &&
+              mappedSystemPayload?.targetUserId
+            ) {
+              const targetUserId = String(mappedSystemPayload.targetUserId);
+              const nickname = String(mappedSystemPayload.nickname || "").trim();
+              updateConversationById(mappedConversationId, (currentConversation) => {
+                const currentMembers = Array.isArray(currentConversation?.members)
+                  ? currentConversation.members
+                  : [];
+
+                if (!currentMembers.length) {
+                  return currentConversation;
+                }
+
+                return {
+                  __memberMergeMode: "replace",
+                  members: currentMembers.map((member) =>
+                    String(member?.userId || "") === targetUserId
+                      ? {
+                          ...member,
+                          nickname,
+                        }
+                      : member
+                  ),
+                };
+              });
+            }
 
             if (isContextMode && !isAlreadyVisible) {
               setNewMessagesSinceContext((prevCount) => prevCount + 1);
@@ -2474,6 +2976,656 @@ function ContainerMess({
     event.target.value = "";
   };
 
+  const clearVoiceTimers = useCallback(() => {
+    if (voiceTimerRef.current) {
+      clearInterval(voiceTimerRef.current);
+      voiceTimerRef.current = null;
+    }
+
+    if (voiceAutoStopTimeoutRef.current) {
+      clearTimeout(voiceAutoStopTimeoutRef.current);
+      voiceAutoStopTimeoutRef.current = null;
+    }
+  }, []);
+
+  const stopVoiceStreamTracks = useCallback(() => {
+    if (!voiceStreamRef.current) {
+      return;
+    }
+
+    voiceStreamRef.current.getTracks().forEach((track) => {
+      track.stop();
+    });
+    voiceStreamRef.current = null;
+  }, []);
+
+  const clearVoicePreview = useCallback(() => {
+    setVoicePreview((previousPreview) => {
+      if (previousPreview?.previewUrl) {
+        URL.revokeObjectURL(previousPreview.previewUrl);
+      }
+      voicePreviewUrlRef.current = null;
+      return null;
+    });
+  }, []);
+
+  const resetVoiceComposer = useCallback(
+    ({ keepPreview = false } = {}) => {
+      clearVoiceTimers();
+      stopVoiceStreamTracks();
+      voiceChunksRef.current = [];
+      voiceRecordingStartedAtRef.current = null;
+      voiceRecorderRef.current = null;
+      voiceCancelPendingRef.current = false;
+      voiceMimeTypeRef.current = "";
+      isStoppingVoiceRecordingRef.current = false;
+      setVoiceRecordingMs(0);
+      setVoiceRecorderState("idle");
+      if (!keepPreview) {
+        clearVoicePreview();
+      }
+    },
+    [clearVoicePreview, clearVoiceTimers, stopVoiceStreamTracks]
+  );
+
+  const handleVoiceRecorderStop = useCallback(
+    async (requestedByCancel = false) => {
+      const startedAt = voiceRecordingStartedAtRef.current || Date.now();
+      const durationMs = Math.min(
+        VOICE_RECORDING_MAX_DURATION_MS,
+        Math.max(0, Date.now() - startedAt)
+      );
+      const chunks = Array.isArray(voiceChunksRef.current)
+        ? [...voiceChunksRef.current]
+        : [];
+      const resolvedMimeType = voiceMimeTypeRef.current || "audio/webm";
+
+      clearVoiceTimers();
+      stopVoiceStreamTracks();
+      voiceRecorderRef.current = null;
+      voiceRecordingStartedAtRef.current = null;
+      voiceChunksRef.current = [];
+      voiceMimeTypeRef.current = "";
+
+      if (requestedByCancel || !chunks.length) {
+        setVoiceRecorderState("idle");
+        setVoiceRecordingMs(0);
+        return;
+      }
+
+      try {
+        const blob = new Blob(chunks, { type: resolvedMimeType || "audio/webm" });
+        const waveform = await generateWaveformFromBlob(blob, VOICE_WAVEFORM_SAMPLE_SIZE);
+        const audioFormat = resolveAudioFormatFromMimeType(resolvedMimeType);
+        const fileExtension = audioFormat === "audio" ? "webm" : audioFormat;
+        const file = new File(
+          [blob],
+          `voice-message-${Date.now()}.${fileExtension}`,
+          { type: resolvedMimeType || "audio/webm" }
+        );
+
+        clearVoicePreview();
+        const previewUrl = URL.createObjectURL(blob);
+        voicePreviewUrlRef.current = previewUrl;
+        setVoicePreview({
+          blob,
+          file,
+          previewUrl,
+          durationMs,
+          waveform,
+          audioFormat,
+          mimeType: resolvedMimeType || "audio/webm",
+        });
+        setVoiceRecordingMs(durationMs);
+        setVoiceRecorderState("preview");
+
+        if (durationMs >= VOICE_RECORDING_MAX_DURATION_MS) {
+          setActionError("Tin nhắn thoại tối đa 5 phút.");
+        }
+      } catch (error) {
+        console.error("Failed to finalize voice recording:", error);
+        setVoiceRecorderState("idle");
+        setActionError("Không thể xử lý bản ghi âm.");
+      }
+    },
+    [clearVoicePreview, clearVoiceTimers, setActionError, stopVoiceStreamTracks]
+  );
+
+  const stopVoiceRecording = useCallback(
+    ({ cancel = false } = {}) => {
+      const recorder = voiceRecorderRef.current;
+      if (!recorder || recorder.state === "inactive") {
+        if (cancel) {
+          resetVoiceComposer();
+        }
+        return;
+      }
+
+      if (isStoppingVoiceRecordingRef.current) {
+        return;
+      }
+
+      voiceCancelPendingRef.current = cancel;
+      isStoppingVoiceRecordingRef.current = true;
+      setVoiceRecorderState("processing");
+
+      try {
+        recorder.requestData?.();
+      } catch (error) {
+        console.warn("Voice recorder requestData failed:", error);
+      }
+
+      recorder.stop();
+    },
+    [resetVoiceComposer]
+  );
+
+  const handleStartVoiceRecording = useCallback(async () => {
+    if (!guardComposerInteraction()) {
+      return;
+    }
+
+    if (
+      typeof window === "undefined" ||
+      !navigator?.mediaDevices ||
+      typeof window.MediaRecorder === "undefined"
+    ) {
+      setActionError("Trình duyệt không hỗ trợ ghi âm.");
+      return;
+    }
+
+    if (voiceRecorderState === "recording" || voiceRecorderState === "processing") {
+      return;
+    }
+    if (dictationState === "recording" || dictationState === "processing") {
+      setActionError("Đang nhập giọng nói. Hãy hoàn tất trước khi ghi âm tin nhắn thoại.");
+      return;
+    }
+
+    setActionError("");
+    clearVoicePreview();
+    setVoiceRecordingMs(0);
+    setVoiceRecorderState("requestingPermission");
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const selectedMimeType = pickRecorderMimeType();
+      const recorder = selectedMimeType
+        ? new window.MediaRecorder(stream, { mimeType: selectedMimeType })
+        : new window.MediaRecorder(stream);
+
+      voiceStreamRef.current = stream;
+      voiceRecorderRef.current = recorder;
+      voiceMimeTypeRef.current = recorder.mimeType || selectedMimeType || "audio/webm";
+      voiceChunksRef.current = [];
+      voiceRecordingStartedAtRef.current = Date.now();
+      voiceCancelPendingRef.current = false;
+      isStoppingVoiceRecordingRef.current = false;
+      setVoiceRecorderState("recording");
+
+      recorder.ondataavailable = (event) => {
+        if (event?.data && event.data.size > 0) {
+          voiceChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onerror = (event) => {
+        console.error("Voice recorder error:", event);
+        setActionError("Không thể ghi âm lúc này.");
+        resetVoiceComposer();
+      };
+
+      recorder.onstop = async () => {
+        const shouldCancel = voiceCancelPendingRef.current;
+        voiceCancelPendingRef.current = false;
+        isStoppingVoiceRecordingRef.current = false;
+        await handleVoiceRecorderStop(shouldCancel);
+      };
+
+      recorder.start(250);
+
+      voiceTimerRef.current = setInterval(() => {
+        if (!voiceRecordingStartedAtRef.current) {
+          return;
+        }
+        const elapsed = Date.now() - voiceRecordingStartedAtRef.current;
+        setVoiceRecordingMs(Math.min(VOICE_RECORDING_MAX_DURATION_MS, elapsed));
+      }, 200);
+
+      voiceAutoStopTimeoutRef.current = setTimeout(() => {
+        stopVoiceRecording({ cancel: false });
+      }, VOICE_RECORDING_MAX_DURATION_MS);
+    } catch (error) {
+      console.error("Failed to start voice recording:", error);
+      setVoiceRecorderState("idle");
+      setActionError("Bạn chưa cấp quyền micro hoặc trình duyệt từ chối ghi âm.");
+      resetVoiceComposer({ keepPreview: true });
+    }
+  }, [
+    clearVoicePreview,
+    guardComposerInteraction,
+    resetVoiceComposer,
+    setActionError,
+    stopVoiceRecording,
+    voiceRecorderState,
+    dictationState,
+  ]);
+
+  const handleCancelVoiceRecording = useCallback(() => {
+    clearVoicePreview();
+    const recorder = voiceRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      stopVoiceRecording({ cancel: true });
+      return;
+    }
+
+    resetVoiceComposer();
+  }, [clearVoicePreview, resetVoiceComposer, stopVoiceRecording]);
+
+  const handleSendVoiceMessage = useCallback(async () => {
+    if (!guardComposerInteraction()) {
+      return;
+    }
+
+    if (!voicePreview?.file) {
+      setActionError("Không tìm thấy bản ghi để gửi.");
+      return;
+    }
+
+    if (!backendConversationId) {
+      setActionError("Không tìm thấy cuộc trò chuyện để gửi tin nhắn.");
+      return;
+    }
+
+    if (isConversationDisbanded) {
+      setActionError("Nhóm đã được giải tán.");
+      return;
+    }
+
+    setActionError("");
+    setIsSending(true);
+
+    try {
+      const uploadResult = await uploadAttachmentV1(voicePreview.file);
+      const attachmentPayload = {
+        ...uploadResult,
+        type: "AUDIO",
+        durationMs: voicePreview.durationMs,
+        waveform: Array.isArray(voicePreview.waveform) ? voicePreview.waveform : [],
+        audioFormat: voicePreview.audioFormat || resolveAudioFormatFromMimeType(voicePreview.mimeType),
+      };
+
+      const response = await sendMessageV1({
+        conversationId: backendConversationId,
+        messageType: "AUDIO",
+        attachments: [attachmentPayload],
+        ...(replyingToMessage?.id ? { replyToMessageId: replyingToMessage.id } : {}),
+      });
+
+      const nextMessage = mapMessage(response);
+      upsertMessage(nextMessage);
+      updateConversationPreview({
+        messageText: "",
+        attachments: [attachmentPayload],
+        updatedAt: nextMessage.editedAt || nextMessage.createdAt,
+      });
+      clearVoicePreview();
+      resetVoiceComposer({ keepPreview: true });
+      setReplyingToMessage(null);
+    } catch (error) {
+      console.error("Failed to send voice message:", error);
+      setActionError("Không thể gửi tin nhắn thoại.");
+    } finally {
+      setIsSending(false);
+    }
+  }, [
+    backendConversationId,
+    clearVoicePreview,
+    guardComposerInteraction,
+    isConversationDisbanded,
+    replyingToMessage?.id,
+    resetVoiceComposer,
+    updateConversationPreview,
+    upsertMessage,
+    voicePreview,
+  ]);
+
+  const clearDictationTimers = useCallback(() => {
+    if (dictationTimerRef.current) {
+      clearInterval(dictationTimerRef.current);
+      dictationTimerRef.current = null;
+    }
+    if (dictationAutoStopTimeoutRef.current) {
+      clearTimeout(dictationAutoStopTimeoutRef.current);
+      dictationAutoStopTimeoutRef.current = null;
+    }
+  }, []);
+
+  const stopDictationStreamTracks = useCallback(() => {
+    if (!dictationStreamRef.current) {
+      return;
+    }
+    dictationStreamRef.current.getTracks().forEach((track) => track.stop());
+    dictationStreamRef.current = null;
+  }, []);
+
+  const resetDictationState = useCallback(() => {
+    clearDictationTimers();
+    stopDictationStreamTracks();
+    dictationRecorderRef.current = null;
+    dictationChunksRef.current = [];
+    dictationStartedAtRef.current = null;
+    dictationMimeTypeRef.current = "";
+    setDictationRecordingMs(0);
+    setDictationState("idle");
+  }, [clearDictationTimers, stopDictationStreamTracks]);
+
+  const appendTranscriptToComposer = useCallback(
+    (transcript) => {
+      const normalizedTranscript = String(transcript || "").trim();
+      const composer = inputMessage.current;
+      if (!normalizedTranscript || !composer || isComposerInteractionLocked) {
+        return;
+      }
+
+      const currentText = composer.textContent || "";
+      const separator =
+        currentText.length === 0 || /\s$/.test(currentText) ? "" : " ";
+      const nextText = `${currentText}${separator}${normalizedTranscript}`;
+
+      composer.textContent = nextText;
+      composer.focus();
+      setComposerCaretTextOffset(composer, nextText.length);
+      composerSelectionRef.current = window.getSelection?.()?.rangeCount
+        ? window.getSelection().getRangeAt(0).cloneRange()
+        : null;
+      setDraftText(nextText.trim());
+      syncComposerState();
+    },
+    [isComposerInteractionLocked, syncComposerState]
+  );
+
+  const resolveDictationFailureMessage = useCallback(
+    (jobPayload) => {
+      const backendMessage = String(jobPayload?.errorMessage || "").trim();
+      if (backendMessage) {
+        return backendMessage;
+      }
+      return "Không thể chuyển giọng nói thành văn bản. Vui lòng thử lại.";
+    },
+    []
+  );
+
+  const applyDictationJobResult = useCallback(
+    (jobPayload) => {
+      const normalizedStatus = String(jobPayload?.status || "").toUpperCase();
+
+      if (normalizedStatus === "COMPLETED") {
+        const transcript = String(jobPayload?.resultText || "").trim();
+        if (transcript) {
+          appendTranscriptToComposer(transcript);
+        }
+        setDictationState("idle");
+        setDictationRecordingMs(0);
+        setDictationJobId(null);
+        setDictationError("");
+        return;
+      }
+
+      if (normalizedStatus === "FAILED") {
+        setDictationState("idle");
+        setDictationRecordingMs(0);
+        setDictationJobId(null);
+        setDictationError(resolveDictationFailureMessage(jobPayload));
+      }
+    },
+    [appendTranscriptToComposer, resolveDictationFailureMessage]
+  );
+
+  const stopDictationRecording = useCallback(
+    ({ cancel = false } = {}) => {
+      const recorder = dictationRecorderRef.current;
+      if (!recorder || recorder.state === "inactive") {
+        if (cancel) {
+          resetDictationState();
+        }
+        return;
+      }
+
+      if (cancel) {
+        dictationChunksRef.current = [];
+      }
+
+      setDictationState("processing");
+      try {
+        recorder.requestData?.();
+      } catch (error) {
+        console.warn("Dictation recorder requestData failed:", error);
+      }
+      recorder.stop();
+    },
+    [resetDictationState]
+  );
+
+  const handleStartDictation = useCallback(async () => {
+    if (!guardComposerInteraction()) {
+      return;
+    }
+    if (!backendConversationId || backendConversationId === "AI_ASSISTANT") {
+      setDictationError("Không thể dùng nhập giọng nói ở hội thoại hiện tại.");
+      return;
+    }
+    if (
+      typeof window === "undefined" ||
+      typeof window.MediaRecorder === "undefined" ||
+      !navigator?.mediaDevices
+    ) {
+      setDictationError("Trình duyệt không hỗ trợ ghi âm.");
+      return;
+    }
+    if (voiceRecorderState === "recording" || voiceRecorderState === "processing") {
+      setDictationError("Đang ghi âm tin nhắn thoại. Hãy hoàn tất trước khi nhập giọng nói.");
+      return;
+    }
+    if (dictationState === "recording" || dictationState === "processing") {
+      return;
+    }
+
+    setDictationError("");
+    setDictationJobId(null);
+    setDictationRecordingMs(0);
+    setDictationState("requestingPermission");
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const selectedMimeType = pickRecorderMimeType();
+      const recorder = selectedMimeType
+        ? new window.MediaRecorder(stream, { mimeType: selectedMimeType })
+        : new window.MediaRecorder(stream);
+
+      dictationStreamRef.current = stream;
+      dictationRecorderRef.current = recorder;
+      dictationMimeTypeRef.current = recorder.mimeType || selectedMimeType || "audio/webm";
+      dictationChunksRef.current = [];
+      dictationStartedAtRef.current = Date.now();
+      setDictationState("recording");
+
+      recorder.ondataavailable = (event) => {
+        if (event?.data && event.data.size > 0) {
+          dictationChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onerror = () => {
+        setDictationError("Không thể ghi âm lúc này.");
+        resetDictationState();
+      };
+
+      recorder.onstop = async () => {
+        const chunks = Array.isArray(dictationChunksRef.current)
+          ? [...dictationChunksRef.current]
+          : [];
+        const durationMs = Math.min(
+          DICTATION_RECORDING_MAX_DURATION_MS,
+          Math.max(0, Date.now() - (dictationStartedAtRef.current || Date.now()))
+        );
+
+        clearDictationTimers();
+        stopDictationStreamTracks();
+        dictationRecorderRef.current = null;
+        dictationStartedAtRef.current = null;
+
+        if (!chunks.length) {
+          resetDictationState();
+          return;
+        }
+
+        try {
+          const mimeType = dictationMimeTypeRef.current || "audio/webm";
+          const blob = new Blob(chunks, { type: mimeType });
+          const audioFormat = resolveAudioFormatFromMimeType(mimeType);
+          const createdJob = await requestDictationSpeechToText({
+            conversationId: backendConversationId,
+            audioBlob: blob,
+            language: "vi",
+            audioFormat,
+            durationMs,
+          });
+
+          setDictationState("processing");
+          setDictationRecordingMs(durationMs);
+          setDictationJobId(createdJob?.id || null);
+          applyDictationJobResult(createdJob);
+        } catch (error) {
+          const responseMessage =
+            error?.response?.data?.message || error?.response?.data?.error;
+          setDictationError(
+            String(responseMessage || "Không thể chuyển giọng nói thành văn bản. Vui lòng thử lại.")
+          );
+          setDictationState("idle");
+          setDictationRecordingMs(0);
+          setDictationJobId(null);
+        } finally {
+          dictationChunksRef.current = [];
+          dictationMimeTypeRef.current = "";
+        }
+      };
+
+      recorder.start(250);
+      dictationTimerRef.current = setInterval(() => {
+        if (!dictationStartedAtRef.current) {
+          return;
+        }
+        const elapsed = Date.now() - dictationStartedAtRef.current;
+        setDictationRecordingMs(Math.min(DICTATION_RECORDING_MAX_DURATION_MS, elapsed));
+      }, 200);
+      dictationAutoStopTimeoutRef.current = setTimeout(() => {
+        stopDictationRecording({ cancel: false });
+      }, DICTATION_RECORDING_MAX_DURATION_MS);
+    } catch {
+      setDictationState("idle");
+      setDictationError("Bạn chưa cấp quyền micro hoặc trình duyệt từ chối ghi âm.");
+      resetDictationState();
+    }
+  }, [
+    applyDictationJobResult,
+    backendConversationId,
+    clearDictationTimers,
+    dictationState,
+    guardComposerInteraction,
+    resetDictationState,
+    stopDictationRecording,
+    stopDictationStreamTracks,
+    voiceRecorderState,
+  ]);
+
+  const handleCancelDictation = useCallback(() => {
+    const recorder = dictationRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      stopDictationRecording({ cancel: true });
+      return;
+    }
+    setDictationJobId(null);
+    setDictationError("");
+    resetDictationState();
+  }, [resetDictationState, stopDictationRecording]);
+
+  useEffect(() => {
+    if (!dictationJobId || dictationState !== "processing") {
+      return undefined;
+    }
+
+    let active = true;
+    let attempts = 0;
+    const intervalId = setInterval(async () => {
+      attempts += 1;
+      if (attempts > DICTATION_MAX_POLL_ATTEMPTS) {
+        clearInterval(intervalId);
+        setDictationState("idle");
+        setDictationJobId(null);
+        setDictationError("Không nhận được kết quả chuyển giọng nói. Vui lòng thử lại.");
+        return;
+      }
+      try {
+        const refreshedJob = await getProcessingJob(dictationJobId);
+        if (!active || !refreshedJob) {
+          return;
+        }
+        applyDictationJobResult(refreshedJob);
+      } catch {
+        // Keep silent while waiting for realtime/poll fallback.
+      }
+    }, DICTATION_POLL_INTERVAL_MS);
+
+    return () => {
+      active = false;
+      clearInterval(intervalId);
+    };
+  }, [applyDictationJobResult, dictationJobId, dictationState]);
+
+  useEffect(() => {
+    if (!dictationRealtimeEvent || !dictationJobId) {
+      return;
+    }
+    if (String(dictationRealtimeEvent.jobId || "") !== String(dictationJobId)) {
+      return;
+    }
+    if (String(dictationRealtimeEvent.jobType || "").toUpperCase() !== "STT") {
+      return;
+    }
+    if (String(dictationRealtimeEvent.jobScope || "").toUpperCase() !== "DICTATION") {
+      return;
+    }
+
+    applyDictationJobResult(dictationRealtimeEvent);
+  }, [applyDictationJobResult, dictationJobId, dictationRealtimeEvent]);
+
+  useEffect(() => {
+    const voiceHotkeyActive =
+      voiceRecorderState === "recording" || voiceRecorderState === "preview";
+    const dictationHotkeyActive = dictationState === "recording";
+    if (!voiceHotkeyActive && !dictationHotkeyActive) {
+      return undefined;
+    }
+
+    const handleEscape = (event) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      if (voiceHotkeyActive) {
+        handleCancelVoiceRecording();
+      }
+      if (dictationHotkeyActive) {
+        handleCancelDictation();
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [dictationState, handleCancelDictation, handleCancelVoiceRecording, voiceRecorderState]);
+
   const sendSystemMessage = useCallback(
     async (kind, payload) => {
       if (!backendConversationId) {
@@ -2519,6 +3671,112 @@ function ContainerMess({
       hideResultsBeforeVote: false,
     });
   };
+
+  const handleOpenReminderModal = useCallback(() => {
+    if (!backendConversationId || isComposerInteractionLocked || isConversationDisbanded) {
+      return;
+    }
+
+    setReminderError("");
+    setReminderDraft({
+      title: "",
+      description: "",
+      remindAtLocal: buildDefaultReminderLocalValue(),
+      timezone: resolveBrowserTimeZone(),
+    });
+    setIsReminderModalOpen(true);
+  }, [backendConversationId, isComposerInteractionLocked, isConversationDisbanded]);
+
+  useEffect(() => {
+    const handleOpenReminderFromExternal = (event) => {
+      const targetConversationId = event?.detail?.conversationId || null;
+      if (
+        targetConversationId &&
+        String(targetConversationId) !== String(backendConversationId || "")
+      ) {
+        return;
+      }
+      handleOpenReminderModal();
+    };
+
+    window.addEventListener(
+      "web:open-conversation-reminder-modal",
+      handleOpenReminderFromExternal
+    );
+    return () => {
+      window.removeEventListener(
+        "web:open-conversation-reminder-modal",
+        handleOpenReminderFromExternal
+      );
+    };
+  }, [backendConversationId, handleOpenReminderModal]);
+
+  const handleCloseReminderModal = useCallback(() => {
+    if (isReminderSubmitting) {
+      return;
+    }
+    setIsReminderModalOpen(false);
+    setReminderError("");
+  }, [isReminderSubmitting]);
+
+  const handleCreateReminder = useCallback(async () => {
+    if (!backendConversationId || isReminderSubmitting) {
+      return;
+    }
+
+    const title = String(reminderDraft.title || "").trim();
+    const description = String(reminderDraft.description || "").trim();
+    const remindAtIso = parseLocalDateTimeToIso(reminderDraft.remindAtLocal);
+
+    if (!title) {
+      setReminderError("Vui lòng nhập tiêu đề nhắc hẹn.");
+      return;
+    }
+    if (!remindAtIso) {
+      setReminderError("Vui lòng chọn thời gian hợp lệ.");
+      return;
+    }
+
+    const remindAtTime = new Date(remindAtIso).getTime();
+    if (!Number.isFinite(remindAtTime) || remindAtTime < Date.now() - 60_000) {
+      setReminderError("Thời gian nhắc hẹn phải ở hiện tại hoặc tương lai.");
+      return;
+    }
+
+    try {
+      setIsReminderSubmitting(true);
+      setReminderError("");
+      await createConversationReminder(backendConversationId, {
+        title,
+        description: description || null,
+        remindAt: remindAtIso,
+        timezone: reminderDraft.timezone || resolveBrowserTimeZone(),
+      });
+
+      setIsReminderModalOpen(false);
+      setReminderNotice("Đã tạo nhắc hẹn.");
+      setReminderDraft({
+        title: "",
+        description: "",
+        remindAtLocal: buildDefaultReminderLocalValue(),
+        timezone: resolveBrowserTimeZone(),
+      });
+      window.dispatchEvent(
+        new CustomEvent("web:conversation-reminder-changed", {
+          detail: { conversationId: backendConversationId },
+        })
+      );
+      window.dispatchEvent(new CustomEvent("web:reminders-global-refresh"));
+    } catch (error) {
+      setReminderError(
+        error?.response?.data?.message ||
+          error?.message ||
+          "Không thể tạo nhắc hẹn lúc này."
+      );
+    } finally {
+      setIsReminderSubmitting(false);
+    }
+  }, [backendConversationId, isReminderSubmitting, reminderDraft]);
 
   const handlePollOptionChange = (index, value) => {
     setPollDraft((prevState) => ({
@@ -2606,6 +3864,14 @@ function ContainerMess({
     event?.preventDefault?.();
 
     if (!guardComposerInteraction()) {
+      return;
+    }
+    if (
+      voiceRecorderState === "recording" ||
+      voiceRecorderState === "processing" ||
+      dictationState === "recording"
+    ) {
+      setActionError("Vui lòng dừng ghi âm trước khi gửi tin nhắn.");
       return;
     }
     const rawComposerText = flag ? "👍" : inputMessage.current?.textContent || "";
@@ -3126,7 +4392,15 @@ function ContainerMess({
     () =>
       normalizedMessages.filter((message) => {
         const systemMessage = parseSystemMessage(message?.content);
-        return !systemMessage || systemMessage.kind === "poll_create";
+        if (!systemMessage) {
+          return true;
+        }
+
+        if (systemMessage.kind === "poll_create") {
+          return true;
+        }
+
+        return String(systemMessage.kind || "").startsWith("group_");
       }),
     [normalizedMessages]
   );
@@ -3808,9 +5082,18 @@ function ContainerMess({
     ) : null;
   const statusHint = typingStatusText
     ? typingStatusText
+    : isPrivateConversation
+    ? formatPresenceStatusText(
+        Boolean(peerPresence?.online),
+        peerPresence?.lastSeenAt,
+        activeConversation?.lastActive
+      )
     : activeConversation?.lastActive && activeConversation.lastActive !== "Active"
     ? activeConversation.lastActive
     : "Đang hoạt động";
+  const isStatusOnline = isPrivateConversation
+    ? Boolean(peerPresence?.online)
+    : !activeConversation?.lastActive || activeConversation.lastActive === "Active";
   console.log("[WEB TYPING RENDER]", {
     typingUsers,
     currentConversationId: backendConversationId,
@@ -3901,11 +5184,14 @@ function ContainerMess({
                     <span />
                   </span>
                 </div>
-              ) : activeConversation?.lastActive && activeConversation.lastActive !== "Active" ? (
-                <p>{statusHint}</p>
               ) : (
-                <div className="flex">
-                  <RxDotFilled style={{ fontSize: "20px", color: "#30a04b" }} />
+                <div className="conversation-presence-row">
+                  <span
+                    className={`presence-dot ${
+                      isStatusOnline ? "presence-dot--online" : "presence-dot--offline"
+                    }`}
+                    aria-label={isStatusOnline ? "Đang hoạt động" : "Không hoạt động"}
+                  />
                   <p>{statusHint}</p>
                 </div>
               )}
@@ -3913,6 +5199,37 @@ function ContainerMess({
           </div>
         </div>
         <div className="group-choice flex">
+          {getUnreadCount() >= 5 && (
+            <div 
+              className="header-action-icon ai-summary-btn" 
+              title="Tóm tắt tin nhắn bằng AI" 
+              onClick={handleOpenAiSummaryInChat}
+              style={{ color: '#0084ff', fontWeight: 'bold' }}
+            >
+              ✨
+            </div>
+          )}
+          <CiSearch className="header-action-icon" />
+          {activeConversation?.type === 'group' ? (
+            <>
+              <IoCallOutline className="header-action-icon" onClick={() => handleStartGroupCall("VOICE")} />
+              <IoVideocamOutline className="header-action-icon" onClick={() => handleStartGroupCall("VIDEO")} />
+            </>
+          ) : (
+            <>
+              <IoCallOutline className="header-action-icon" onClick={() => handleStartCall("VOICE")} />
+              <IoVideocamOutline className="header-action-icon" onClick={() => handleStartCall("VIDEO")} />
+            </>
+          )}
+
+          {activeConversation?.type === 'group' && (
+            <HiOutlineUserPlus
+              className="header-action-icon"
+              onClick={onOpenAddMember}
+              title="Thêm thành viên vào nhóm"
+            />
+          )}
+
           {typeof onToggleInfoPanel === "function" ? (
             <button
               type="button"
@@ -3927,29 +5244,6 @@ function ContainerMess({
               <InfoPanelToggleIcon />
             </button>
           ) : null}
-          {getUnreadCount() >= 5 && (
-            <div 
-              className="icon-header ai-summary-btn" 
-              title="Tóm tắt tin nhắn bằng AI" 
-              onClick={handleOpenAiSummaryInChat}
-              style={{ color: '#0084ff', fontWeight: 'bold' }}
-            >
-              ✨
-            </div>
-          )}
-          <HiOutlineUserGroup className="icon-header" />
-          <CiSearch className="icon-header" />
-          {activeConversation?.type === 'group' ? (
-            <>
-              <IoCallOutline className="icon-header" onClick={() => handleStartGroupCall("VOICE")} />
-              <IoVideocamOutline className="icon-header" onClick={() => handleStartGroupCall("VIDEO")} />
-            </>
-          ) : (
-            <>
-              <IoCallOutline className="icon-header" onClick={() => handleStartCall("VOICE")} />
-              <IoVideocamOutline className="icon-header" onClick={() => handleStartCall("VIDEO")} />
-            </>
-          )}
         </div>
       </div>
       <div
@@ -3973,6 +5267,72 @@ function ContainerMess({
 
               const isDeleted = Boolean(item.deletedAt);
               const systemMessage = parseSystemMessage(item?.content);
+              const systemPayload = systemMessage?.payload || {};
+              const actorNameForSystemMessage = String(
+                systemPayload?.actorName ||
+                  item?.senderDisplayName ||
+                  resolveSystemUserNameFallback(
+                    conversationMembers.find(
+                      (member) =>
+                        String(member?.userId || "") === String(item?.senderId || "")
+                    )
+                  ) ||
+                  "Ai đó"
+              ).trim();
+              const targetNameForSystemMessage = (() => {
+                const targetUserId = String(systemPayload?.targetUserId || "").trim();
+                if (targetUserId) {
+                  return (
+                    String(systemPayload?.targetName || "").trim() ||
+                    resolveSystemUserNameFallback(
+                      conversationMembers.find(
+                        (member) => String(member?.userId || "") === targetUserId
+                      )
+                    ) ||
+                    "một thành viên"
+                  );
+                }
+                return String(systemPayload?.targetName || "một thành viên").trim();
+              })();
+              const groupSystemMessageText = resolveGroupSystemMessageText(systemMessage, {
+                actorName: actorNameForSystemMessage,
+                targetName: targetNameForSystemMessage,
+              });
+              if (!isDeleted && groupSystemMessageText) {
+                const groupSystemTimeLabel = item.createdAt
+                  ? new Date(item.createdAt).toLocaleString("vi-VN", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric",
+                    })
+                  : "";
+
+                return (
+                  <li
+                    ref={index === displayMessages.length - 1 ? scrollRef : null}
+                    key={item.id || `${item.createdAt}-${index}`}
+                    id={item.id ? `message-row-${item.id}` : undefined}
+                    className="group-system-message-row"
+                    title={item.createdAt ? new Date(item.createdAt).toLocaleString("vi-VN") : undefined}
+                  >
+                    <span className="group-system-message-chip">
+                      <span className="group-system-message-icon" aria-hidden="true">
+                        <AiOutlineBell />
+                      </span>
+                      <span className="group-system-message-text">
+                        {groupSystemMessageText}
+                      </span>
+                      {groupSystemTimeLabel ? (
+                        <span className="group-system-message-time">
+                          {groupSystemTimeLabel}
+                        </span>
+                      ) : null}
+                    </span>
+                  </li>
+                );
+              }
               const pollState = item?.id
                 ? pollStateByCreateMessageId.get(String(item.id)) || null
                 : null;
@@ -3983,9 +5343,17 @@ function ContainerMess({
                 : [];
               const imageAttachments = visibleAttachments.filter(isImageAttachment);
               const videoAttachments = visibleAttachments.filter(isVideoAttachment);
+              const audioAttachments = visibleAttachments.filter(
+                (attachment) =>
+                  isAudioAttachment(attachment) &&
+                  !isImageAttachment(attachment) &&
+                  !isVideoAttachment(attachment)
+              );
               const fileAttachments = visibleAttachments.filter(
                 (attachment) =>
-                  !isImageAttachment(attachment) && !isVideoAttachment(attachment)
+                  !isImageAttachment(attachment) &&
+                  !isVideoAttachment(attachment) &&
+                  !isAudioAttachment(attachment)
               );
               const canEdit =
                 isMine && !isDeleted && !visibleAttachments.length && Boolean(item.content);
@@ -3999,12 +5367,21 @@ function ContainerMess({
               const canForwardMessage = forwardDraft.canForward;
               const replyPreviewSenderName = !isDeleted && item.replyTo
                 ? (() => {
+                    const replyMemberIdentity = memberIdentityMap.get(
+                      String(item.replyTo.senderId || "")
+                    );
+                    const isGroupConversation =
+                      String(activeConversation?.type || "").toLowerCase() === "group";
                     const resolvedReplySenderName =
-                      item.replyTo.senderDisplayName ||
+                      (isGroupConversation
+                        ? replyMemberIdentity?.displayName ||
+                          item.replyTo.senderDisplayName
+                        : item.replyTo.senderDisplayName ||
+                          replyMemberIdentity?.displayName) ||
                       (item.replyTo.senderId &&
                       String(item.replyTo.senderId) === String(currentUserId)
                         ? currentUserDisplayName
-                        : memberIdentityMap.get(String(item.replyTo.senderId || ""))?.displayName) ||
+                        : replyMemberIdentity?.displayName) ||
                       "Người dùng";
 
                     console.log("[WEB REPLY SENDER]", {
@@ -4012,10 +5389,7 @@ function ContainerMess({
                       messageId: item.id || null,
                       senderId: item.replyTo.senderId || null,
                       mappedDisplayName: resolvedReplySenderName,
-                      mappedAvatarUrl:
-                        item.replyTo.senderAvatarUrl ||
-                        memberIdentityMap.get(String(item.replyTo.senderId || ""))?.avatarUrl ||
-                        "",
+                      mappedAvatarUrl: item.replyTo.senderAvatarUrl || replyMemberIdentity?.avatarUrl || "",
                     });
 
                     return resolvedReplySenderName;
@@ -4169,6 +5543,18 @@ function ContainerMess({
                             ))}
                           </div>
                         )}
+                        {audioAttachments.length > 0 ? (
+                          <div className="message-audio-list">
+                            {audioAttachments.map((attachment) => (
+                              <VoiceMessageBubble
+                                key={attachment.id || attachment.url}
+                                attachment={attachment}
+                                messageId={item.id}
+                                isMine={isMine}
+                              />
+                            ))}
+                          </div>
+                        ) : null}
                         {fileAttachments.length > 0 && (
                           <div className="message-attachment-list">
                             {fileAttachments.map((attachment) => {
@@ -4181,7 +5567,7 @@ function ContainerMess({
                                   target="_blank"
                                   rel="noreferrer"
                                 >
-                                  <span className="message-file-type-badge">
+                                  <span className={`message-file-type-badge badge-${fileMeta.label.toLowerCase()}`}>
                                     {fileMeta.icon} {fileMeta.label}
                                   </span>
                                   <span className="message-file-name">
@@ -4402,9 +5788,15 @@ function ContainerMess({
                             item.myReaction === "LIKE" ? "active-reaction" : "subtle"
                           }`}
                           type="button"
+                          aria-label={item.myReaction === "LIKE" ? "Bỏ thích" : "Thích"}
+                          title={item.myReaction === "LIKE" ? "Bỏ thích" : "Thích"}
                           onClick={() => handleReactionClick(item)}
                         >
-                          {item.myReaction === "LIKE" ? "Bo like" : "Like"}
+                          {item.myReaction === "LIKE" ? (
+                            <AiFillLike style={{ fontSize: "16px", color: "var(--ui-primary)" }} />
+                          ) : (
+                            <AiOutlineLike style={{ fontSize: "16px" }} />
+                          )}
                         </button>
 
                         <div className="message-reaction-picker">
@@ -4440,9 +5832,11 @@ function ContainerMess({
                           <button
                             className="message-action-btn subtle"
                             type="button"
+                            aria-label="Trả lời"
+                            title="Trả lời"
                             onClick={() => handleReplyToMessage(item)}
                           >
-                            Trả lời
+                            <IoArrowUndoOutline style={{ fontSize: "16px" }} />
                           </button>
                         ) : null}
 
@@ -4555,20 +5949,19 @@ function ContainerMess({
                             </div>
                           ) : null}
                         </div>
-
-                        {Array.isArray(item.reactions) && item.reactions.length > 0 ? (
-                          <span className="message-reaction-summary">
-                            {item.reactions
-                              .filter((reaction) => Number(reaction.count || 0) > 0)
-                              .map(
-                                (reaction) =>
-                                  `${resolveReactionEmoji(reaction.type)} ${reaction.count}`
-                              )
-                              .join(" ")}
-                          </span>
-                        ) : null}
                       </div>
                     )}
+                    {!isDeleted && Array.isArray(item.reactions) && item.reactions.length > 0 ? (
+                      <span className="message-reaction-summary">
+                        {item.reactions
+                          .filter((reaction) => Number(reaction.count || 0) > 0)
+                          .map(
+                            (reaction) =>
+                              `${resolveReactionEmoji(reaction.type)} ${reaction.count}`
+                          )
+                          .join(' ')}
+                      </span>
+                    ) : null}
                     {groupReadReceiptSummary ? (
                       <p
                         className="group-read-receipt"
@@ -4614,7 +6007,9 @@ function ContainerMess({
           disabled={isLoadingContext}
           title="Về tin nhắn hiện tại"
         >
-          <span className="jump-latest-btn-arrow">⌄⌄</span>
+          <span className="jump-latest-btn-arrow" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+            <IoArrowDown style={{ fontSize: "16px" }} />
+          </span>
           {isContextMode ? <span>Về hiện tại</span> : null}
           {newMessagesSinceContext > 0 ? (
             <span className="jump-latest-btn-badge">+{newMessagesSinceContext}</span>
@@ -4645,6 +6040,67 @@ function ContainerMess({
               className={`icon-header ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
               onClick={handleFilePickerOpen}
             />
+            <button
+              type="button"
+              className={`icon-header icon-header-btn ${
+                isComposerInteractionLocked ||
+                voiceRecorderState === "processing" ||
+                dictationState === "recording" ||
+                dictationState === "processing"
+                  ? "composer-icon-disabled"
+                : ""
+              } ${voiceRecorderState === "recording" ? "voice-recording-active" : ""}`}
+              onClick={
+                isComposerInteractionLocked ||
+                voiceRecorderState === "processing" ||
+                dictationState === "recording" ||
+                dictationState === "processing"
+                  ? undefined
+                  : voiceRecorderState === "recording"
+                  ? () => stopVoiceRecording({ cancel: false })
+                  : handleStartVoiceRecording
+              }
+              aria-label={
+                voiceRecorderState === "recording"
+                  ? "Dừng ghi âm"
+                  : "Bắt đầu ghi âm tin nhắn thoại"
+              }
+            >
+              {voiceRecorderState === "recording" ? <IoStop /> : <IoMicOutline />}
+            </button>
+            <button
+              type="button"
+              className={`icon-header icon-header-btn ${
+                isComposerInteractionLocked ||
+                dictationState === "processing" ||
+                voiceRecorderState === "recording" ||
+                voiceRecorderState === "processing"
+                  ? "composer-icon-disabled"
+                  : ""
+              } ${dictationState === "recording" ? "voice-recording-active" : ""}`}
+              onClick={
+                isComposerInteractionLocked ||
+                dictationState === "processing" ||
+                voiceRecorderState === "recording" ||
+                voiceRecorderState === "processing"
+                  ? undefined
+                  : dictationState === "recording"
+                  ? () => stopDictationRecording({ cancel: false })
+                  : handleStartDictation
+              }
+              aria-label={
+                dictationState === "recording"
+                  ? "Dừng nhập giọng nói"
+                  : "Nhập văn bản bằng giọng nói"
+              }
+              title={
+                dictationState === "recording"
+                  ? "Dừng nhập giọng nói"
+                  : "Nhập văn bản bằng giọng nói"
+              }
+            >
+              {dictationState === "recording" ? <IoStop /> : <IoMicOutline />}
+            </button>
             <IoCameraOutline
               className={`icon-header ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
             />
@@ -4656,6 +6112,7 @@ function ContainerMess({
             ) : null}
             <RiCalendarTodoFill
               className={`icon-header ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
+              onClick={isComposerInteractionLocked ? undefined : handleOpenReminderModal}
             />
           </div>
         </div>
@@ -4683,10 +6140,11 @@ function ContainerMess({
             ) : null}
             {replyingToMessage ? (
               <div className="composer-reply-banner">
-                <div className="composer-reply-text">
+                <div className="composer-reply-text composer-reply-inline">
                   <p className="composer-reply-label">
                     Trả lời {replyingToMessage.senderDisplayName || "tin nhắn"}
                   </p>
+                  <span className="composer-reply-divider">•</span>
                   <p className="composer-reply-preview">
                     {replyingToMessage.contentPreview || "Tin nhắn"}
                   </p>
@@ -4701,6 +6159,120 @@ function ContainerMess({
                 </button>
               </div>
             ) : null}
+            {voiceRecorderState === "requestingPermission" ? (
+              <div className="voice-recorder-status">
+                Đang xin quyền micro...
+              </div>
+            ) : null}
+            {voiceRecorderState === "recording" ? (
+              <div className="voice-recorder-panel">
+                <div className="voice-recorder-left">
+                  <span className="voice-recorder-dot" />
+                  <span className="voice-recorder-label">Đang ghi âm</span>
+                  <span className="voice-recorder-timer">
+                    {formatRecordingDuration(voiceRecordingMs)}
+                  </span>
+                </div>
+                <div className="voice-recorder-actions">
+                  <button
+                    className="voice-recorder-btn subtle"
+                    type="button"
+                    onClick={handleCancelVoiceRecording}
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    className="voice-recorder-btn primary"
+                    type="button"
+                    onClick={() => stopVoiceRecording({ cancel: false })}
+                  >
+                    Dừng
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {voiceRecorderState === "processing" ? (
+              <div className="voice-recorder-status">Đang xử lý bản ghi âm...</div>
+            ) : null}
+            {voiceRecorderState === "preview" && voicePreview ? (
+              <div className="voice-preview-panel">
+                <div className="voice-preview-meta">
+                  <span className="voice-preview-title">Bản ghi âm</span>
+                  <span className="voice-preview-duration">
+                    {formatRecordingDuration(voicePreview.durationMs)}
+                  </span>
+                </div>
+                <audio
+                  className="voice-preview-audio"
+                  src={voicePreview.previewUrl}
+                  controls
+                  preload="metadata"
+                />
+                <div className="voice-preview-waveform">
+                  {(Array.isArray(voicePreview.waveform)
+                    ? voicePreview.waveform
+                    : buildFallbackWaveformSamples(32)
+                  ).map((sample, index) => (
+                    <span
+                      key={`voice-preview-wave-${index}`}
+                      className="voice-preview-wave-bar"
+                      style={{ height: `${Math.max(18, Math.round(sample * 100))}%` }}
+                    />
+                  ))}
+                </div>
+                <div className="voice-preview-actions">
+                  <button
+                    className="voice-recorder-btn subtle"
+                    type="button"
+                    onClick={handleCancelVoiceRecording}
+                    disabled={isSending}
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    className="voice-recorder-btn primary"
+                    type="button"
+                    onClick={handleSendVoiceMessage}
+                    disabled={isSending}
+                  >
+                    Gửi thoại
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {dictationState === "requestingPermission" ? (
+              <div className="voice-recorder-status">Đang xin quyền micro để nhập giọng nói...</div>
+            ) : null}
+            {dictationState === "recording" ? (
+              <div className="voice-recorder-panel dictation-recorder-panel">
+                <div className="voice-recorder-left">
+                  <span className="voice-recorder-dot" />
+                  <span className="voice-recorder-label">Đang nghe để nhập văn bản</span>
+                  <span className="voice-recorder-timer">
+                    {formatRecordingDuration(dictationRecordingMs)}
+                  </span>
+                </div>
+                <div className="voice-recorder-actions">
+                  <button
+                    className="voice-recorder-btn subtle"
+                    type="button"
+                    onClick={handleCancelDictation}
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    className="voice-recorder-btn primary"
+                    type="button"
+                    onClick={() => stopDictationRecording({ cancel: false })}
+                  >
+                    Dừng
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {dictationState === "processing" ? (
+              <div className="voice-recorder-status">Đang chuyển giọng nói thành văn bản...</div>
+            ) : null}
             <ul className="list-img flex">
               {selectedAttachments.map((attachment) => (
                 <li key={attachment.id} className="selected-attachment-card">
@@ -4710,7 +6282,7 @@ function ContainerMess({
                     <video src={attachment.previewUrl} controls muted />
                   ) : (
                     <div className="selected-attachment-file">
-                      <span className="selected-attachment-file-badge">
+                      <span className={`selected-attachment-file-badge badge-${resolveAttachmentTypeMeta(attachment).label.toLowerCase()}`}>
                         {resolveAttachmentTypeMeta(attachment).icon}{" "}
                         {resolveAttachmentTypeMeta(attachment).label}
                       </span>
@@ -4752,50 +6324,68 @@ function ContainerMess({
                 )}
               </div>
             ) : null}
-            <div
-              className={`wrap-input-chat ${
-                selectedAttachments.length > 0 ? "content-chat-height" : ""
-              } ${isComposerInteractionLocked ? "composer-locked" : ""}${
-                isComposerBlocked ? " blocked-composer" : ""
-              }`}
-              style={{
-                maxHeight: selectedAttachments.length > 0 ? undefined : "170px",
-              }}
-            >
+            <div className="composer-input-row">
               <div
-                contentEditable={!isComposerInteractionLocked}
-                suppressContentEditableWarning
-                spellCheck="false"
-                className="contentEditable"
-                ref={inputMessage}
-                onInput={syncComposerState}
-                onFocus={captureComposerSelection}
-                onKeyUp={captureComposerSelection}
-                onMouseUp={captureComposerSelection}
-                onSelect={captureComposerSelection}
-                onKeyDown={handleButtonSendMess}
-              />
-            </div>
-            <div className="flex">
-              <AiOutlineSend
-                className={`icon-header icon-send-mess ${
-                  activeIconSend ? "activeIconSend" : ""
-                } ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
+                className={`wrap-input-chat ${
+                  selectedAttachments.length > 0 ? "content-chat-height" : ""
+                } ${isComposerInteractionLocked ? "composer-locked" : ""}${
+                  isComposerBlocked ? " blocked-composer" : ""
+                }`}
                 style={{
-                  color: "rgb(107 173 223)",
-                  backgroundColor: "#dff3ff",
-                  opacity: isSending || isComposerInteractionLocked ? 0.6 : 1,
+                  maxHeight: selectedAttachments.length > 0 ? undefined : "170px",
                 }}
-                onClick={isComposerInteractionLocked ? undefined : handleSendMess}
-              />
-              <AiOutlineLike
-                className={`icon-header ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
-                onClick={
-                  isComposerInteractionLocked
-                    ? undefined
-                    : (event) => handleSendMess(event, true)
-                }
-              />
+              >
+                <div
+                  contentEditable={!isComposerInteractionLocked}
+                  suppressContentEditableWarning
+                  spellCheck="false"
+                  className="contentEditable"
+                  ref={inputMessage}
+                  onInput={syncComposerState}
+                  onFocus={captureComposerSelection}
+                  onKeyUp={captureComposerSelection}
+                  onMouseUp={captureComposerSelection}
+                  onSelect={captureComposerSelection}
+                  onKeyDown={handleButtonSendMess}
+                />
+              </div>
+              <div className="composer-submit-actions">
+                <button
+                  type="button"
+                  className={`composer-action-btn composer-action-btn-like ${
+                    isComposerInteractionLocked ? "composer-icon-disabled" : ""
+                  }`}
+                  onClick={
+                    isComposerInteractionLocked
+                      ? undefined
+                      : (event) => handleSendMess(event, true)
+                  }
+                  disabled={
+                    voiceRecorderState === "recording" ||
+                    voiceRecorderState === "processing" ||
+                    dictationState === "recording"
+                  }
+                  aria-label="Gửi lượt thích"
+                >
+                  <AiOutlineLike />
+                </button>
+                <button
+                  type="submit"
+                  className={`composer-action-btn composer-action-btn-send ${
+                    activeIconSend ? "activeIconSend" : ""
+                  } ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
+                  disabled={
+                    isComposerInteractionLocked ||
+                    isSending ||
+                    voiceRecorderState === "recording" ||
+                    voiceRecorderState === "processing" ||
+                    dictationState === "recording"
+                  }
+                  aria-label="Gửi tin nhắn"
+                >
+                  <AiOutlineSend />
+                </button>
+              </div>
             </div>
           </div>
         </form>
@@ -4889,9 +6479,107 @@ function ContainerMess({
             </div>
           </div>
         ) : null}
+        {isReminderModalOpen ? (
+          <div className="forward-picker-overlay" onClick={handleCloseReminderModal}>
+            <div
+              className="forward-picker-card reminder-create-card"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="forward-picker-header">
+                <div>
+                  <h3 className="forward-picker-title">Tạo nhắc hẹn</h3>
+                  <p className="forward-picker-subtitle">
+                    Tạo lịch nhắc cho hội thoại hiện tại.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="message-action-btn subtle"
+                  onClick={handleCloseReminderModal}
+                  disabled={isReminderSubmitting}
+                  aria-label="Đóng tạo nhắc hẹn"
+                >
+                  <IoMdClose />
+                </button>
+              </div>
+              <div className="reminder-create-form">
+                <label className="reminder-create-field">
+                  <span>Tiêu đề</span>
+                  <input
+                    type="text"
+                    value={reminderDraft.title}
+                    onChange={(event) =>
+                      setReminderDraft((prevState) => ({
+                        ...prevState,
+                        title: event.target.value,
+                      }))
+                    }
+                    placeholder="Ví dụ: Họp nhóm CNM"
+                    maxLength={255}
+                  />
+                </label>
+                <label className="reminder-create-field">
+                  <span>Mô tả</span>
+                  <textarea
+                    value={reminderDraft.description}
+                    onChange={(event) =>
+                      setReminderDraft((prevState) => ({
+                        ...prevState,
+                        description: event.target.value,
+                      }))
+                    }
+                    placeholder="Ghi chú thêm (không bắt buộc)"
+                    rows={3}
+                    maxLength={1000}
+                  />
+                </label>
+                <label className="reminder-create-field">
+                  <span>Thời gian nhắc</span>
+                  <input
+                    type="datetime-local"
+                    value={reminderDraft.remindAtLocal}
+                    onChange={(event) =>
+                      setReminderDraft((prevState) => ({
+                        ...prevState,
+                        remindAtLocal: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                {reminderError ? (
+                  <p className="composer-feedback-error reminder-create-error">{reminderError}</p>
+                ) : null}
+                <div className="flex forward-picker-actions">
+                  <button
+                    type="button"
+                    className="message-action-btn subtle"
+                    onClick={handleCloseReminderModal}
+                    disabled={isReminderSubmitting}
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    className="message-action-btn primary"
+                    onClick={handleCreateReminder}
+                    disabled={isReminderSubmitting}
+                  >
+                    {isReminderSubmitting ? "Đang tạo..." : "Tạo nhắc hẹn"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
         {isSending ? <p className="composer-feedback-hint">Đang gửi tin nhắn...</p> : null}
         {forwardNotice ? <p className="composer-feedback-success">{forwardNotice}</p> : null}
-        {!isForwardPickerOpen && actionError && !shouldSuppressComposerBlockError ? (
+        {reminderNotice ? <p className="composer-feedback-success">{reminderNotice}</p> : null}
+        {dictationError ? <p className="composer-feedback-error">{dictationError}</p> : null}
+        {!isForwardPickerOpen &&
+        !isPollComposerOpen &&
+        !isReminderModalOpen &&
+        actionError &&
+        !shouldSuppressComposerBlockError ? (
           <p className="composer-feedback-error">{actionError}</p>
         ) : null}
         {isConversationDisbanded ? (
@@ -4900,132 +6588,172 @@ function ContainerMess({
         {isPollComposerOpen ? (
           <div className="forward-picker-overlay" onClick={handleClosePollComposer}>
             <div className="forward-picker-card poll-creator-card" onClick={(event) => event.stopPropagation()}>
-              <div className="forward-picker-header">
-                <div>
-                  <h3 className="forward-picker-title">Tạo bình chọn mới</h3>
-                  <p className="forward-picker-subtitle">
-                    Tạo bình chọn trong nhóm để mọi người cùng tham gia.
+              <div className="poll-creator-header">
+                <div className="poll-creator-heading">
+                  <h3 className="poll-creator-title">Tạo bình chọn mới</h3>
+                  <p className="poll-creator-subtitle">
+                    Đặt một câu hỏi bình chọn trong nhóm cho mọi người cùng tham gia.
                   </p>
                 </div>
                 <button
-                  className="message-action-btn subtle"
+                  className="poll-creator-close-btn"
                   type="button"
                   onClick={handleClosePollComposer}
+                  aria-label="Đóng tạo bình chọn"
                 >
                   <IoMdClose />
                 </button>
               </div>
               <div className="poll-form-body">
-                <input
-                  className="poll-question-input"
-                  type="text"
-                  placeholder="Đặt câu hỏi bình chọn"
-                  value={pollDraft.question}
-                  onChange={(event) =>
-                    setPollDraft((prevState) => ({
-                      ...prevState,
-                      question: event.target.value,
-                    }))
-                  }
-                />
-                <div className="poll-options-editor">
-                  {pollDraft.options.map((option, index) => (
-                    <div className="poll-option-editor-row" key={`poll-option-${index}`}>
+                <section className="poll-form-section">
+                  <label className="poll-field-label" htmlFor="poll-question-input">
+                    Đặt câu hỏi bình chọn
+                  </label>
+                  <div className="poll-question-wrapper">
+                    <input
+                      id="poll-question-input"
+                      className="poll-question-input"
+                      type="text"
+                      placeholder="Nhập câu hỏi tại đây..."
+                      value={pollDraft.question}
+                      maxLength={100}
+                      onChange={(event) =>
+                        setPollDraft((prevState) => ({
+                          ...prevState,
+                          question: event.target.value,
+                        }))
+                      }
+                    />
+                    <span className="poll-question-counter">{pollDraft.question.length}/100</span>
+                  </div>
+                </section>
+                <section className="poll-form-section">
+                  <p className="poll-field-label">Các phương án</p>
+                  <div className="poll-options-editor">
+                    {pollDraft.options.map((option, index) => (
+                      <div className="poll-option-editor-row" key={`poll-option-${index}`}>
+                        <span className="poll-option-radio" aria-hidden="true" />
+                        <input
+                          type="text"
+                          value={option}
+                          placeholder={`Phương án ${index + 1}`}
+                          onChange={(event) => handlePollOptionChange(index, event.target.value)}
+                        />
+                        {pollDraft.options.length > 2 ? (
+                          <button
+                            className="poll-option-remove-btn"
+                            type="button"
+                            onClick={() =>
+                              setPollDraft((prevState) => ({
+                                ...prevState,
+                                options: prevState.options.filter(
+                                  (_, optionIndex) => optionIndex !== index
+                                ),
+                              }))
+                            }
+                            aria-label={`Xóa phương án ${index + 1}`}
+                          >
+                            <IoTrashOutline />
+                          </button>
+                        ) : (
+                          <span className="poll-option-remove-placeholder" />
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="poll-add-option-btn"
+                      onClick={() =>
+                        setPollDraft((prevState) => ({
+                          ...prevState,
+                          options: [...prevState.options, ""],
+                        }))
+                      }
+                    >
+                      <IoAddOutline />
+                      Thêm phương án
+                    </button>
+                  </div>
+                </section>
+                <section className="poll-form-section poll-settings-section">
+                  <h4 className="poll-settings-title">Cài đặt nâng cao</h4>
+                  <div className="poll-setting-list">
+                    <label className="poll-setting-item">
+                      <span className="poll-setting-icon">
+                        <IoCheckboxOutline />
+                      </span>
+                      <span className="poll-setting-text">Chọn nhiều phương án</span>
                       <input
-                        type="text"
-                        value={option}
-                        placeholder={`Phương án ${index + 1}`}
-                        onChange={(event) => handlePollOptionChange(index, event.target.value)}
+                        type="checkbox"
+                        checked={pollDraft.allowMultiple}
+                        onChange={(event) =>
+                          setPollDraft((prevState) => ({
+                            ...prevState,
+                            allowMultiple: event.target.checked,
+                          }))
+                        }
                       />
-                      {pollDraft.options.length > 2 ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setPollDraft((prevState) => ({
-                              ...prevState,
-                              options: prevState.options.filter((_, optionIndex) => optionIndex !== index),
-                            }))
-                          }
-                        >
-                          Xóa
-                        </button>
-                      ) : null}
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    className="message-action-btn subtle"
-                    onClick={() =>
-                      setPollDraft((prevState) => ({
-                        ...prevState,
-                        options: [...prevState.options, ""],
-                      }))
-                    }
-                  >
-                    Thêm phương án
-                  </button>
-                </div>
-                <div className="poll-setting-list">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={pollDraft.allowMultiple}
-                      onChange={(event) =>
-                        setPollDraft((prevState) => ({
-                          ...prevState,
-                          allowMultiple: event.target.checked,
-                        }))
-                      }
-                    />
-                    Chọn nhiều phương án
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={pollDraft.allowAddOption}
-                      onChange={(event) =>
-                        setPollDraft((prevState) => ({
-                          ...prevState,
-                          allowAddOption: event.target.checked,
-                        }))
-                      }
-                    />
-                    Có thể thêm phương án
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={pollDraft.anonymousVotes}
-                      onChange={(event) =>
-                        setPollDraft((prevState) => ({
-                          ...prevState,
-                          anonymousVotes: event.target.checked,
-                        }))
-                      }
-                    />
-                    Ẩn người bình chọn
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={pollDraft.hideResultsBeforeVote}
-                      onChange={(event) =>
-                        setPollDraft((prevState) => ({
-                          ...prevState,
-                          hideResultsBeforeVote: event.target.checked,
-                        }))
-                      }
-                    />
-                    Ẩn kết quả khi chưa bình chọn
-                  </label>
-                </div>
+                    </label>
+                    <label className="poll-setting-item">
+                      <span className="poll-setting-icon">
+                        <IoAddOutline />
+                      </span>
+                      <span className="poll-setting-text">Có thể thêm phương án</span>
+                      <input
+                        type="checkbox"
+                        checked={pollDraft.allowAddOption}
+                        onChange={(event) =>
+                          setPollDraft((prevState) => ({
+                            ...prevState,
+                            allowAddOption: event.target.checked,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="poll-setting-item">
+                      <span className="poll-setting-icon">
+                        <IoPersonOutline />
+                      </span>
+                      <span className="poll-setting-text">Ẩn người bình chọn</span>
+                      <input
+                        type="checkbox"
+                        checked={pollDraft.anonymousVotes}
+                        onChange={(event) =>
+                          setPollDraft((prevState) => ({
+                            ...prevState,
+                            anonymousVotes: event.target.checked,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="poll-setting-item">
+                      <span className="poll-setting-icon">
+                        <IoEyeOffOutline />
+                      </span>
+                      <span className="poll-setting-text">Ẩn kết quả khi chưa bình chọn</span>
+                      <input
+                        type="checkbox"
+                        checked={pollDraft.hideResultsBeforeVote}
+                        onChange={(event) =>
+                          setPollDraft((prevState) => ({
+                            ...prevState,
+                            hideResultsBeforeVote: event.target.checked,
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                </section>
+                {actionError ? (
+                  <p className="composer-feedback-error poll-creator-error">{actionError}</p>
+                ) : null}
               </div>
-              <div className="forward-picker-actions">
-                <button className="message-action-btn subtle" type="button" onClick={handleClosePollComposer}>
+              <div className="poll-creator-footer">
+                <button className="message-action-btn subtle poll-footer-btn" type="button" onClick={handleClosePollComposer}>
                   Hủy
                 </button>
                 <button
-                  className="message-action-btn primary"
+                  className="message-action-btn primary poll-footer-btn"
                   type="button"
                   onClick={handleCreatePoll}
                   disabled={isPollSubmitting}

@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useContext, useEffect, useState } from "react";
+import React, { useCallback, useContext, useEffect, useState } from "react";
 import { ContactContext } from "../../Context/ContactConext";
 import { UserContext } from "../../Context/UserContext";
 import MessageInfor from "./MessageInfor";
@@ -36,7 +36,8 @@ export default function Message({ showPageAddressBook, onConversationSelect }) {
   });
   const [isInfoPanelVisible, setIsInfoPanelVisible] = useState(
     getInitialInfoPanelVisibility
-  );
+  )
+  const [isAddMemberModalRequested, setIsAddMemberModalRequested] = useState(false)
 
   const activeConversation = currentConversationNormalized;
   const currentUserId = userData?.userId || userData?._id || null;
@@ -226,6 +227,10 @@ export default function Message({ showPageAddressBook, onConversationSelect }) {
               onToggleInfoPanel={() =>
                 setIsInfoPanelVisible((previousState) => !previousState)
               }
+              onOpenAddMember={() => {
+                setIsInfoPanelVisible(true)
+                setIsAddMemberModalRequested(true)
+              }}
             />
           ) : (
             ""
@@ -236,6 +241,8 @@ export default function Message({ showPageAddressBook, onConversationSelect }) {
             <MessageInfor
               onOpenConversationImageGallery={handleOpenConversationImageGallery}
               onRequestClose={() => setIsInfoPanelVisible(false)}
+              autoOpenAddMember={isAddMemberModalRequested}
+              onCloseAddMemberModal={() => setIsAddMemberModalRequested(false)}
             />
           </div>
         ) : null}

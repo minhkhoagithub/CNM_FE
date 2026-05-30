@@ -37,6 +37,7 @@ import {
   getFriendRealtimeDestination,
   isFriendRealtimeEvent,
 } from "../../services/friendRealtimeService";
+import { CLOSE_FRIEND_STATUS_CHANGED_EVENT } from "../../services/closeFriendApi";
 import { uploadAttachmentV1 } from "../../services/chat/messageApi";
 import { mapConversation } from "../../mappers/conversationMapper";
 
@@ -74,6 +75,8 @@ const mapFriendshipToUi = (item) => ({
   avatar: item.friend?.avatarUrl || "",
   avatarUrl: item.friend?.avatarUrl || "",
   friendshipId: item.friendshipId,
+  isCloseFriend: Boolean(item.isCloseFriend),
+  closeFriendNote: item.closeFriendNote || null,
 });
 
 const mapIncomingRequestToUi = (item) => ({
@@ -505,6 +508,17 @@ const handleShowAddFriend = (value) => {
       group: value,
     }));
   };
+
+    useEffect(() => {
+      const handleOpenCreateGroup = () => {
+        handleShowAddGroup(true);
+      };
+
+      window.addEventListener("OPEN_CREATE_GROUP", handleOpenCreateGroup);
+      return () => {
+        window.removeEventListener("OPEN_CREATE_GROUP", handleOpenCreateGroup);
+      };
+    }, [handleShowAddGroup]);
 
   const handleAddMember = (value) => {
     setCreateGroupError("");
@@ -1082,15 +1096,14 @@ const handleSendFriendRequestFromSearch = async (user) => {
   }
 
   if (title === LoiMoiVaoNhom) {
-    const response = await getGroupReq({ id: userData._id });
-    if (response.status === 200 || response.status === 204) {
-      handleSetContentMenuContact({
-        state: true,
-        data: response.data,
-        title: LoiMoiVaoNhom,
-          count: `Lời mời vào nhóm (${response.data?.length || 0})`,
-      });
-    }
+    // Temporarily disable group invitation endpoint to avoid 500s.
+    handleSetContentMenuContact({
+      state: true,
+      data: [],
+      title: LoiMoiVaoNhom,
+      count: "Lời mời vào nhóm (0)",
+    });
+    return;
   }
   if (title === DanhSachChan) {
     const response = await getBlockedUsersV2();
@@ -1178,6 +1191,23 @@ useEffect(() => {
   handleFetchDataUser,
   handleFindUsersForAddFriend,
 ]);
+
+useEffect(() => {
+  if (typeof window === "undefined" || !currentUserId) {
+    return undefined;
+  }
+
+  const handleCloseFriendSync = async () => {
+    if (activeMenuTitle === DanhSachBanBe) {
+      await handleFetchDataUser(DanhSachBanBe);
+    }
+  };
+
+  window.addEventListener(CLOSE_FRIEND_STATUS_CHANGED_EVENT, handleCloseFriendSync);
+  return () => {
+    window.removeEventListener(CLOSE_FRIEND_STATUS_CHANGED_EVENT, handleCloseFriendSync);
+  };
+}, [activeMenuTitle, currentUserId, handleFetchDataUser]);
 
 
   return (

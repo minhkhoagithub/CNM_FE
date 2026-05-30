@@ -205,8 +205,42 @@ export const searchUsersV2 = async ({ keyword }) => {
   return unwrapApiData(response);
 };
 
-export const getFriendsV2 = async () => {
-  const response = await apiClient.get("/friends");
+export const getFriendsV2 = async ({ closeOnly = false } = {}) => {
+  const response = await apiClient.get("/friends", {
+    params: closeOnly ? { closeOnly: true } : {},
+  });
+  return unwrapApiData(response);
+};
+
+export const getCloseFriendsV2 = async () => {
+  const response = await apiClient.get("/friends/close");
+  return unwrapApiData(response);
+};
+
+export const getFriendshipSettingsV2 = async () => {
+  const response = await apiClient.get("/friends/settings");
+  return unwrapApiData(response);
+};
+
+export const getFriendshipSettingV2 = async ({ friendId }) => {
+  const response = await apiClient.get(`/friends/${friendId}/settings`);
+  return unwrapApiData(response);
+};
+
+export const updateFriendshipSettingV2 = async ({
+  friendId,
+  isCloseFriend,
+  note,
+}) => {
+  const payload = {};
+  if (typeof isCloseFriend === "boolean") {
+    payload.isCloseFriend = isCloseFriend;
+  }
+  if (note !== undefined) {
+    payload.note = note;
+  }
+
+  const response = await apiClient.patch(`/friends/${friendId}/settings`, payload);
   return unwrapApiData(response);
 };
 

@@ -6,6 +6,19 @@
   contentType: attachment?.contentType || "",
   fileSize: attachment?.fileSize || 0,
   type: attachment?.type || null,
+  durationMs:
+    Number.isFinite(Number(attachment?.durationMs)) && Number(attachment?.durationMs) >= 0
+      ? Number(attachment?.durationMs)
+      : null,
+  waveform: Array.isArray(attachment?.waveform)
+    ? attachment.waveform
+        .map((sample) => Number(sample))
+        .filter((sample) => Number.isFinite(sample))
+    : null,
+  audioFormat:
+    typeof attachment?.audioFormat === "string" && attachment.audioFormat.trim()
+      ? attachment.audioFormat.trim()
+      : null,
 });
 
 const mapReaction = (reaction) => ({
@@ -550,6 +563,18 @@ export const isVideoAttachment = (attachment) => {
   );
 };
 
+export const isAudioAttachment = (attachment) => {
+  const contentType = String(attachment?.contentType || "").toLowerCase();
+  const attachmentType = String(attachment?.type || "").toUpperCase();
+  const ext = getAttachmentFileExtension(attachment);
+
+  return (
+    contentType.startsWith("audio/") ||
+    attachmentType === "AUDIO" ||
+    ["mp3", "wav", "ogg", "m4a", "aac", "opus", "flac", "webm"].includes(ext)
+  );
+};
+
 const resolveDeletedAt = (message) =>
   message?.deletedAt ||
   (message?.deleted
@@ -1051,6 +1076,15 @@ export const createAttachmentPreviewText = (messageText, attachments) => {
 
   if (!attachments.length) {
     return "";
+  }
+
+  if (
+    attachments.length === 1 &&
+    isAudioAttachment(attachments[0]) &&
+    !isImageAttachment(attachments[0]) &&
+    !isVideoAttachment(attachments[0])
+  ) {
+    return "Đã gửi tin nhắn thoại";
   }
 
   return attachments.length === 1

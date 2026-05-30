@@ -1,6 +1,7 @@
-﻿import React, { useState, useEffect, useContext, memo, useRef, useCallback } from "react";
+import React, { useState, useEffect, useContext, memo, useRef, useCallback } from "react";
 import { UserContext } from "../Context/UserContext";
-import { FiUser } from "react-icons/fi";
+import { ContactContext } from "../Context/ContactConext";
+import { FiUser, FiSettings } from "react-icons/fi";
 import QRCode from "qrcode";
 import "../resource/style/Chat/chat.css";
 import Message from "../component/Message/Message";
@@ -10,6 +11,8 @@ import Clod from "../component/Cloud/Cloud";
 import ToolBox from "../component/ToolBox/ToolBox";
 import Setting from "../component/Setting/Setting";
 import DeviceManager from "../component/Setting/DeviceManager";
+import NotificationBell from "../component/Notifications/NotificationBell";
+import NotificationsPanel from "../component/Notifications/NotificationsPanel";
 import {
   changePassword,
   confirmEmailChange,
@@ -34,8 +37,36 @@ import todo from "../resource/svg/chat/todo.svg";
 import cloud from "../resource/svg/chat/cloud.svg";
 import toolbox from "../resource/svg/chat/toolbox.svg";
 import setting from "../resource/svg/chat/setting.svg";
+
+const formatSecurityIssue = (issue) => {
+  if (issue === null || issue === undefined) {
+    return "";
+  }
+  if (typeof issue === "string" || typeof issue === "number" || typeof issue === "boolean") {
+    return String(issue);
+  }
+  if (typeof issue === "object") {
+    return (
+      issue.title ||
+      issue.message ||
+      issue.description ||
+      issue.label ||
+      issue.code ||
+      Object.entries(issue)
+        .map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : value}`)
+        .join(" · ")
+    );
+  }
+  return String(issue);
+};
+
 function Chat({ handleLogout, onConversationSelect }) {
   const { userData } = useContext(UserContext);
+  const {
+    normalizedConversations = [],
+    openConversation,
+    fetchConversation,
+  } = useContext(ContactContext) || {};
   const [userSettings, setUserSettings] = useState({
     notifications: {
       pushEnabled: true,
@@ -127,6 +158,7 @@ function Chat({ handleLogout, onConversationSelect }) {
     <ToDo />,
     <Clod />,
     <ToolBox />,
+    <NotificationsPanel />,
   ];
 
   const CurrentComponent = listComponent[menuActive];
@@ -417,12 +449,81 @@ function Chat({ handleLogout, onConversationSelect }) {
   }, [phoneFlow.changeToken, phoneFlow.newPhone]);
 
   const handleChangeMenuActive = (index) => {
-    if (index === 0 || index === 1) {
-      setMenuactive(index);
-    } else if (index === 5) {
-      handleShowSettingMenu();
-    }
+    setMenuactive(index);
+    setShowSettingMenu(false);
   };
+
+  const openNotificationPanel = useCallback(() => {
+    setMenuactive(5);
+    window.history.replaceState(null, "", window.location.pathname || "/");
+  }, []);
+
+  const clearNotificationQuery = useCallback(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("notification") === "1") {
+      window.history.replaceState(null, "", window.location.pathname || "/");
+    }
+  }, []);
+
+  const applyNotificationNavigation = useCallback(
+    async (detail) => {
+      const notification = detail?.notification || {};
+      const kind = detail?.kind || "";
+      if (kind === "conversation" && notification?.conversationId) {
+        setMenuactive(0);
+        const conversationId = String(notification.conversationId);
+        let conversation = normalizedConversations.find(
+          (item) => String(item.id) === conversationId,
+        );
+        if (!conversation && fetchConversation) {
+          const fetched = await fetchConversation().catch(() => []);
+          conversation = (fetched || []).find((item) => String(item.id) === conversationId);
+        }
+        if (conversation && openConversation) {
+          openConversation(conversation);
+        }
+        return;
+      }
+      if (kind === "friends") {
+        setMenuactive(1);
+        return;
+      }
+      if (kind === "reminders") {
+        setMenuactive(2);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("reminder:navigate", {
+              detail: { notification },
+            }),
+          );
+        }
+        return;
+      }
+      if (kind === "timeline" || kind === "notifications") {
+        setMenuactive(5);
+      }
+    },
+    [fetchConversation, normalizedConversations, openConversation],
+  );
+
+  useEffect(() => {
+    const handleNotificationNavigate = (event) => {
+      void applyNotificationNavigation(event.detail).finally(clearNotificationQuery);
+    };
+    window.addEventListener("notification:navigate", handleNotificationNavigate);
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("notification") === "1") {
+      void applyNotificationNavigation({
+        kind: params.get("conversationId") ? "conversation" : "notifications",
+        notification: Object.fromEntries(params.entries()),
+      }).finally(clearNotificationQuery);
+    }
+
+    return () => {
+      window.removeEventListener("notification:navigate", handleNotificationNavigate);
+    };
+  }, [applyNotificationNavigation, clearNotificationQuery]);
 
   const handlePasswordChange = (e) => {
     const { name, value } = e.target;
@@ -592,6 +693,17 @@ function Chat({ handleLogout, onConversationSelect }) {
                 </div>
               )}
             </div>
+            <NotificationBell onViewAll={openNotificationPanel} />
+            <div className="global-settings-wrap">
+              <button
+                className="global-settings-btn"
+                type="button"
+                onClick={() => setShowSettingsModal(true)}
+                title="Cài đặt"
+              >
+                <FiSettings />
+              </button>
+            </div>
             <div>
               <ul>
                 {topMenu.map((value, index) => (
@@ -680,6 +792,12 @@ function Chat({ handleLogout, onConversationSelect }) {
                   >
                     Tài khoản
                   </div>
+                  <div
+                    className={`settings-tab ${activeSettingsTab === "security" ? "active" : ""}`}
+                    onClick={() => { setActiveSettingsTab("security"); setAccountSubSection(null); }}
+                  >
+                    Bảo mật
+                  </div>
                   <div 
                     className={`settings-tab ${activeSettingsTab === "devices" ? "active" : ""}`}
                     onClick={() => { setActiveSettingsTab("devices"); setAccountSubSection(null); }}
@@ -731,6 +849,30 @@ function Chat({ handleLogout, onConversationSelect }) {
                     </>
                   )}
                   {activeSettingsTab === "account" && (
+                    <div className="settings-account-summary">
+                      <div className="settings-profile-card">
+                        {userData?.avatar ? (
+                          <img src={userData.avatar} alt="" className="settings-profile-avatar" />
+                        ) : (
+                          <div className="settings-profile-avatar settings-profile-avatar-fallback">
+                            <FiUser />
+                          </div>
+                        )}
+                        <div>
+                          <h4>{userData?.displayName || userData?.username || "Tài khoản"}</h4>
+                          <p>{userData?.email || userData?.phone || "Thông tin tài khoản"}</p>
+                        </div>
+                      </div>
+                      <div className="settings-option settings-card-action">
+                        <strong>Bảo mật tài khoản</strong>
+                        <span>Đổi mật khẩu, xác thực hai lớp, email, số điện thoại và thiết bị đăng nhập.</span>
+                        <button type="button" onClick={() => setActiveSettingsTab("security")}>
+                          Mở cài đặt bảo mật
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {activeSettingsTab === "security" && (
                     <>
                       {accountSecurityMessage ? (
                         <div className="settings-option" style={{ color: "#d93025" }}>
@@ -738,8 +880,16 @@ function Chat({ handleLogout, onConversationSelect }) {
                         </div>
                       ) : null}
                       {accountSecurityIssues.length > 0 ? (
-                        <div className="settings-option">
-                          <strong>Cảnh báo bảo mật:</strong> {accountSecurityIssues.join(", ")}
+                        <div className="settings-option security-alert-list">
+                          <strong>Cảnh báo bảo mật</strong>
+                          {accountSecurityIssues.map((issue, index) => {
+                            const text = formatSecurityIssue(issue);
+                            return text ? (
+                              <div className="security-alert-item" key={`${text}-${index}`}>
+                                {text}
+                              </div>
+                            ) : null;
+                          })}
                         </div>
                       ) : null}
                       {!accountSubSection && (
