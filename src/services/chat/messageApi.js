@@ -2,6 +2,20 @@ import chatHttpClient from "./chatHttpClient";
 
 const unwrapResponseData = (response) => response.data?.data ?? response.data;
 
+const resolveUploadedFileUrl = (payload) =>
+  typeof payload === "string"
+    ? payload.trim()
+    : String(
+        payload?.url ||
+          payload?.fileUrl ||
+          payload?.downloadUrl ||
+          payload?.publicUrl ||
+          payload?.attachmentUrl ||
+          payload?.data?.url ||
+          payload?.data?.fileUrl ||
+          ""
+      ).trim();
+
 export const getConversationMessages = async (conversationId, { cursor = null, size = 50 } = {}) => {
   const response = await chatHttpClient.get(`/messages/${conversationId}`, {
     params: {
@@ -118,5 +132,11 @@ export const uploadAttachmentV1 = async (file) => {
     },
   });
 
-  return unwrapResponseData(response);
+  const payload = unwrapResponseData(response);
+  const resolvedUrl = resolveUploadedFileUrl(payload);
+  if (!resolvedUrl || payload?.url) {
+    return payload;
+  }
+
+  return payload && typeof payload === "object" ? { ...payload, url: resolvedUrl } : { url: resolvedUrl };
 };

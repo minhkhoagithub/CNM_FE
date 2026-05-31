@@ -3,6 +3,46 @@ import { mapConversation } from "../../mappers/conversationMapper";
 
 const unwrapResponseData = (response) => response.data?.data ?? response.data;
 
+const resolveConversationAvatarUrl = (payload, fallbackAvatarUrl = "") =>
+  String(
+    payload?.avatarUrl ||
+      payload?.groupAvatarUrl ||
+      payload?.avatar ||
+      payload?.trustedAvatarUrl ||
+      payload?.fileUrl ||
+      payload?.url ||
+      payload?.data?.avatarUrl ||
+      fallbackAvatarUrl ||
+      ""
+  ).trim();
+
+const normalizeConversationAvatarResponse = (payload, conversationId, fallbackAvatarUrl) => {
+  const normalizedPayload = payload && typeof payload === "object" ? payload : {};
+  const resolvedAvatarUrl = resolveConversationAvatarUrl(normalizedPayload, fallbackAvatarUrl);
+  const resolvedConversationId =
+    normalizedPayload.id || normalizedPayload.conversationId || conversationId;
+  const rawPayload =
+    normalizedPayload.raw && typeof normalizedPayload.raw === "object"
+      ? normalizedPayload.raw
+      : normalizedPayload;
+
+  return {
+    ...normalizedPayload,
+    id: resolvedConversationId,
+    avatarUrl: resolvedAvatarUrl || normalizedPayload.avatarUrl || "",
+    trustedAvatarUrl:
+      resolvedAvatarUrl || normalizedPayload.trustedAvatarUrl || normalizedPayload.avatarUrl || "",
+    groupAvatarUrl:
+      resolvedAvatarUrl || normalizedPayload.groupAvatarUrl || normalizedPayload.avatarUrl || "",
+    raw: {
+      ...rawPayload,
+      id: rawPayload.id || resolvedConversationId,
+      avatarUrl: resolvedAvatarUrl || rawPayload.avatarUrl || "",
+      groupAvatarUrl: resolvedAvatarUrl || rawPayload.groupAvatarUrl || rawPayload.avatarUrl || "",
+    },
+  };
+};
+
 export const getConversations = async ({ archived = false, groupLabel = null } = {}) => {
   const params = { archived };
   if (groupLabel) {
@@ -135,7 +175,11 @@ export const updateConversationAvatarV1 = async (conversationId, avatarUrl) => {
   const response = await chatHttpClient.patch(`/conversations/${conversationId}/avatar`, {
     avatarUrl,
   });
-  return unwrapResponseData(response);
+  return normalizeConversationAvatarResponse(
+    unwrapResponseData(response),
+    conversationId,
+    avatarUrl
+  );
 };
 
 export const addConversationMemberV1 = async (conversationId, userId) => {

@@ -3856,6 +3856,19 @@ textarea:focus-visible,
   max-width: min(340px, 72vw) !important;
 }
 
+.container-containermess .mention-suggestion-panel.mention-suggestion-panel-fixed {
+  position: fixed !important;
+  left: var(--mention-panel-left, 16px) !important;
+  right: auto !important;
+  bottom: var(--mention-panel-bottom, 72px) !important;
+  width: var(--mention-panel-width, 360px) !important;
+  max-width: calc(100vw - 24px) !important;
+  max-height: min(260px, calc(100vh - var(--mention-panel-bottom, 72px) - 16px)) !important;
+  transform: none !important;
+  z-index: 10000 !important;
+  overflow-y: auto !important;
+}
+
 .container-containermess .detail-mess.call-log-bubble,
 .container-containermess .my-mess .detail-mess.call-log-bubble {
   width: 300px !important;
@@ -4012,6 +4025,37 @@ textarea:focus-visible,
   color: #0a66ff !important;
   border-color: #cfe0ff !important;
   box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1) !important;
+}
+
+.container-containermess .call-log-status-pill,
+.container-containermess .my-mess .call-log-status-pill {
+  width: fit-content !important;
+  min-width: 92px !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  margin: 2px 0 0 50px !important;
+  padding: 0 14px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 11px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+}
+
+.container-containermess .call-log-status-pill-ended,
+.container-containermess .my-mess .call-log-status-pill-ended {
+  background: #f1f5f9 !important;
+  color: #64748b !important;
+  border: 1px solid #dbe4ee !important;
+}
+
+.container-containermess .call-log-status-pill-checking,
+.container-containermess .my-mess .call-log-status-pill-checking {
+  background: #eef4ff !important;
+  color: #1d4ed8 !important;
+  border: 1px solid #cfe0ff !important;
 }
 
 @media (max-width: 640px) {

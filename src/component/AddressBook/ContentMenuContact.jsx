@@ -8,6 +8,7 @@ import {
   DanhSachChan,
 } from "./MenuContact";
 import { UserContext } from "../../Context/UserContext";
+import { ContactContext } from "../../Context/ContactConext";
 import { TbMessageDots } from "react-icons/tb";
 import {
   HiOutlineArchiveBox,
@@ -41,6 +42,7 @@ import {
 import { updateCloseFriendStatusForCurrentUser } from "../../services/closeFriendApi";
 import {
   leaveConversationV1,
+  openOrCreatePrivateConversationV1,
   updateConversationMuteV1,
   updateConversationPinV1,
 } from "../../services/chat/conversationApi";
@@ -60,6 +62,43 @@ export const CHAN = "Chặn";
 export const BO_CHAN = "Bỏ chặn";
 export const GAN_BAN_THAN = "Gắn bạn thân";
 export const BO_BAN_THAN = "Bỏ bạn thân";
+
+const resolveAcceptedFriendUser = (friend, acceptedRequest) => {
+  const sender = acceptedRequest?.sender || null;
+  const userId =
+    sender?.userId ||
+    sender?.id ||
+    friend?.userId ||
+    friend?._id ||
+    friend?.id ||
+    null;
+
+  if (!userId) {
+    return null;
+  }
+
+  return {
+    ...friend,
+    ...sender,
+    id: userId,
+    _id: userId,
+    userId,
+    displayName:
+      sender?.displayName ||
+      sender?.username ||
+      friend?.displayName ||
+      friend?.username ||
+      "Người dùng",
+    username:
+      sender?.username ||
+      friend?.username ||
+      sender?.displayName ||
+      friend?.displayName ||
+      "",
+    avatarUrl: sender?.avatarUrl || friend?.avatarUrl || friend?.avatar || "",
+    avatar: sender?.avatarUrl || friend?.avatar || friend?.avatarUrl || "",
+  };
+};
 
 const FRIEND_FILTER_ALL = "all";
 const FRIEND_FILTER_CLOSE = "close";
@@ -297,6 +336,7 @@ export default function ContentMenuContact({
   handleShowSoftConversation,
 }) {
   const { userData } = useContext(UserContext);
+  const { upsertConversation } = useContext(ContactContext) || {};
   const currentUserId = userData?._id || userData?.userId || null;
   const [friendReq, setFriendReq] = useState([]);
   // const [listData, setListData] = useState(() => buildListData(dataContentContac, title));
@@ -522,6 +562,44 @@ useEffect(() => {
     }
   };
 
+  const addAcceptedFriendToChatList = React.useCallback(
+    async (friend, acceptedRequest) => {
+      const acceptedFriend = resolveAcceptedFriendUser(friend, acceptedRequest);
+      if (!acceptedFriend?.userId || !upsertConversation) {
+        return;
+      }
+
+      try {
+        const conversation = await openOrCreatePrivateConversationV1(
+          acceptedFriend.userId
+        );
+        upsertConversation(
+          {
+            ...conversation,
+            type: conversation?.type || "private",
+            peerUserId: conversation?.peerUserId || acceptedFriend.userId,
+            peerDisplayName:
+              conversation?.peerDisplayName || acceptedFriend.displayName,
+            peerAvatarUrl: conversation?.peerAvatarUrl || acceptedFriend.avatarUrl || "",
+            displayName: conversation?.displayName || acceptedFriend.displayName,
+            trustedDisplayName:
+              conversation?.trustedDisplayName || acceptedFriend.displayName,
+            avatarUrl: conversation?.avatarUrl || acceptedFriend.avatarUrl || "",
+            trustedAvatarUrl:
+              conversation?.trustedAvatarUrl || acceptedFriend.avatarUrl || "",
+          },
+          { source: "friend-request-accepted" }
+        );
+      } catch (error) {
+        console.error(
+          "Failed to add accepted friend to chat list:",
+          error
+        );
+      }
+    },
+    [upsertConversation]
+  );
+
   // const handleCrudFriend = async (friend, e) => {
   //   const action = e.target.textContent;
   //   const data = {
@@ -549,6 +627,7 @@ useEffect(() => {
     const response = await acceptFriendRequestV2({ requestId: friend.requestId });
     if (response.status === 200) {
       updateListStateByAction(friend._id, action);
+      await addAcceptedFriendToChatList(friend, response.data);
     }
     return;
   }

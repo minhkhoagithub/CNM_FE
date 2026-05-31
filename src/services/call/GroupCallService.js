@@ -39,12 +39,12 @@ class GroupCallService {
   getLocalStream() { return this._localStream; }
   getRemoteStreams() { return this._remoteStreams; }
 
-  async joinCall({ groupCallId, sfuUrl, channel, peerId, type, onPeersUpdated, onLocalStream, onCallEnded, onActiveSpeaker }) {
+  async joinCall({ groupCallId, sfuUrl, channel, peerId, type, callType, onPeersUpdated, onLocalStream, onCallEnded, onActiveSpeaker }) {
     this._groupCallId = groupCallId;
     this._sfuUrl = sfuUrl;
     this._roomId = channel;
     this._peerId = peerId || `web-group-${Date.now()}-${Math.floor(Math.random() * 9999)}`;
-    this._callType = type;
+    this._callType = String(type || callType || 'VOICE').toUpperCase();
     this.onPeersUpdated = onPeersUpdated || null;
     this.onLocalStream = onLocalStream || null;
     this.onCallEnded = onCallEnded || null;
@@ -285,6 +285,9 @@ class GroupCallService {
         rtpParameters,
         appData
       });
+      if (consumer.track) {
+        consumer.track.enabled = true;
+      }
       this._consumers.set(finalConsumerId, peerId);
       let peerStream = this._remoteStreams.get(peerId);
       
@@ -298,12 +301,22 @@ class GroupCallService {
       
       this._remoteStreams.set(peerId, peerStream);
       this._notifyPeersUpdated();
-      
-      this._ws?.send(JSON.stringify({
-        notification: true,
-        method: 'resumeConsumer',
-        data: { consumerId: finalConsumerId }
-      }));
+
+      try {
+        await this._sendRequest('resumeConsumer', { consumerId: finalConsumerId });
+        console.log('[GroupCallService Web] Consumer resumed:', {
+          consumerId: finalConsumerId,
+          kind,
+          peerId,
+        });
+      } catch (resumeError) {
+        console.error('[GroupCallService Web] Failed to resume consumer:', {
+          consumerId: finalConsumerId,
+          kind,
+          peerId,
+          error: resumeError,
+        });
+      }
     } catch (err) {
       console.error('[GroupCallService Web] _consumePeer error:', err);
     }

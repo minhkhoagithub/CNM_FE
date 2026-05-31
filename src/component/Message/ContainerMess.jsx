@@ -69,7 +69,7 @@ import {
 } from "../../services/reminder/reminderApi";
 import chatRealtimeService from "../../services/chat/chatRealtimeService";
 import { askAi, getChatSummary } from "../../services/ai/aiApi";
-import { initiateGroupCallApi } from "../../services/call/groupCallApi";
+import { getGroupCallStatusApi, initiateGroupCallApi } from "../../services/call/groupCallApi";
 import groupCallService from "../../services/call/GroupCallService";
 import {
   RECALLED_MESSAGE_PLACEHOLDER,
@@ -628,12 +628,53 @@ const TERMINAL_CALL_LOG_STATUSES = new Set([
   "CANCELLED",
   "BUSY",
 ]);
+const LIVE_GROUP_CALL_STATUSES = new Set([
+  "STARTED",
+  "RINGING",
+  "ONGOING",
+  "ACTIVE",
+  "IN_PROGRESS",
+]);
+const CHECKING_GROUP_CALL_STATUS = "CHECKING";
 
 const normalizeCallLogStatus = (callLog) =>
   String(callLog?.callStatus || callLog?.raw?.status || "ENDED").toUpperCase();
 
 const isTerminalCallLogStatus = (callLog) =>
   TERMINAL_CALL_LOG_STATUSES.has(normalizeCallLogStatus(callLog));
+
+const normalizeGroupCallStatusValue = (value) =>
+  String(value || "").trim().toUpperCase();
+
+const resolveExplicitGroupCallStatus = (callLog) =>
+  normalizeGroupCallStatusValue(
+    callLog?.raw?.status ||
+      callLog?.raw?.callStatus ||
+      callLog?.status ||
+      ""
+  );
+
+const resolveEffectiveGroupCallStatus = (callLog, trackedStatus) => {
+  const normalizedTrackedStatus = normalizeGroupCallStatusValue(trackedStatus);
+  if (normalizedTrackedStatus) {
+    return normalizedTrackedStatus;
+  }
+
+  const explicitStatus = resolveExplicitGroupCallStatus(callLog);
+  return explicitStatus || CHECKING_GROUP_CALL_STATUS;
+};
+
+const isLiveGroupCallStatus = (status) =>
+  LIVE_GROUP_CALL_STATUSES.has(normalizeGroupCallStatusValue(status));
+
+const isEndedGroupCallStatus = (status) => {
+  const normalizedStatus = normalizeGroupCallStatusValue(status);
+  return (
+    TERMINAL_CALL_LOG_STATUSES.has(normalizedStatus) ||
+    normalizedStatus === "COMPLETED" ||
+    normalizedStatus === "CLOSED"
+  );
+};
 
 const getCallLogIdentity = (message) => {
   const callLog = message?.callLog || null;
@@ -1840,6 +1881,7 @@ function ContainerMess({
   const typingDebounceTimeoutRef = useRef(null);
   const typingIdleTimeoutRef = useRef(null);
   const remoteTypingTimeoutsRef = useRef(new Map());
+  const groupCallStatusRequestedRef = useRef(new Set());
   const lastMarkedSeenRef = useRef({
     conversationId: null,
     lastReadMessageId: null,
@@ -1852,6 +1894,7 @@ function ContainerMess({
   const markCursorSyncInFlightRef = useRef(false);
   const markCursorSyncPendingRef = useRef(false);
   const cursorSyncChannelRef = useRef(null);
+  const composerInputRowRef = useRef(null);
   const cursorSyncTabIdRef = useRef(
     `tab-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
   );
@@ -1876,6 +1919,12 @@ function ContainerMess({
   const [activeIconSend, setActiveIconSend] = useState(false);
   const [draftText, setDraftText] = useState("");
   const [mentionState, setMentionState] = useState(() => closeMentionState());
+  const [mentionPanelPosition, setMentionPanelPosition] = useState({
+    left: 16,
+    bottom: 72,
+    width: 360,
+  });
+  const [groupCallStatusById, setGroupCallStatusById] = useState(new Map());
   const [selectedComposerMentions, setSelectedComposerMentions] = useState([]);
   const [isPeerBlocked, setIsPeerBlocked] = useState(false);
   const [isPeerBlockStateLoading, setIsPeerBlockStateLoading] = useState(false);
@@ -2606,6 +2655,51 @@ function ContainerMess({
 
     return matches;
   }, [backendConversationId, mentionCandidates, mentionState.open, mentionState.query]);
+  const updateMentionPanelPosition = useCallback(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const anchor = composerInputRowRef.current;
+    if (!anchor) {
+      return;
+    }
+
+    const rect = anchor.getBoundingClientRect();
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const width = Math.min(360, Math.max(260, rect.width - 24, viewportWidth - 32));
+    const left = Math.min(
+      Math.max(rect.left + 12, 12),
+      Math.max(12, viewportWidth - width - 12)
+    );
+    const bottom = Math.min(
+      Math.max(viewportHeight - rect.top + 8, 56),
+      Math.max(56, viewportHeight - 20)
+    );
+
+    setMentionPanelPosition({ left, bottom, width });
+  }, []);
+
+  useEffect(() => {
+    if (!mentionState.open) {
+      return undefined;
+    }
+
+    updateMentionPanelPosition();
+    window.addEventListener("resize", updateMentionPanelPosition);
+    window.addEventListener("scroll", updateMentionPanelPosition, true);
+
+    return () => {
+      window.removeEventListener("resize", updateMentionPanelPosition);
+      window.removeEventListener("scroll", updateMentionPanelPosition, true);
+    };
+  }, [
+    matchedMentionCandidates.length,
+    mentionState.open,
+    selectedAttachments.length,
+    updateMentionPanelPosition,
+  ]);
   const currentConversationMemberRole = useMemo(() => {
     if (!currentUserId) {
       return "MEMBER";
@@ -6148,17 +6242,24 @@ function ContainerMess({
         return;
       }
 
+      const trackedStatus = groupCallStatusById.get(String(callLog.groupCallId));
+      const effectiveStatus = resolveEffectiveGroupCallStatus(callLog, trackedStatus);
+      if (!isLiveGroupCallStatus(effectiveStatus)) {
+        return;
+      }
+
       window.dispatchEvent(
         new CustomEvent("group-call-join-request", {
           detail: {
             ...callLog,
             conversationId: backendConversationId,
             callType: callLog.callType || callLog.raw?.type || "VOICE",
+            type: callLog.type || callLog.callType || callLog.raw?.type || "VOICE",
           },
         })
       );
     },
-    [backendConversationId]
+    [backendConversationId, groupCallStatusById]
   );
 
   const renderCallLogMessage = useCallback(
@@ -6178,6 +6279,24 @@ function ContainerMess({
         item.senderDisplayName ||
         getConversationDisplayName(activeConversation);
       const CallLogIcon = isVideo ? IoVideocamOutline : IoCallOutline;
+      const groupCallId = String(callLog.groupCallId || "").trim();
+      const trackedGroupCallStatus = groupCallId
+        ? groupCallStatusById.get(groupCallId)
+        : "";
+      const effectiveGroupCallStatus = resolveEffectiveGroupCallStatus(
+        callLog,
+        trackedGroupCallStatus
+      );
+      const canJoinGroupCall =
+        Boolean(groupCallId) &&
+        activeConversation?.type === "group" &&
+        isLiveGroupCallStatus(effectiveGroupCallStatus);
+      const groupCallStatusLabel =
+        effectiveGroupCallStatus === CHECKING_GROUP_CALL_STATUS
+          ? "\u0110ang ki\u1ec3m tra..."
+          : canJoinGroupCall
+          ? "\u0110ang di\u1ec5n ra"
+          : "\u0110\u00e3 k\u1ebft th\u00fac";
 
       console.log("[CALL LOG RENDER]", {
         source: "web",
@@ -6185,6 +6304,7 @@ function ContainerMess({
         conversationId: backendConversationId,
         callType: callLog.callType,
         callStatus: callLog.callStatus,
+        effectiveGroupCallStatus,
         durationSeconds: callLog.durationSeconds,
         callerId: callLog.callerId,
       });
@@ -6227,7 +6347,8 @@ function ContainerMess({
                 {resolveCallLogSubtitle(callLog, currentUserId, fallbackName)}
               </p>
               {callDuration ? <p className="call-log-duration">⏱ {callDuration}</p> : null}
-              {callLog.groupCallId && activeConversation?.type === "group" ? (
+              {groupCallId && activeConversation?.type === "group" ? (
+                canJoinGroupCall ? (
                 <button
                   className="message-action-btn primary call-log-action"
                   type="button"
@@ -6236,6 +6357,17 @@ function ContainerMess({
                   <CallLogIcon />
                   Tham gia cuộc gọi
                 </button>
+                ) : (
+                  <span
+                    className={`call-log-status-pill ${
+                      effectiveGroupCallStatus === CHECKING_GROUP_CALL_STATUS
+                        ? "call-log-status-pill-checking"
+                        : "call-log-status-pill-ended"
+                    }`}
+                  >
+                    {groupCallStatusLabel}
+                  </span>
+                )
               ) : null}
             </div>
           </div>
@@ -6247,6 +6379,97 @@ function ContainerMess({
   );
 
   const normalizedMessages = useMemo(() => normalizeMessageList(messages), [messages]);
+
+  useEffect(() => {
+    const groupCallIds = Array.from(
+      new Set(
+        normalizedMessages
+          .map((message) => String(message?.callLog?.groupCallId || "").trim())
+          .filter(Boolean)
+      )
+    );
+
+    if (!groupCallIds.length) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const missingGroupCallIds = groupCallIds.filter((groupCallId) => {
+      if (groupCallStatusRequestedRef.current.has(groupCallId)) {
+        return false;
+      }
+      groupCallStatusRequestedRef.current.add(groupCallId);
+      return true;
+    });
+
+    if (!missingGroupCallIds.length) {
+      return undefined;
+    }
+
+    setGroupCallStatusById((current) => {
+      const next = new Map(current);
+      missingGroupCallIds.forEach((groupCallId) => {
+        if (!next.has(groupCallId)) {
+          next.set(groupCallId, CHECKING_GROUP_CALL_STATUS);
+        }
+      });
+      return next;
+    });
+
+    missingGroupCallIds.forEach((groupCallId) => {
+      getGroupCallStatusApi(groupCallId)
+        .then((statusInfo) => {
+          if (cancelled) {
+            return;
+          }
+
+          const nextStatus = normalizeGroupCallStatusValue(
+            statusInfo?.isEnded ? "ENDED" : statusInfo?.status || "ENDED"
+          );
+          setGroupCallStatusById((current) => {
+            const next = new Map(current);
+            next.set(groupCallId, nextStatus || "ENDED");
+            return next;
+          });
+        })
+        .catch(() => {
+          if (cancelled) {
+            return;
+          }
+
+          setGroupCallStatusById((current) => {
+            const next = new Map(current);
+            next.set(groupCallId, "ENDED");
+            return next;
+          });
+        });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [normalizedMessages]);
+
+  useEffect(() => {
+    const handleGroupCallEnded = (event) => {
+      const payload = event?.detail || event || {};
+      const groupCallId = String(payload?.groupCallId || payload?.id || "").trim();
+      if (!groupCallId) {
+        return;
+      }
+
+      groupCallStatusRequestedRef.current.add(groupCallId);
+      setGroupCallStatusById((current) => {
+        const next = new Map(current);
+        next.set(groupCallId, "ENDED");
+        return next;
+      });
+    };
+
+    window.addEventListener("group-call-ended", handleGroupCallEnded);
+    return () => window.removeEventListener("group-call-ended", handleGroupCallEnded);
+  }, []);
+
   const pollStateById = useMemo(() => {
     const nextPollStateById = new Map();
 
@@ -7238,7 +7461,8 @@ function ContainerMess({
           ...callData,
           initiatorId: currentUserId,
           initiatorName: userData?.displayName || "Bạn",
-          type: type.toUpperCase() // VIDEO/VOICE
+          type: type.toUpperCase(), // VIDEO/VOICE
+          callType: type.toUpperCase(),
         } 
       });
       window.dispatchEvent(event);
@@ -8976,9 +9200,16 @@ function ContainerMess({
                 </div>
               </div>
             ) : null}
-            <div className="composer-input-row">
+            <div className="composer-input-row" ref={composerInputRowRef}>
               {mentionFeatureEnabled && mentionState.open ? (
-                <div className="mention-suggestion-panel mention-suggestion-panel-above-composer">
+                <div
+                  className="mention-suggestion-panel mention-suggestion-panel-above-composer mention-suggestion-panel-fixed"
+                  style={{
+                    "--mention-panel-left": `${mentionPanelPosition.left}px`,
+                    "--mention-panel-bottom": `${mentionPanelPosition.bottom}px`,
+                    "--mention-panel-width": `${mentionPanelPosition.width}px`,
+                  }}
+                >
                   {matchedMentionCandidates.length > 0 ? (
                     matchedMentionCandidates.map((candidate) => (
                       <button

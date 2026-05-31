@@ -1894,6 +1894,32 @@
   background-color: #0056b3 !important;
 }
 
+.call-log-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 32px;
+  margin-top: 4px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.call-log-status-pill-ended {
+  background-color: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #dbe4ee;
+}
+
+.call-log-status-pill-checking {
+  background-color: #eef4ff;
+  color: #1d4ed8;
+  border: 1px solid #cfe0ff;
+}
+
 .message-action-btn,
 .message-reaction-btn {
   border: none;
@@ -3852,6 +3878,19 @@
   overflow-y: auto !important;
   border-radius: 12px !important;
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.2) !important;
+}
+
+.container-containermess .mention-suggestion-panel.mention-suggestion-panel-fixed {
+  position: fixed !important;
+  left: var(--mention-panel-left, 16px) !important;
+  right: auto !important;
+  bottom: var(--mention-panel-bottom, 72px) !important;
+  width: var(--mention-panel-width, 360px) !important;
+  max-width: calc(100vw - 24px) !important;
+  max-height: min(260px, calc(100vh - var(--mention-panel-bottom, 72px) - 16px)) !important;
+  transform: none !important;
+  z-index: 10000 !important;
+  overflow-y: auto !important;
 }
 
 .container-containermess .infor-container {
