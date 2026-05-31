@@ -8,12 +8,14 @@ import ZaloLock from "./page/ZaloLock";
 import Chat from "./page/Chat";
 import Zalo from "./page/Zalo";
 import ProtectedRoute from "./Context/ProtectedRoute";
+import BrowserTabTitle from "./component/BrowserTabTitle";
 
 import './App.css'
 
 function App() {
   return (
     <BrowserRouter>
+      <BrowserTabTitle />
       <Routes>
         {/* Auth routes - chỉ được vào khi chưa đăng nhập */}
         <Route 

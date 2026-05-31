@@ -615,6 +615,16 @@ const isRecordedVoiceAttachment = (attachment) => {
   );
 };
 
+const hasAudioSemanticMetadata = (attachment) => {
+  const fileName = String(attachment?.fileName || attachment?.name || "").toLowerCase();
+
+  return (
+    Boolean(String(attachment?.audioFormat || "").trim()) ||
+    (Array.isArray(attachment?.waveform) && attachment.waveform.length > 0) ||
+    fileName.startsWith("voice-message-")
+  );
+};
+
 const CALL_LOG_TYPES = new Set(["CALL_LOG", "CALL", "SYSTEM_CALL"]);
 
 const parseDurationSeconds = (value) => {
@@ -658,6 +668,13 @@ const parseCallLog = (message) => {
 
   return {
     raw: payload,
+    callId:
+      pickFirstText(
+        payload?.callId,
+        payload?.id,
+        message?.callId,
+        message?.raw?.callId
+      ) || null,
     callType: callType || "VOICE",
     callStatus: callStatus || (payload?.groupCallId ? "STARTED" : "ENDED"),
     durationSeconds: parseDurationSeconds(
@@ -669,6 +686,12 @@ const parseCallLog = (message) => {
         payload?.senderId,
         message?.callerId,
         message?.senderId
+      ) || null,
+    calleeId:
+      pickFirstText(
+        payload?.calleeId,
+        message?.calleeId,
+        message?.raw?.calleeId
       ) || null,
     groupCallId: payload?.groupCallId || null,
     channel: payload?.channel || null,
@@ -700,14 +723,14 @@ export const isVideoAttachment = (attachment) => {
   const contentType = String(attachment?.contentType || "").toLowerCase();
   const attachmentType = String(attachment?.type || "").toUpperCase();
   const ext = getAttachmentFileExtension(attachment);
-  const hasAudioMetadata =
-    Number.isFinite(Number(attachment?.durationMs)) ||
-    (Array.isArray(attachment?.waveform) && attachment.waveform.length > 0) ||
-    Boolean(String(attachment?.audioFormat || "").trim());
 
   // WebM audio recordings can sometimes carry a video/* MIME type depending on browser.
   // Force audio precedence when the attachment explicitly indicates audio semantics.
-  if (attachmentType === "AUDIO" || contentType.startsWith("audio/") || hasAudioMetadata) {
+  if (
+    attachmentType === "AUDIO" ||
+    contentType.startsWith("audio/") ||
+    hasAudioSemanticMetadata(attachment)
+  ) {
     return false;
   }
 
@@ -726,16 +749,15 @@ export const isAudioAttachment = (attachment) => {
   const contentType = String(attachment?.contentType || "").toLowerCase();
   const attachmentType = String(attachment?.type || "").toUpperCase();
   const ext = getAttachmentFileExtension(attachment);
-  const hasAudioMetadata =
-    Number.isFinite(Number(attachment?.durationMs)) ||
-    (Array.isArray(attachment?.waveform) && attachment.waveform.length > 0) ||
-    Boolean(String(attachment?.audioFormat || "").trim());
+  const hasAudioMetadata = hasAudioSemanticMetadata(attachment);
+  const isExplicitVideo = attachmentType === "VIDEO" || contentType.startsWith("video/");
 
   return (
     contentType.startsWith("audio/") ||
     attachmentType === "AUDIO" ||
     (contentType.startsWith("video/") && hasAudioMetadata) ||
-    ["mp3", "wav", "ogg", "m4a", "aac", "opus", "flac", "webm"].includes(ext)
+    (!isExplicitVideo &&
+      ["mp3", "wav", "ogg", "m4a", "aac", "opus", "flac", "webm"].includes(ext))
   );
 };
 

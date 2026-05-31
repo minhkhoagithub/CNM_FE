@@ -18,6 +18,8 @@ import {
 } from "../services/notification/notificationApi";
 import { listenForForegroundPush, registerWebPushToken } from "../services/notification/webPushService";
 import { getOrCreateWebDeviceId } from "../services/notification/webDeviceId";
+import NotificationToast from "../component/Notifications/NotificationToast";
+import { getNotificationTargetKind } from "../services/notification/notificationNavigation";
 
 const NotificationContext = createContext(null);
 
@@ -32,7 +34,9 @@ export const NotificationProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [pushStatus, setPushStatus] = useState("idle");
+  const [topToastNotification, setTopToastNotification] = useState(null);
   const nextCursorRef = useRef(null);
+  const topToastTimeoutRef = useRef(null);
 
   useEffect(() => {
     nextCursorRef.current = nextCursor;
@@ -78,6 +82,47 @@ export const NotificationProvider = ({ children }) => {
     await loadUnreadCount();
     return updated;
   }, [loadUnreadCount]);
+
+  const dismissTopToast = useCallback(() => {
+    if (topToastTimeoutRef.current) {
+      clearTimeout(topToastTimeoutRef.current);
+      topToastTimeoutRef.current = null;
+    }
+    setTopToastNotification(null);
+  }, []);
+
+  const showTopToast = useCallback((notification) => {
+    if (!notification) {
+      return;
+    }
+
+    if (topToastTimeoutRef.current) {
+      clearTimeout(topToastTimeoutRef.current);
+    }
+    setTopToastNotification(notification);
+    topToastTimeoutRef.current = setTimeout(() => {
+      setTopToastNotification(null);
+      topToastTimeoutRef.current = null;
+    }, 6500);
+  }, []);
+
+  const openTopToast = useCallback(
+    async (notification) => {
+      dismissTopToast();
+      if (notification?.id && notification?.unread) {
+        await markRead(notification.id).catch(() => {});
+      }
+      window.dispatchEvent(
+        new CustomEvent("notification:navigate", {
+          detail: {
+            notification,
+            kind: getNotificationTargetKind(notification),
+          },
+        })
+      );
+    },
+    [dismissTopToast, markRead]
+  );
 
   const markAllRead = useCallback(async () => {
     await markAllNotificationsRead();
@@ -143,6 +188,7 @@ export const NotificationProvider = ({ children }) => {
           }
           return [event.notification, ...current].slice(0, 50);
         });
+        showTopToast(event.notification);
         if (event?.unreadCount === undefined) {
           void loadUnreadCount();
         }
@@ -175,7 +221,7 @@ export const NotificationProvider = ({ children }) => {
 
     WebSocketService.on("notification", handleNotificationRealtime);
     return () => WebSocketService.off("notification", handleNotificationRealtime);
-  }, [loadUnreadCount]);
+  }, [loadUnreadCount, showTopToast]);
 
   useEffect(() => {
     const onFocus = () => {
@@ -189,6 +235,22 @@ export const NotificationProvider = ({ children }) => {
     let unsubscribe = () => {};
     listenForForegroundPush((payload) => {
       console.log("[NotificationContext] foreground push", payload?.data || payload);
+      const data = payload?.data || {};
+      const notification = payload?.notification || {};
+      showTopToast({
+        id: data.id || data.notificationId || data.targetId || `${Date.now()}`,
+        type: data.type,
+        title: notification.title || data.title,
+        body: notification.body || data.body,
+        targetType: data.targetType,
+        targetId: data.targetId,
+        conversationId: data.conversationId,
+        messageId: data.messageId,
+        reminderId: data.reminderId,
+        metadata: data,
+        unread: true,
+        createdAt: new Date().toISOString(),
+      });
       void loadUnreadCount();
     })
       .then((unsub) => {
@@ -197,7 +259,16 @@ export const NotificationProvider = ({ children }) => {
       .catch(() => {});
 
     return () => unsubscribe();
-  }, [loadUnreadCount]);
+  }, [loadUnreadCount, showTopToast]);
+
+  useEffect(
+    () => () => {
+      if (topToastTimeoutRef.current) {
+        clearTimeout(topToastTimeoutRef.current);
+      }
+    },
+    []
+  );
 
   const value = useMemo(
     () => ({
@@ -241,6 +312,11 @@ export const NotificationProvider = ({ children }) => {
   return (
     <NotificationContext.Provider value={value}>
       {children}
+      <NotificationToast
+        notification={topToastNotification}
+        onDismiss={dismissTopToast}
+        onOpen={openTopToast}
+      />
     </NotificationContext.Provider>
   );
 };

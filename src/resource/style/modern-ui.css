@@ -780,10 +780,25 @@ textarea:focus-visible,
 
 /* Conversation flags/pills */
 .contact-conversation-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 10px;
   font-weight: 600;
   border-radius: var(--ui-radius-sm);
   padding: 2px 6px;
+}
+
+.contact-conversation-pill.icon-only {
+  width: 22px;
+  height: 22px;
+  padding: 0 !important;
+  border-radius: 999px !important;
+}
+
+.contact-conversation-pill.icon-only svg {
+  width: 12px;
+  height: 12px;
 }
 
 .contact-conversation-pill.pinned {
@@ -966,7 +981,11 @@ textarea:focus-visible,
 .infor-container {
   height: calc(100vh - 140px) !important;
   padding: 16px 0 !important;
-  background: var(--ui-bg) !important;
+  background-color: var(--conversation-background-color, var(--ui-bg)) !important;
+  background-image: var(--conversation-background-image, none) !important;
+  background-size: cover !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
   overflow-y: auto;
 }
 
@@ -1301,6 +1320,15 @@ textarea:focus-visible,
   font-size: 11px;
   color: var(--ui-text-muted);
   font-style: italic;
+}
+
+.message-state-chip-icon {
+  width: 28px !important;
+  height: 24px !important;
+  padding: 0 !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-style: normal !important;
 }
 
 /* Image attachments */
@@ -2945,6 +2973,13 @@ textarea:focus-visible,
   white-space: nowrap !important;
 }
 
+.contact-listConversation .contact-conversation-pill.icon-only {
+  width: 20px !important;
+  height: 20px !important;
+  padding: 0 !important;
+  min-width: 20px !important;
+}
+
 .contact-listConversation .contact-last-onl {
   min-width: 30px !important;
   align-self: stretch !important;
@@ -3086,6 +3121,76 @@ textarea:focus-visible,
     min-height: 66px !important;
     padding: 9px !important;
   }
+}
+
+.container-containermess .group-system-message-dropdown summary {
+  list-style: none !important;
+}
+
+.container-containermess .group-system-message-dropdown summary::-webkit-details-marker {
+  display: none !important;
+}
+
+.container-containermess .group-system-message-dropdown-list {
+  border: 1px solid var(--ui-border) !important;
+  box-shadow: var(--ui-shadow-popover) !important;
+}
+
+.container-containermess .pinned-panel {
+  width: min(620px, calc(100% - 28px)) !important;
+  margin: 6px auto 8px !important;
+  border-radius: 999px !important;
+  border: 1px solid var(--ui-border) !important;
+  box-shadow: var(--ui-shadow-sm) !important;
+}
+
+.container-containermess .pinned-panel-head {
+  padding: 6px 8px 6px 12px !important;
+}
+
+.container-containermess .pinned-panel-title {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  font-size: 13px !important;
+}
+
+.container-containermess .pinned-panel-toggle {
+  border-radius: 999px !important;
+  padding: 5px 8px !important;
+  font-size: 12px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+}
+
+.container-containermess .pinned-panel-list {
+  position: absolute !important;
+  top: calc(100% + 6px) !important;
+  left: 0 !important;
+  right: 0 !important;
+  border: 1px solid var(--ui-border) !important;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+  background: var(--ui-surface) !important;
+  box-shadow: var(--ui-shadow-popover) !important;
+}
+
+.container-containermess .pinned-panel-item-single {
+  border-top: 0 !important;
+  padding: 0 12px 7px !important;
+}
+
+.container-containermess .pinned-panel-item-label {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  font-size: 11px !important;
+  color: var(--ui-text-muted) !important;
+}
+
+.container-containermess .pinned-panel-item-preview {
+  font-size: 13px !important;
 }
 
 /* Composer reference refresh: flat input form, existing icons and handlers preserved. */
@@ -3351,16 +3456,38 @@ textarea:focus-visible,
 }
 
 .container-containermess .voice-preview-audio {
-  width: 100% !important;
-  height: 32px !important;
+  display: none !important;
+}
+
+.container-containermess .voice-preview-player {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
   margin-bottom: 6px !important;
 }
 
-.container-containermess .voice-preview-waveform {
-  grid-template-columns: repeat(40, minmax(2px, 1fr)) !important;
-  height: 16px !important;
-  margin-bottom: 6px !important;
+.container-containermess .voice-preview-play-btn {
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  border-radius: 999px !important;
+  background: #0a84ff !important;
+  color: #fff !important;
+}
+
+.container-containermess .voice-preview-progress {
+  flex: 1 !important;
+  height: 8px !important;
+  border-radius: 999px !important;
+  background: #d8e3f2 !important;
   overflow: hidden !important;
+}
+
+.container-containermess .voice-preview-progress span {
+  display: block !important;
+  height: 100% !important;
+  border-radius: inherit !important;
+  background: #0a84ff !important;
 }
 
 .container-containermess .voice-recorder-btn {
@@ -3406,21 +3533,25 @@ textarea:focus-visible,
   gap: 4px !important;
 }
 
-.container-containermess .voice-message-waveform {
-  grid-template-columns: repeat(36, minmax(2px, 1fr)) !important;
-  height: 20px !important;
+.container-containermess .voice-message-progress {
+  height: 7px !important;
+  border-radius: 999px !important;
+  background: #cdd9e8 !important;
   overflow: hidden !important;
 }
 
-.container-containermess .voice-message-wave-bar {
-  min-height: 4px !important;
+.container-containermess .voice-message-progress-fill {
+  display: block !important;
+  height: 100% !important;
+  border-radius: inherit !important;
+  background: #0a84ff !important;
 }
 
-.container-containermess .my-mess .voice-message-wave-bar {
-  background: rgba(255, 255, 255, 0.45) !important;
+.container-containermess .my-mess .voice-message-progress {
+  background: rgba(255, 255, 255, 0.35) !important;
 }
 
-.container-containermess .my-mess .voice-message-wave-bar.active {
+.container-containermess .my-mess .voice-message-progress-fill {
   background: #ffffff !important;
 }
 
@@ -3556,7 +3687,7 @@ textarea:focus-visible,
   z-index: 2 !important;
 }
 
-/* Empty chat state: mirrors the login loading mark without importing page-level CSS. */
+/* Empty chat state. */
 .message-empty-state {
   width: 100%;
   height: 100%;
@@ -3569,12 +3700,12 @@ textarea:focus-visible,
 
 .message-empty-zalo-mark {
   width: 220px;
-  min-height: 190px;
+  min-height: 150px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 26px;
+  gap: 12px;
 }
 
 .message-empty-zalo-mark h2 {
@@ -3584,6 +3715,15 @@ textarea:focus-visible,
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0;
+}
+
+.message-empty-zalo-mark p {
+  margin: 0;
+  color: #64748b;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: center;
 }
 
 .message-empty-loader {
@@ -3664,5 +3804,370 @@ textarea:focus-visible,
   }
   100% {
     background: #00e5ff;
+  }
+}
+
+/* Media and call messages: keep video/call cards distinct from text bubbles. */
+.container-containermess .message-video-list {
+  width: 100% !important;
+  display: grid !important;
+  gap: 8px !important;
+  margin: 2px 0 8px !important;
+}
+
+.container-containermess .message-video-card {
+  width: min(360px, 64vw) !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  border-radius: 14px !important;
+  background: #0f172a !important;
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
+}
+
+.container-containermess .message-video-player {
+  display: block !important;
+  width: 100% !important;
+  min-height: 150px !important;
+  max-height: 340px !important;
+  aspect-ratio: 16 / 9 !important;
+  object-fit: contain !important;
+  border-radius: 0 !important;
+  background: #000000 !important;
+}
+
+.container-containermess .my-mess .message-video-card {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.container-containermess .call-log-message-row {
+  align-items: flex-end !important;
+}
+
+.container-containermess .call-log-avatar {
+  width: 32px !important;
+  height: 32px !important;
+  margin: 0 !important;
+  border-radius: 50% !important;
+  object-fit: cover !important;
+  flex: 0 0 32px !important;
+}
+
+.container-containermess .call-log-stack {
+  max-width: min(340px, 72vw) !important;
+}
+
+.container-containermess .detail-mess.call-log-bubble,
+.container-containermess .my-mess .detail-mess.call-log-bubble {
+  width: 300px !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  padding: 14px 16px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  border: 1px solid #e8edf4 !important;
+  border-radius: 13px !important;
+  background: #ffffff !important;
+  color: #111827 !important;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05) !important;
+}
+
+.container-containermess .wrap-text-mess:not(.my-mess) .detail-mess.call-log-bubble {
+  border-bottom-left-radius: 13px !important;
+}
+
+.container-containermess .my-mess .detail-mess.call-log-bubble {
+  border-bottom-right-radius: 13px !important;
+}
+
+.container-containermess .call-log-header {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+
+.container-containermess .call-log-header > .call-log-icon:not(.call-log-icon-rendered) {
+  display: none !important;
+}
+
+.container-containermess .call-log-icon-rendered {
+  width: 38px !important;
+  height: 38px !important;
+  min-width: 38px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 12px !important;
+  background: #fceef7 !important;
+  color: #db2777 !important;
+  font-size: 0 !important;
+}
+
+.container-containermess .call-log-icon-rendered.video {
+  background: #eef2ff !important;
+  color: #4f46e5 !important;
+}
+
+.container-containermess .call-log-icon-rendered.missed {
+  background: #fff1f2 !important;
+  color: #e11d48 !important;
+}
+
+.container-containermess .call-log-icon-rendered svg {
+  width: 20px !important;
+  height: 20px !important;
+}
+
+.container-containermess .call-log-title {
+  margin: 0 !important;
+  color: #111827 !important;
+  font-size: 16px !important;
+  font-weight: 750 !important;
+  line-height: 1.25 !important;
+}
+
+.container-containermess .call-log-subtitle {
+  margin: 0 !important;
+  color: #6b7280 !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  line-height: 1.45 !important;
+}
+
+.container-containermess .my-mess .call-log-title,
+.container-containermess .my-mess .call-log-subtitle,
+.container-containermess .my-mess .call-log-duration {
+  color: inherit !important;
+}
+
+.container-containermess .my-mess .call-log-subtitle,
+.container-containermess .my-mess .call-log-duration {
+  color: #6b7280 !important;
+}
+
+.container-containermess .detail-mess.call-log-bubble.call-log-bubble--missed,
+.container-containermess .my-mess .detail-mess.call-log-bubble.call-log-bubble--missed {
+  border-color: #fecdd3 !important;
+  background: #fff5f6 !important;
+  color: #7f1d1d !important;
+}
+
+.container-containermess .detail-mess.call-log-bubble.call-log-bubble--missed .call-log-title,
+.container-containermess .my-mess .detail-mess.call-log-bubble.call-log-bubble--missed .call-log-title {
+  color: #be123c !important;
+}
+
+.container-containermess .detail-mess.call-log-bubble.call-log-bubble--missed .call-log-subtitle,
+.container-containermess .my-mess .detail-mess.call-log-bubble.call-log-bubble--missed .call-log-subtitle {
+  color: #991b1b !important;
+}
+
+.container-containermess .detail-mess.call-log-bubble.call-log-bubble--missed .call-log-duration,
+.container-containermess .my-mess .detail-mess.call-log-bubble.call-log-bubble--missed .call-log-duration {
+  background: #ffe4e6 !important;
+  color: #be123c !important;
+}
+
+.container-containermess .call-log-duration {
+  width: fit-content !important;
+  margin: -2px 0 0 50px !important;
+  padding: 3px 9px !important;
+  border-radius: 999px !important;
+  background: #f3f4f6 !important;
+  color: #6b7280 !important;
+  font-size: 12px !important;
+  font-weight: 650 !important;
+  line-height: 1.4 !important;
+}
+
+.container-containermess .call-log-action,
+.container-containermess .my-mess .call-log-action {
+  width: fit-content !important;
+  min-width: 92px !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  max-height: 34px !important;
+  margin: 2px 0 0 50px !important;
+  padding: 0 14px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  border: 1px solid #e3e8ef !important;
+  border-radius: 11px !important;
+  background: #ffffff !important;
+  color: #111827 !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+}
+
+.container-containermess .call-log-action svg {
+  width: 15px !important;
+  height: 15px !important;
+}
+
+.container-containermess .call-log-action:hover {
+  background: #f8fafc !important;
+  color: #0a66ff !important;
+  border-color: #cfe0ff !important;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1) !important;
+}
+
+@media (max-width: 640px) {
+  .container-containermess .message-video-card {
+    width: min(300px, 78vw) !important;
+  }
+
+  .container-containermess .detail-mess.call-log-bubble,
+  .container-containermess .my-mess .detail-mess.call-log-bubble {
+    width: min(300px, 78vw) !important;
+  }
+}
+
+.notification-top-toast-stack {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  z-index: 10000;
+  width: min(474px, calc(100vw - 24px));
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.notification-top-toast {
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  background: #ffffff;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.22);
+  pointer-events: auto;
+  animation: notification-toast-slide 0.22s ease-out;
+}
+
+.notification-top-toast-header {
+  height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  background: #303030;
+  color: #ffffff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  box-sizing: border-box;
+}
+
+.notification-top-toast-app-icon {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.notification-top-toast-app-name {
+  min-width: 0;
+  flex: 1;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notification-top-toast-close {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 22px;
+}
+
+.notification-top-toast-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.notification-top-toast-body {
+  width: 100%;
+  border: 0;
+  background: #ffffff;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.notification-top-toast-body:hover {
+  background: #f8fafc;
+}
+
+.notification-top-toast-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #eaf3ff;
+  color: #0b63f6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  font-size: 18px;
+}
+
+.notification-top-toast-content {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  color: #334155;
+}
+
+.notification-top-toast-content strong {
+  color: #111827;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.notification-top-toast-content span {
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@keyframes notification-toast-slide {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 640px) {
+  .notification-top-toast-stack {
+    top: 8px;
+    width: calc(100vw - 16px);
+  }
+
+  .notification-top-toast-header {
+    height: 50px;
+  }
+
+  .notification-top-toast-app-name {
+    font-size: 16px;
   }
 }

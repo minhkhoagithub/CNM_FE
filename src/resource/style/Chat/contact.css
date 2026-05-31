@@ -270,6 +270,9 @@
   flex-wrap: wrap;
 }
 .contact-conversation-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 10px;
   line-height: 1;
   font-weight: 700;
@@ -277,6 +280,17 @@
   border-radius: 999px;
   text-transform: uppercase;
   letter-spacing: 0.02em;
+}
+.contact-conversation-pill.icon-only {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+.contact-conversation-pill.icon-only svg {
+  width: 12px;
+  height: 12px;
 }
 .contact-conversation-pill.pinned {
   color: #895500;
@@ -1204,4 +1218,33 @@
     font-size: 9px;
     padding: 3px 5px;
   }
+}
+
+/* Conversation list presence dot is anchored to the avatar instead of the right column. */
+.contact-listConversation .contact-avatar-friend {
+  position: relative !important;
+  overflow: visible !important;
+}
+
+.contact-listConversation .contact-avatar-friend img {
+  display: block !important;
+}
+
+.contact-listConversation .contact-row-status {
+  display: none !important;
+}
+
+.contact-listConversation .contact-avatar-presence-dot {
+  position: absolute !important;
+  right: -1px !important;
+  bottom: -1px !important;
+  width: 12px !important;
+  height: 12px !important;
+  min-width: 12px !important;
+  min-height: 12px !important;
+  flex: 0 0 12px !important;
+  border: 2px solid #ffffff !important;
+  border-radius: 50% !important;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.16) !important;
+  z-index: 2 !important;
 }

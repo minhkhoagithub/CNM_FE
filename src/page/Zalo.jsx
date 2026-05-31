@@ -390,7 +390,7 @@ export default function Zalo() {
       setLocalStream(null);
       setRemoteStream(null);
       setIsRemoteVideoOff(false);
-      callService.endCall();
+      callService.finishRemoteCall();
     };
 
     const handleCallAction = (payload) => {

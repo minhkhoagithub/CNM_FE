@@ -699,6 +699,17 @@ export const normalizeConversationInput = (conversation, options = {}) => {
     lastMessage: resolveConversationPreviewText(
       conversation?.lastMessage ?? rawConversation?.lastMessage ?? ""
     ),
+    lastMessageSenderId:
+      conversation?.lastMessageSenderId ??
+      rawConversation?.lastMessageSenderId ??
+      rawConversation?.lastMessageSenderUserId ??
+      rawConversation?.lastSenderId ??
+      rawConversation?.lastMessage?.senderId ??
+      rawConversation?.lastMessage?.senderUserId ??
+      rawConversation?.lastMessage?.userId ??
+      rawConversation?.lastMessage?.sender?.id ??
+      rawConversation?.lastMessage?.sender?.userId ??
+      null,
     lastMessageTime:
       conversation?.lastMessageTime ?? rawConversation?.lastMessageTime ?? null,
     lastActive: conversation?.lastActive ?? rawConversation?.lastActive ?? null,
