@@ -3,6 +3,10 @@ import groupCallService from '../../services/call/GroupCallService';
 import { IoVideocamOutline, IoVideocamOffOutline, IoMicOutline, IoMicOffOutline, IoCallOutline } from 'react-icons/io5';
 import './GroupCallRoom.css';
 
+const resolveGroupCallType = (callData) =>
+  String(callData?.type || callData?.callType || callData?.raw?.type || callData?.raw?.callType || 'VOICE')
+    .toUpperCase();
+
 const GroupCallRoom = ({ callData, onLeave }) => {
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState(new Map()); // peerId -> stream
@@ -76,7 +80,8 @@ const GroupCallRoom = ({ callData, onLeave }) => {
   const allPeers = Array.from(remoteStreams.entries());
   const gridClass = `grid-${Math.min(allPeers.length + 1, 9)}`;
 
-  const isVoiceCall = callData?.type === 'VOICE';
+  const callType = resolveGroupCallType(callData);
+  const isVoiceCall = callType !== 'VIDEO';
 
   return (
     <div className="group-call-room-overlay">
@@ -135,11 +140,39 @@ const GroupCallRoom = ({ callData, onLeave }) => {
 
 const VideoTile = ({ peerId, stream, isSpeaking, isVoiceCall }) => {
   const videoRef = useRef(null);
+  const audioRef = useRef(null);
 
   useEffect(() => {
     if (videoRef.current && stream && !isVoiceCall) {
       videoRef.current.srcObject = stream;
+      videoRef.current.play().catch((error) => {
+        console.warn('[GroupCallRoom] Remote video autoplay failed:', error);
+      });
     }
+
+    return () => {
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+    };
+  }, [stream, isVoiceCall]);
+
+  useEffect(() => {
+    if (!isVoiceCall || !audioRef.current || !stream) {
+      return undefined;
+    }
+
+    audioRef.current.srcObject = stream;
+    audioRef.current.muted = false;
+    audioRef.current.play().catch((error) => {
+      console.warn('[GroupCallRoom] Remote audio autoplay failed:', error);
+    });
+
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.srcObject = null;
+      }
+    };
   }, [stream, isVoiceCall]);
 
   const namePart = peerId ? peerId.split('-')[0] : 'User';
@@ -152,6 +185,7 @@ const VideoTile = ({ peerId, stream, isSpeaking, isVoiceCall }) => {
         <video ref={videoRef} autoPlay playsInline />
       ) : (
         <div className="video-off-placeholder">
+          <audio ref={audioRef} autoPlay />
           <div className="voice-mode-avatar">{displayName.charAt(0)}</div>
           <span>{displayName} (Audio)</span>
         </div>

@@ -633,15 +633,21 @@ export default function Cloud() {
             <>
               <button
                 type="button"
-                className="cloud-library-upload-btn"
+                className="cloud-library-upload-btn cloud-library-action-btn cloud-library-action-btn--folder"
                 onClick={() => setFolderModalState({ isOpen: true, name: "" })}
+                title="Tạo thư mục"
               >
                 <FiPlus />
-                <span>Tạo thư mục</span>
+                <span>Thư mục</span>
               </button>
-              <button type="button" className="cloud-library-upload-btn" onClick={handleOpenUploadDialog}>
+              <button
+                type="button"
+                className="cloud-library-upload-btn cloud-library-action-btn cloud-library-action-btn--upload"
+                onClick={handleOpenUploadDialog}
+                title={uploading ? "Đang tải tệp lên" : "Tải tệp lên"}
+              >
                 <FiUpload />
-                <span>{uploading ? "Đang tải..." : "Tải tệp lên"}</span>
+                <span>{uploading ? "Đang tải..." : "Tải lên"}</span>
               </button>
               <input
                 ref={filePickerRef}

@@ -1954,6 +1954,15 @@ function MessageInfor({
     );
   }, [conversationId]);
 
+  const handleRefreshRemindersFromInfo = useCallback(async () => {
+    await loadConversationReminders();
+    window.dispatchEvent(
+      new CustomEvent("web:conversation-reminder-changed", {
+        detail: { conversationId },
+      })
+    );
+  }, [conversationId, loadConversationReminders]);
+
   const handleReminderAction = useCallback(
     async (reminderId, action) => {
       if (!reminderId) {
@@ -2090,15 +2099,14 @@ function MessageInfor({
         </button>
         <button
           type="button"
-          onClick={() => void loadConversationReminders()}
+          onClick={() => void handleRefreshRemindersFromInfo()}
           disabled={reminderState.loading}
         >
           {reminderState.loading ? "Đang tải..." : "Làm mới"}
         </button>
       </div>
       <p className="mess-infor-section-note">
-        Theo dõi các lịch hẹn trong cuộc trò chuyện hiện tại và cập nhật trạng
-        thái ngay tại đây.
+        Tạo hoặc làm mới nhắc hẹn tại đây. Thông tin lịch hẹn sẽ hiển thị trực tiếp trong đoạn chat.
       </p>
 
       {reminderState.loading ? (
@@ -2106,124 +2114,6 @@ function MessageInfor({
       ) : null}
       {!reminderState.loading && reminderState.error ? (
         <div className="mess-infor-shared-feedback error">{reminderState.error}</div>
-      ) : null}
-      {!reminderState.loading &&
-      !reminderState.error &&
-      reminderState.items.length === 0 ? (
-        <div className="mess-infor-shared-empty">Chưa có nhắc hẹn nào.</div>
-      ) : null}
-
-      {!reminderState.loading &&
-      !reminderState.error &&
-      reminderState.items.length > 0 ? (
-        <div className="mess-infor-reminder-list">
-          {reminderState.items.map((reminder) => {
-            const reminderId = String(reminder?.id || "");
-            const isCreator =
-              String(reminder?.createdBy || "") === String(currentUserId || "");
-            const myParticipant = Array.isArray(reminder?.participants)
-              ? reminder.participants.find(
-                  (participant) =>
-                    String(participant?.userId || "") === String(currentUserId || "")
-                ) || null
-              : null;
-            const isActionLoading = Boolean(reminderActionLoadingById[reminderId]);
-            const isCancelled = String(reminder?.status || "") === "CANCELLED";
-            const isCompleted = String(reminder?.status || "") === "COMPLETED";
-
-            return (
-              <article key={reminderId} className="mess-infor-reminder-item">
-                <div className="mess-infor-reminder-head">
-                  <div>
-                    <p className="mess-infor-reminder-title">
-                      {reminder?.title || "Nhắc hẹn"}
-                    </p>
-                    <p className="mess-infor-reminder-meta">
-                      {formatReminderTime(reminder?.remindAt)}
-                      {reminder?.participants
-                        ? ` • ${reminder.participants.length} người`
-                        : ""}
-                    </p>
-                  </div>
-                  <span
-                    className={`reminder-status-chip status-${String(
-                      reminder?.status || ""
-                    ).toLowerCase()}`}
-                  >
-                    {REMINDER_STATUS_LABELS[reminder?.status] ||
-                      reminder?.status ||
-                      "N/A"}
-                  </span>
-                </div>
-                {reminder?.description ? (
-                  <p className="mess-infor-reminder-description">
-                    {reminder.description}
-                  </p>
-                ) : null}
-                {myParticipant ? (
-                  <p className="mess-infor-reminder-my-state">
-                    Trạng thái của bạn:{" "}
-                    {REMINDER_PARTICIPANT_STATUS_LABELS[myParticipant.status] ||
-                      myParticipant.status ||
-                      "N/A"}
-                  </p>
-                ) : null}
-                <div className="mess-infor-inline-actions reminder-item-actions">
-                  {isCreator && !isCancelled && !isCompleted ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleEditReminder(reminder)}
-                      disabled={isActionLoading}
-                    >
-                      {isActionLoading ? "Đang xử lý..." : "Sửa"}
-                    </button>
-                  ) : null}
-                  {isCreator && !isCancelled ? (
-                    <button
-                      type="button"
-                      className="mess-infor-danger-outline"
-                      onClick={() => void handleReminderAction(reminderId, "CANCEL")}
-                      disabled={isActionLoading}
-                    >
-                      {isActionLoading ? "Đang xử lý..." : "Hủy"}
-                    </button>
-                  ) : null}
-                  {!isCompleted && !isCancelled ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleReminderAction(reminderId, "COMPLETE")}
-                      disabled={isActionLoading}
-                    >
-                      {isActionLoading ? "Đang xử lý..." : "Hoàn thành"}
-                    </button>
-                  ) : null}
-                  {!isCreator &&
-                  myParticipant &&
-                  myParticipant.status !== "DISMISSED" ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleReminderAction(reminderId, "ACK")}
-                      disabled={isActionLoading}
-                    >
-                      {isActionLoading ? "Đang xử lý..." : "Xác nhận"}
-                    </button>
-                  ) : null}
-                  {!isCreator &&
-                  myParticipant &&
-                  myParticipant.status !== "DONE" ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleReminderAction(reminderId, "DISMISS")}
-                      disabled={isActionLoading}
-                    >
-                      {isActionLoading ? "Đang xử lý..." : "Bỏ qua"}
-                    </button>
-                  ) : null}
-                </div>
-              </article>
-            );
-          })}
-        </div>
       ) : null}
     </div>
   );

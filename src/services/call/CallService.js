@@ -127,6 +127,12 @@ class CallService {
     this._onStateChange?.('ended');
   }
 
+  finishRemoteCall() {
+    this._cleanup();
+    this._onCallEnded?.();
+    this._onStateChange?.('ended');
+  }
+
   /**
    * Lấy local MediaStream
    */

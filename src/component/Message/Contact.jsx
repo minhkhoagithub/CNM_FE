@@ -17,7 +17,7 @@ import { HiOutlineUserGroup } from "react-icons/hi2";
 import { IoIosMore } from "react-icons/io";
 import { IoMdClose } from "react-icons/io";
 import { IoTriangle } from "react-icons/io5";
-import { BsFillCameraFill } from "react-icons/bs";
+import { BsBellSlashFill, BsFillCameraFill, BsPinAngleFill } from "react-icons/bs";
 import {
   createConversationV1,
   updateConversationAvatarV1,
@@ -92,9 +92,136 @@ const getConversationDisplayName = (conversation) =>
 const getConversationAvatarUrl = (conversation) =>
   conversation?.avatarUrl || conversation?.trustedAvatarUrl || "";
 
-const getConversationPreview = (conversation) =>
-  resolveConversationPreviewText(conversation?.lastMessage) ||
-  `Gửi lời chào đến ${getConversationDisplayName(conversation)}`;
+const isGroupConversationItem = (conversation) =>
+  String(conversation?.type || "").toLowerCase() === "group" ||
+  Boolean(conversation?.isGroup) ||
+  Boolean(conversation?.raw?.isGroup) ||
+  Boolean(conversation?.groupId) ||
+  Boolean(conversation?.raw?.groupId);
+
+const getConversationLastMessageSenderId = (conversation) => {
+  const rawLastMessage = conversation?.raw?.lastMessage;
+  return (
+    conversation?.lastMessageSenderId ||
+    conversation?.raw?.lastMessageSenderId ||
+    conversation?.raw?.lastMessageSenderUserId ||
+    conversation?.raw?.lastSenderId ||
+    rawLastMessage?.senderId ||
+    rawLastMessage?.senderUserId ||
+    rawLastMessage?.userId ||
+    rawLastMessage?.sender?.id ||
+    rawLastMessage?.sender?.userId ||
+    ""
+  );
+};
+
+const parseCallPreviewPayload = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const payload =
+    typeof value === "string"
+      ? (() => {
+          const content = value.trim();
+          if (!content.startsWith("{")) {
+            return null;
+          }
+          try {
+            return JSON.parse(content);
+          } catch {
+            return null;
+          }
+        })()
+      : value && typeof value === "object"
+      ? value
+      : null;
+
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const hasCallLogShape = Boolean(
+    payload.callId ||
+      payload.groupCallId ||
+      payload.callType ||
+      payload.status ||
+      payload.callStatus ||
+      payload.callerId
+  );
+
+  return hasCallLogShape ? payload : null;
+};
+
+const getConversationCallPayload = (conversation) => {
+  const rawLastMessage = conversation?.raw?.lastMessage;
+  return (
+    parseCallPreviewPayload(rawLastMessage?.content) ||
+    parseCallPreviewPayload(rawLastMessage) ||
+    parseCallPreviewPayload(conversation?.lastMessage)
+  );
+};
+
+const resolveCallPreviewText = (conversation, currentUserId) => {
+  const payload = getConversationCallPayload(conversation);
+  if (!payload) {
+    return "";
+  }
+
+  const status = String(payload.status || payload.callStatus || "ENDED").toUpperCase();
+  const callerId = payload.callerId || payload.senderId || "";
+  const isCaller =
+    currentUserId && callerId && String(callerId) === String(currentUserId);
+  const isGroup = isGroupConversationItem(conversation);
+  const actorName =
+    payload.initiatorName ||
+    payload.callerName ||
+    payload.actorName ||
+    (isCaller ? "Bạn" : getConversationDisplayName(conversation));
+
+  if (status === "MISSED") {
+    if (isGroup) {
+      return "Cuộc gọi nhóm nhỡ";
+    }
+    return isCaller ? "Cuộc gọi nhỡ" : `Cuộc gọi nhỡ từ ${actorName}`;
+  }
+
+  if (status === "REJECTED") {
+    return isCaller ? "Cuộc gọi bị từ chối" : "Bạn đã từ chối cuộc gọi";
+  }
+
+  if (status === "CANCELLED" || status === "BUSY") {
+    return "Cuộc gọi không thành công";
+  }
+
+  if (isGroup) {
+    return `${actorName} đã bắt đầu cuộc gọi nhóm`;
+  }
+
+  return isCaller ? "Bạn đã gọi" : `${actorName} đã gọi`;
+};
+
+const getConversationPreview = (conversation, currentUserId) => {
+  const callPreview = resolveCallPreviewText(conversation, currentUserId);
+  if (callPreview) {
+    return callPreview;
+  }
+
+  const preview =
+    resolveConversationPreviewText(conversation?.lastMessage) ||
+    `Gửi lời chào đến ${getConversationDisplayName(conversation)}`;
+  const senderId = getConversationLastMessageSenderId(conversation);
+  if (
+    preview &&
+    currentUserId &&
+    senderId &&
+    String(senderId) === String(currentUserId) &&
+    !String(preview).startsWith("Bạn:")
+  ) {
+    return `Bạn: ${preview}`;
+  }
+  return preview;
+};
 
 const formatPresenceLastSeenText = (value) => {
   if (!value) {
@@ -175,7 +302,7 @@ const getApiErrorMessage = (error, fallback) =>
   fallback;
 
 const resolveConversationGroupLabel = (conversation) => {
-  if (String(conversation?.type || "").toLowerCase() !== "group") {
+  if (!isGroupConversationItem(conversation)) {
     return null;
   }
 
@@ -1875,16 +2002,6 @@ const isCreateGroupSubmitDisabled =
                             <div className="contact-overview-mess">
                               <h3>
                                 <span>Trợ lý AI</span>
-                                <span
-                                  className="contact-conversation-pill muted"
-                                  style={{
-                                    marginLeft: "5px",
-                                    backgroundColor: "#e0f2f1",
-                                    color: "#00796b",
-                                  }}
-                                >
-                                  Hệ thống
-                                </span>
                               </h3>
                               <p>Hỏi tôi bất cứ điều gì!</p>
                             </div>
@@ -1897,6 +2014,7 @@ const isCreateGroupSubmitDisabled =
                       displayedConversationList.map((data, index) => {
                         const conversationPresenceStatus =
                           resolveConversationPresenceStatus(data, getPresenceForUser);
+                        const isGroupConversation = isGroupConversationItem(data);
 
                         return (
                         <li
@@ -1922,6 +2040,20 @@ const isCreateGroupSubmitDisabled =
                                   src={getConversationAvatarUrl(data) || undefined}
                                   alt=""
                                 />
+                                {!isGroupConversation ? (
+                                  <span
+                                    className={`presence-dot contact-avatar-presence-dot ${
+                                      conversationPresenceStatus?.online
+                                        ? "presence-dot--online"
+                                        : "presence-dot--offline"
+                                    }`}
+                                    aria-label={
+                                      conversationPresenceStatus?.online
+                                        ? "Dang hoat dong"
+                                        : "Khong hoat dong"
+                                    }
+                                  />
+                                ) : null}
                               </div>
                               <div className="contact-overview-mess">
                                 <h3>
@@ -1947,40 +2079,50 @@ const isCreateGroupSubmitDisabled =
                                       );
                                     })()}
                                     {data.pinned ? (
-                                      <span className="contact-conversation-pill pinned">
-                                        Ghim
+                                      <span
+                                        className="contact-conversation-pill pinned icon-only"
+                                        title="Đã ghim"
+                                        aria-label="Đã ghim"
+                                      >
+                                        <BsPinAngleFill />
                                       </span>
                                     ) : null}
                                     {data.muted ? (
-                                      <span className="contact-conversation-pill muted">
-                                        Tat TB
+                                      <span
+                                        className="contact-conversation-pill muted icon-only"
+                                        title="Đã tắt thông báo"
+                                        aria-label="Đã tắt thông báo"
+                                      >
+                                        <BsBellSlashFill />
                                       </span>
                                     ) : null}
                                   </span>
                                 </h3>
-                                <p title={getConversationPreview(data)}>
-                                  {getConversationPreview(data)}
+                                <p title={getConversationPreview(data, currentUserId)}>
+                                  {getConversationPreview(data, currentUserId)}
                                 </p>
                               </div>
                             </div>
                             <div className="contact-last-onl flex">
-                              <p className="contact-row-status">
-                                <span
-                                  className={`presence-dot ${
-                                    conversationPresenceStatus?.online
-                                      ? "presence-dot--online"
-                                      : "presence-dot--offline"
-                                  }`}
-                                  aria-label={
-                                    conversationPresenceStatus?.online
-                                      ? "Đang hoạt động"
-                                      : "Không hoạt động"
-                                  }
-                                />
-                                <span className="presence-status-text">
-                                  {conversationPresenceStatus?.text || "Không hoạt động"}
-                                </span>
-                              </p>
+                              {!isGroupConversation ? (
+                                <p className="contact-row-status">
+                                  <span
+                                    className={`presence-dot ${
+                                      conversationPresenceStatus?.online
+                                        ? "presence-dot--online"
+                                        : "presence-dot--offline"
+                                    }`}
+                                    aria-label={
+                                      conversationPresenceStatus?.online
+                                        ? "Đang hoạt động"
+                                        : "Không hoạt động"
+                                    }
+                                  />
+                                  <span className="presence-status-text">
+                                    {conversationPresenceStatus?.text || "Không hoạt động"}
+                                  </span>
+                                </p>
+                              ) : null}
 
                               <div
                                 className={`conversation-more-menu ${
@@ -2090,6 +2232,7 @@ const isCreateGroupSubmitDisabled =
                       displayedConversationListNotSeen.map((data, index) => {
                         const conversationPresenceStatus =
                           resolveConversationPresenceStatus(data, getPresenceForUser);
+                        const isGroupConversation = isGroupConversationItem(data);
 
                         return (
                         <li
@@ -2111,6 +2254,20 @@ const isCreateGroupSubmitDisabled =
                                   src={getConversationAvatarUrl(data) || undefined}
                                   alt=""
                                 />
+                                {!isGroupConversation ? (
+                                  <span
+                                    className={`presence-dot contact-avatar-presence-dot ${
+                                      conversationPresenceStatus?.online
+                                        ? "presence-dot--online"
+                                        : "presence-dot--offline"
+                                    }`}
+                                    aria-label={
+                                      conversationPresenceStatus?.online
+                                        ? "Dang hoat dong"
+                                        : "Khong hoat dong"
+                                    }
+                                  />
+                                ) : null}
                               </div>
                               <div className="contact-overview-mess">
                                 <h3>
@@ -2136,34 +2293,48 @@ const isCreateGroupSubmitDisabled =
                                       );
                                     })()}
                                     {data?.pinned ? (
-                                      <span className="contact-conversation-pill pinned">Ghim</span>
+                                      <span
+                                        className="contact-conversation-pill pinned icon-only"
+                                        title="Đã ghim"
+                                        aria-label="Đã ghim"
+                                      >
+                                        <BsPinAngleFill />
+                                      </span>
                                     ) : null}
                                     {data?.muted ? (
-                                      <span className="contact-conversation-pill muted">Tat TB</span>
+                                      <span
+                                        className="contact-conversation-pill muted icon-only"
+                                        title="Đã tắt thông báo"
+                                        aria-label="Đã tắt thông báo"
+                                      >
+                                        <BsBellSlashFill />
+                                      </span>
                                     ) : null}
                                   </span>
                                 </h3>
-                                <p title={getConversationPreview(data)}>{getConversationPreview(data)}</p>
+                                <p title={getConversationPreview(data, currentUserId)}>{getConversationPreview(data, currentUserId)}</p>
                               </div>
                             </div>
                             <div className="contact-last-onl flex">
-                              <p className="contact-row-status">
-                                <span
-                                  className={`presence-dot ${
-                                    conversationPresenceStatus?.online
-                                      ? "presence-dot--online"
-                                      : "presence-dot--offline"
-                                  }`}
-                                  aria-label={
-                                    conversationPresenceStatus?.online
-                                      ? "Đang hoạt động"
-                                      : "Không hoạt động"
-                                  }
-                                />
-                                <span className="presence-status-text">
-                                  {conversationPresenceStatus?.text || "Không hoạt động"}
-                                </span>
-                              </p>
+                              {!isGroupConversation ? (
+                                <p className="contact-row-status">
+                                  <span
+                                    className={`presence-dot ${
+                                      conversationPresenceStatus?.online
+                                        ? "presence-dot--online"
+                                        : "presence-dot--offline"
+                                    }`}
+                                    aria-label={
+                                      conversationPresenceStatus?.online
+                                        ? "Đang hoạt động"
+                                        : "Không hoạt động"
+                                    }
+                                  />
+                                  <span className="presence-status-text">
+                                    {conversationPresenceStatus?.text || "Không hoạt động"}
+                                  </span>
+                                </p>
+                              ) : null}
                               {getUnreadConversationCount(data) > 0 ? (
                                 <div className="wrap-count-seen">
                                   <p className="count-seen">{getUnreadConversationCount(data)}</p>

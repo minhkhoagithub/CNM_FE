@@ -13,6 +13,7 @@ import Setting from "../component/Setting/Setting";
 import DeviceManager from "../component/Setting/DeviceManager";
 import NotificationBell from "../component/Notifications/NotificationBell";
 import NotificationsPanel from "../component/Notifications/NotificationsPanel";
+import { NOTIFICATION_SETTINGS_CHANGED_EVENT } from "../Context/NotificationContext";
 import {
   changePassword,
   confirmEmailChange,
@@ -130,6 +131,18 @@ function Chat({ handleLogout, onConversationSelect }) {
   const topMenu = [mess, addressbook, todo];
   const bottomMenu = [cloud];
 
+  const notifyNotificationSettingsChanged = useCallback((notifications) => {
+    if (typeof window === "undefined" || !notifications) {
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent(NOTIFICATION_SETTINGS_CHANGED_EVENT, {
+        detail: { notifications },
+      }),
+    );
+  }, []);
+
   const handleShowStartup = () => {
     isShowStartup ? setIsShoeStartup(false) : setIsShoeStartup(true);
   };
@@ -197,13 +210,17 @@ function Chat({ handleLogout, onConversationSelect }) {
     try {
       const response = await getUserSettings();
       const payload = response?.data?.data ?? response?.data ?? {};
-      mergeSettings(payload?.settings || {});
+      const nextSettings = payload?.settings || {};
+      mergeSettings(nextSettings);
+      if (nextSettings?.notifications) {
+        notifyNotificationSettingsChanged(nextSettings.notifications);
+      }
     } catch (error) {
       setSettingsMessage("Không thể tải cài đặt từ máy chủ.");
     } finally {
       setSettingsLoading(false);
     }
-  }, [mergeSettings]);
+  }, [mergeSettings, notifyNotificationSettingsChanged]);
 
   useEffect(() => {
     if (showSettingsModal) {
@@ -237,9 +254,10 @@ function Chat({ handleLogout, onConversationSelect }) {
         [key]: nextValue,
       };
       mergeSettings({ notifications: nextSection });
+      notifyNotificationSettingsChanged(nextSection);
       await patchUserSettingsSection("notifications", { [key]: nextValue });
     },
-    [mergeSettings, patchUserSettingsSection, userSettings],
+    [mergeSettings, notifyNotificationSettingsChanged, patchUserSettingsSection, userSettings],
   );
 
   const handleThemeToggle = useCallback(async () => {

@@ -18,8 +18,12 @@ import {
 } from "../services/notification/notificationApi";
 import { listenForForegroundPush, registerWebPushToken } from "../services/notification/webPushService";
 import { getOrCreateWebDeviceId } from "../services/notification/webDeviceId";
+import NotificationToast from "../component/Notifications/NotificationToast";
+import { getNotificationTargetKind } from "../services/notification/notificationNavigation";
+import { getUserSettings } from "../util/api";
 
 const NotificationContext = createContext(null);
+export const NOTIFICATION_SETTINGS_CHANGED_EVENT = "notification-settings-changed";
 
 const normalizeCount = (payload) =>
   Number(payload?.unreadCount ?? payload?.count ?? payload ?? 0) || 0;
@@ -32,7 +36,12 @@ export const NotificationProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [pushStatus, setPushStatus] = useState("idle");
+  const [topToastNotification, setTopToastNotification] = useState(null);
   const nextCursorRef = useRef(null);
+  const topToastTimeoutRef = useRef(null);
+  const notificationSoundAudioContextRef = useRef(null);
+  const notificationSoundEnabledRef = useRef(true);
+  const lastNotificationSoundKeyRef = useRef("");
 
   useEffect(() => {
     nextCursorRef.current = nextCursor;
@@ -78,6 +87,133 @@ export const NotificationProvider = ({ children }) => {
     await loadUnreadCount();
     return updated;
   }, [loadUnreadCount]);
+
+  const dismissTopToast = useCallback(() => {
+    if (topToastTimeoutRef.current) {
+      clearTimeout(topToastTimeoutRef.current);
+      topToastTimeoutRef.current = null;
+    }
+    setTopToastNotification(null);
+  }, []);
+
+  const showTopToast = useCallback((notification) => {
+    if (!notification) {
+      return;
+    }
+
+    if (topToastTimeoutRef.current) {
+      clearTimeout(topToastTimeoutRef.current);
+    }
+    setTopToastNotification(notification);
+    topToastTimeoutRef.current = setTimeout(() => {
+      setTopToastNotification(null);
+      topToastTimeoutRef.current = null;
+    }, 6500);
+  }, []);
+
+  const ensureNotificationAudioContext = useCallback(() => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextConstructor) {
+      return null;
+    }
+
+    const currentContext = notificationSoundAudioContextRef.current;
+    if (!currentContext || currentContext.state === "closed") {
+      notificationSoundAudioContextRef.current = new AudioContextConstructor();
+    }
+
+    return notificationSoundAudioContextRef.current;
+  }, []);
+
+  const playNotificationSound = useCallback(() => {
+    if (!notificationSoundEnabledRef.current) {
+      return;
+    }
+
+    const audioContext = ensureNotificationAudioContext();
+    if (!audioContext) {
+      return;
+    }
+
+    const startSound = () => {
+      if (audioContext.state === "closed") {
+        return;
+      }
+
+      const now = audioContext.currentTime;
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(880, now);
+      oscillator.frequency.exponentialRampToValueAtTime(660, now + 0.18);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.14, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
+
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start(now);
+      oscillator.stop(now + 0.26);
+      oscillator.onended = () => {
+        oscillator.disconnect();
+        gain.disconnect();
+      };
+    };
+
+    if (audioContext.state === "suspended") {
+      void audioContext.resume().then(startSound).catch(() => {});
+      return;
+    }
+
+    startSound();
+  }, [ensureNotificationAudioContext]);
+
+  const playNotificationSoundForNotification = useCallback(
+    (notification) => {
+      const notificationId =
+        notification?.id ||
+        notification?.notificationId ||
+        notification?.targetId ||
+        notification?.messageId ||
+        notification?.reminderId ||
+        "";
+      const notificationKey = [
+        notification?.type || "notification",
+        notificationId || notification?.createdAt || notification?.body || "",
+      ].join(":");
+
+      if (notificationKey && notificationKey === lastNotificationSoundKeyRef.current) {
+        return;
+      }
+
+      lastNotificationSoundKeyRef.current = notificationKey;
+      playNotificationSound();
+    },
+    [playNotificationSound],
+  );
+
+  const openTopToast = useCallback(
+    async (notification) => {
+      dismissTopToast();
+      if (notification?.id && notification?.unread) {
+        await markRead(notification.id).catch(() => {});
+      }
+      window.dispatchEvent(
+        new CustomEvent("notification:navigate", {
+          detail: {
+            notification,
+            kind: getNotificationTargetKind(notification),
+          },
+        })
+      );
+    },
+    [dismissTopToast, markRead]
+  );
 
   const markAllRead = useCallback(async () => {
     await markAllNotificationsRead();
@@ -130,6 +266,62 @@ export const NotificationProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+
+    getUserSettings()
+      .then((response) => {
+        if (!isMounted) {
+          return;
+        }
+
+        const payload = response?.data?.data ?? response?.data ?? {};
+        const soundEnabled = payload?.settings?.notifications?.soundEnabled;
+        if (typeof soundEnabled === "boolean") {
+          notificationSoundEnabledRef.current = soundEnabled;
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleSettingsChanged = (event) => {
+      const soundEnabled = event?.detail?.notifications?.soundEnabled;
+      if (typeof soundEnabled === "boolean") {
+        notificationSoundEnabledRef.current = soundEnabled;
+      }
+    };
+
+    window.addEventListener(NOTIFICATION_SETTINGS_CHANGED_EVENT, handleSettingsChanged);
+    return () => window.removeEventListener(NOTIFICATION_SETTINGS_CHANGED_EVENT, handleSettingsChanged);
+  }, []);
+
+  useEffect(() => {
+    const unlockAudio = () => {
+      const audioContext = ensureNotificationAudioContext();
+      if (audioContext?.state === "suspended") {
+        void audioContext.resume().catch(() => {});
+      }
+    };
+
+    window.addEventListener("pointerdown", unlockAudio, { once: true });
+    window.addEventListener("keydown", unlockAudio, { once: true });
+
+    return () => {
+      window.removeEventListener("pointerdown", unlockAudio);
+      window.removeEventListener("keydown", unlockAudio);
+      const audioContext = notificationSoundAudioContextRef.current;
+      notificationSoundAudioContextRef.current = null;
+      if (audioContext?.state !== "closed") {
+        void audioContext?.close?.().catch(() => {});
+      }
+    };
+  }, [ensureNotificationAudioContext]);
+
+  useEffect(() => {
     const handleNotificationRealtime = (event) => {
       const eventType = event?.eventType || event?.type;
       if (event?.unreadCount !== undefined) {
@@ -143,6 +335,8 @@ export const NotificationProvider = ({ children }) => {
           }
           return [event.notification, ...current].slice(0, 50);
         });
+        showTopToast(event.notification);
+        playNotificationSoundForNotification(event.notification);
         if (event?.unreadCount === undefined) {
           void loadUnreadCount();
         }
@@ -175,7 +369,7 @@ export const NotificationProvider = ({ children }) => {
 
     WebSocketService.on("notification", handleNotificationRealtime);
     return () => WebSocketService.off("notification", handleNotificationRealtime);
-  }, [loadUnreadCount]);
+  }, [loadUnreadCount, playNotificationSoundForNotification, showTopToast]);
 
   useEffect(() => {
     const onFocus = () => {
@@ -189,6 +383,24 @@ export const NotificationProvider = ({ children }) => {
     let unsubscribe = () => {};
     listenForForegroundPush((payload) => {
       console.log("[NotificationContext] foreground push", payload?.data || payload);
+      const data = payload?.data || {};
+      const notification = payload?.notification || {};
+      const foregroundNotification = {
+        id: data.id || data.notificationId || data.targetId || `${Date.now()}`,
+        type: data.type,
+        title: notification.title || data.title,
+        body: notification.body || data.body,
+        targetType: data.targetType,
+        targetId: data.targetId,
+        conversationId: data.conversationId,
+        messageId: data.messageId,
+        reminderId: data.reminderId,
+        metadata: data,
+        unread: true,
+        createdAt: new Date().toISOString(),
+      };
+      showTopToast(foregroundNotification);
+      playNotificationSoundForNotification(foregroundNotification);
       void loadUnreadCount();
     })
       .then((unsub) => {
@@ -197,7 +409,16 @@ export const NotificationProvider = ({ children }) => {
       .catch(() => {});
 
     return () => unsubscribe();
-  }, [loadUnreadCount]);
+  }, [loadUnreadCount, playNotificationSoundForNotification, showTopToast]);
+
+  useEffect(
+    () => () => {
+      if (topToastTimeoutRef.current) {
+        clearTimeout(topToastTimeoutRef.current);
+      }
+    },
+    []
+  );
 
   const value = useMemo(
     () => ({
@@ -241,6 +462,11 @@ export const NotificationProvider = ({ children }) => {
   return (
     <NotificationContext.Provider value={value}>
       {children}
+      <NotificationToast
+        notification={topToastNotification}
+        onDismiss={dismissTopToast}
+        onOpen={openTopToast}
+      />
     </NotificationContext.Provider>
   );
 };

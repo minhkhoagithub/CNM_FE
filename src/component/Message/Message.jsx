@@ -233,13 +233,10 @@ export default function Message({ showPageAddressBook, onConversationSelect }) {
               }}
             />
           ) : (
-            <div className="message-empty-state" aria-label="Zalo loading">
+            <div className="message-empty-state" aria-label="Zalo">
               <div className="message-empty-zalo-mark" aria-hidden="true">
                 <h2>Zalo</h2>
-                <div className="message-empty-loader">
-                  <span></span>
-                  <span></span>
-                </div>
+                <p>connect you with everyone...</p>
               </div>
             </div>
           )}

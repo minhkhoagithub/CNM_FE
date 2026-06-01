@@ -382,6 +382,32 @@ export default function VoiceMessageBubble({
     transcriptStatus,
   ]);
 
+  useEffect(() => {
+    const handleExternalTranscriptRequest = (event) => {
+      const detail = event?.detail || {};
+      if (String(detail.messageId || "") !== String(messageId || "")) {
+        return;
+      }
+
+      const requestedAttachmentId = String(detail.attachmentId || "");
+      const currentAttachmentId = String(attachment?.id || "");
+      if (
+        requestedAttachmentId &&
+        currentAttachmentId &&
+        requestedAttachmentId !== currentAttachmentId
+      ) {
+        return;
+      }
+
+      void handleRequestTranscript();
+    };
+
+    window.addEventListener("web:voice-transcript-request", handleExternalTranscriptRequest);
+    return () => {
+      window.removeEventListener("web:voice-transcript-request", handleExternalTranscriptRequest);
+    };
+  }, [attachment?.id, handleRequestTranscript, messageId]);
+
   const transcriptActionLabel = (() => {
     if (transcriptPending) {
       return "Đang chuyển...";
@@ -398,7 +424,19 @@ export default function VoiceMessageBubble({
     return "Chuyển thành văn bản";
   })();
 
+  const shouldShowTranscriptPanel = Boolean(
+    transcriptPending ||
+      transcriptActionLoading ||
+      transcriptErrorText ||
+      (transcriptText && transcriptExpanded)
+  );
+  const transcriptPanelText =
+    transcriptPending || transcriptActionLoading
+      ? transcriptActionLabel
+      : transcriptErrorText || transcriptText;
+
   return (
+    <div className={`voice-message-wrapper ${isMine ? "voice-message-wrapper--mine" : ""}`}>
     <div className={`voice-message-bubble ${isMine ? "voice-message-bubble--mine" : ""}`}>
       <audio
         className="voice-message-audio"
@@ -417,7 +455,7 @@ export default function VoiceMessageBubble({
 
       <div className="voice-message-main">
         <div
-          className="voice-message-waveform"
+          className="voice-message-progress"
           ref={waveformRef}
           onClick={handleSeek}
           role="button"
@@ -428,19 +466,12 @@ export default function VoiceMessageBubble({
               handleSeek(event);
             }
           }}
-          aria-label="Thanh sóng âm thanh"
+          aria-label="Thanh thời lượng âm thanh"
         >
-          {waveformValues.map((sample, index) => {
-            const ratio = waveformValues.length > 1 ? index / (waveformValues.length - 1) : 1;
-            const isActive = ratio <= progressRatio;
-            return (
-              <span
-                key={`${playbackKey}-wave-${index}`}
-                className={`voice-message-wave-bar ${isActive ? "active" : ""}`}
-                style={{ height: `${Math.max(18, Math.round(sample * 100))}%` }}
-              />
-            );
-          })}
+          <span
+            className="voice-message-progress-fill"
+            style={{ width: `${Math.round(progressRatio * 100)}%` }}
+          />
         </div>
 
         <div className="voice-message-meta">
@@ -458,41 +489,21 @@ export default function VoiceMessageBubble({
             <span className="voice-message-format">{String(attachment.audioFormat).toUpperCase()}</span>
           ) : null}
         </div>
-
-        <div className="voice-transcript-actions">
-          <button
-            type="button"
-            className="voice-transcript-btn"
-            onClick={handleRequestTranscript}
-            disabled={transcriptPending || transcriptActionLoading}
-          >
-            {transcriptStatus === "FAILED" ? <IoRefreshOutline /> : <IoDocumentTextOutline />}
-            <span>{transcriptActionLabel}</span>
-          </button>
-
-          {transcriptStatus === "COMPLETED" && transcriptText ? (
-            <button
-              type="button"
-              className="voice-transcript-toggle"
-              onClick={() => setTranscriptExpanded((prevState) => !prevState)}
-            >
-              {transcriptExpanded ? <IoChevronUpOutline /> : <IoChevronDownOutline />}
-              <span>{transcriptExpanded ? "Ẩn văn bản" : "Hiện văn bản"}</span>
-            </button>
-          ) : null}
-        </div>
-
-        {transcriptErrorText ? (
-          <p className="voice-transcript-error">{transcriptErrorText}</p>
-        ) : null}
-
-        {transcriptStatus === "COMPLETED" && transcriptText && transcriptExpanded ? (
-          <div className="voice-transcript-panel">
-            <p className="voice-transcript-title">Bản chuyển văn bản</p>
-            <p className="voice-transcript-text">{transcriptText}</p>
-          </div>
-        ) : null}
       </div>
+    </div>
+      {shouldShowTranscriptPanel ? (
+        <div
+          className={`voice-transcript-panel ${
+            transcriptErrorText ? "voice-transcript-panel--error" : ""
+          }`}
+        >
+          <p className="voice-transcript-title">
+            <IoDocumentTextOutline />
+            Văn bản
+          </p>
+          <p className="voice-transcript-text">{transcriptPanelText}</p>
+        </div>
+      ) : null}
     </div>
   );
 }

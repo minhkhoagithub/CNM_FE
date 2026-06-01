@@ -15,6 +15,18 @@ import groupCallService from "../services/call/GroupCallService";
 import { initiateGroupCallApi, leaveGroupCallApi, getGroupCallStatusApi } from "../services/call/groupCallApi";
 import GroupCallRoom from "../component/Call/GroupCallRoom";
 
+const normalizeGroupCallData = (payload = {}) => {
+  const callType = String(
+    payload?.type || payload?.callType || payload?.raw?.type || payload?.raw?.callType || "VOICE"
+  ).toUpperCase();
+
+  return {
+    ...payload,
+    type: callType,
+    callType,
+  };
+};
+
 export default function Zalo() {
   const [chat, setChat] = useState(false);
   const { userData, setUserData } = useContext(UserContext);
@@ -229,7 +241,7 @@ export default function Zalo() {
     const handleGroupCallIncoming = (payload) => {
       console.log('[Zalo] 👥 GROUP_CALL_INCOMING:', payload);
       setGroupCallState('incoming');
-      setGroupCallData(payload);
+      setGroupCallData(normalizeGroupCallData(payload));
     };
     const handleGroupCallEnded = (payload) => {
       console.log('[Zalo] Group call ended:', payload);
@@ -258,14 +270,14 @@ export default function Zalo() {
             return;
           }
           // Cập nhật lại dữ liệu tươi mới từ API (channel, sfuUrl...)
-          setGroupCallData({ ...callLog, ...statusInfo });
+          setGroupCallData(normalizeGroupCallData({ ...callLog, ...statusInfo }));
         } catch (err) {
           console.error('[Zalo] Failed to check group call status:', err);
           alert('Cuộc gọi đã kết thúc.');
           return;
         }
       } else {
-        setGroupCallData(callLog);
+        setGroupCallData(normalizeGroupCallData(callLog));
       }
 
       setGroupCallState('connected');
@@ -273,7 +285,7 @@ export default function Zalo() {
 
     const handleWindowIncoming = (e) => {
       console.log('[Zalo] 👥 INCOMING from window:', e.detail);
-      setGroupCallData(e.detail);
+      setGroupCallData(normalizeGroupCallData(e.detail));
       setGroupCallState('incoming');
     };
 
@@ -390,7 +402,7 @@ export default function Zalo() {
       setLocalStream(null);
       setRemoteStream(null);
       setIsRemoteVideoOff(false);
-      callService.endCall();
+      callService.finishRemoteCall();
     };
 
     const handleCallAction = (payload) => {
@@ -507,7 +519,7 @@ export default function Zalo() {
           callerName={groupCallData?.initiatorName || 'Cuộc gọi nhóm'}
           onAccept={handleAcceptGroupCall}
           onReject={handleRejectGroupCall}
-          callType={groupCallData?.callType || 'VIDEO'}
+          callType={groupCallData?.callType || groupCallData?.type || 'VIDEO'}
         />
       )}
 

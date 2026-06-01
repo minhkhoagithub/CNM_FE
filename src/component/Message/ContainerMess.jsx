@@ -20,6 +20,7 @@ import {
   IoCameraOutline,
   IoMicOutline,
   IoStop,
+  IoPlay,
   IoCallOutline,
   IoBarChartOutline,
   IoArrowUndoOutline,
@@ -30,8 +31,10 @@ import {
   IoPersonOutline,
   IoTrashOutline,
   IoDocumentTextOutline,
+  IoChevronDownOutline,
+  IoChevronUpOutline,
 } from "react-icons/io5";
-import { AiOutlineBell, AiOutlineLike, AiFillLike, AiOutlinePicture, AiOutlineSend } from "react-icons/ai";
+import { AiOutlineBell, AiOutlineLike, AiFillLike, AiOutlinePicture, AiOutlineSend, AiOutlinePushpin } from "react-icons/ai";
 import { IoMdClose, IoMdAttach,IoMdMore  } from "react-icons/io";
 import { MdOutlineContactMail } from "react-icons/md";
 import {
@@ -56,10 +59,17 @@ import {
   sendTypingState,
   uploadAttachmentV1,
 } from "../../services/chat/messageApi";
-import { createConversationReminder } from "../../services/reminder/reminderApi";
+import {
+  ackReminder,
+  cancelReminder,
+  completeReminder,
+  createConversationReminder,
+  dismissReminder,
+  getConversationReminders,
+} from "../../services/reminder/reminderApi";
 import chatRealtimeService from "../../services/chat/chatRealtimeService";
 import { askAi, getChatSummary } from "../../services/ai/aiApi";
-import { initiateGroupCallApi } from "../../services/call/groupCallApi";
+import { getGroupCallStatusApi, initiateGroupCallApi } from "../../services/call/groupCallApi";
 import groupCallService from "../../services/call/GroupCallService";
 import {
   RECALLED_MESSAGE_PLACEHOLDER,
@@ -326,6 +336,61 @@ const formatTime = (value) => {
   });
 };
 
+const REMINDER_STATUS_LABELS = {
+  SCHEDULED: "Đã lên lịch",
+  DUE: "Đến hạn",
+  COMPLETED: "Hoàn thành",
+  CANCELLED: "Đã hủy",
+};
+
+const REMINDER_PARTICIPANT_STATUS_LABELS = {
+  PENDING: "Chờ phản hồi",
+  ACKNOWLEDGED: "Đã xác nhận",
+  DISMISSED: "Đã bỏ qua",
+  DONE: "Đã xong",
+};
+
+const formatReminderDateTime = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toLocaleString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+};
+
+const normalizeSearchText = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+const isSystemMessageType = (message) =>
+  String(message?.type || message?.raw?.type || "").toUpperCase() === "SYSTEM";
+
+const isReminderSystemMessage = (message) =>
+  isSystemMessageType(message) &&
+  normalizeSearchText(message?.content).includes("nhac hen");
+
+const getTimelineItemTime = (item) => {
+  const value =
+    item?.__timelineType === "reminder"
+      ? item?.reminder?.createdAt || item?.reminder?.remindAt
+      : item?.createdAt;
+  const time = new Date(value || 0).getTime();
+  return Number.isFinite(time) ? time : 0;
+};
+
 const formatPresenceStatusText = (online, lastSeenAt, fallbackText) => {
   if (online) {
     return "Đang hoạt động";
@@ -554,6 +619,202 @@ const resolveCallLogSubtitle = (callLog, currentUserId, fallbackName) => {
   }
 
   return isCaller ? "Bạn đã gọi" : `${actorLabel} đã gọi`;
+};
+
+const TERMINAL_CALL_LOG_STATUSES = new Set([
+  "ENDED",
+  "MISSED",
+  "REJECTED",
+  "CANCELLED",
+  "BUSY",
+]);
+const LIVE_GROUP_CALL_STATUSES = new Set([
+  "STARTED",
+  "RINGING",
+  "ONGOING",
+  "ACTIVE",
+  "IN_PROGRESS",
+]);
+const CHECKING_GROUP_CALL_STATUS = "CHECKING";
+
+const normalizeCallLogStatus = (callLog) =>
+  String(callLog?.callStatus || callLog?.raw?.status || "ENDED").toUpperCase();
+
+const isTerminalCallLogStatus = (callLog) =>
+  TERMINAL_CALL_LOG_STATUSES.has(normalizeCallLogStatus(callLog));
+
+const normalizeGroupCallStatusValue = (value) =>
+  String(value || "").trim().toUpperCase();
+
+const resolveExplicitGroupCallStatus = (callLog) =>
+  normalizeGroupCallStatusValue(
+    callLog?.raw?.status ||
+      callLog?.raw?.callStatus ||
+      callLog?.status ||
+      ""
+  );
+
+const resolveEffectiveGroupCallStatus = (callLog, trackedStatus) => {
+  const normalizedTrackedStatus = normalizeGroupCallStatusValue(trackedStatus);
+  if (normalizedTrackedStatus) {
+    return normalizedTrackedStatus;
+  }
+
+  const explicitStatus = resolveExplicitGroupCallStatus(callLog);
+  return explicitStatus || CHECKING_GROUP_CALL_STATUS;
+};
+
+const isLiveGroupCallStatus = (status) =>
+  LIVE_GROUP_CALL_STATUSES.has(normalizeGroupCallStatusValue(status));
+
+const isEndedGroupCallStatus = (status) => {
+  const normalizedStatus = normalizeGroupCallStatusValue(status);
+  return (
+    TERMINAL_CALL_LOG_STATUSES.has(normalizedStatus) ||
+    normalizedStatus === "COMPLETED" ||
+    normalizedStatus === "CLOSED"
+  );
+};
+
+const getCallLogIdentity = (message) => {
+  const callLog = message?.callLog || null;
+  if (!callLog) {
+    return null;
+  }
+
+  const raw = callLog.raw || {};
+  const callId =
+    callLog.callId ||
+    raw.callId ||
+    raw.id ||
+    message?.callId ||
+    message?.raw?.callId ||
+    null;
+  const groupCallId =
+    callLog.groupCallId ||
+    raw.groupCallId ||
+    message?.groupCallId ||
+    message?.raw?.groupCallId ||
+    null;
+
+  if (callId) {
+    return `private:${callId}`;
+  }
+
+  if (groupCallId) {
+    return `group:${groupCallId}`;
+  }
+
+  return null;
+};
+
+const getCallLogTimeValue = (message) => {
+  const callLog = message?.callLog || {};
+  const raw = callLog.raw || {};
+  const time = Date.parse(
+    raw.endedAt ||
+      raw.startedAt ||
+      message?.createdAt ||
+      message?.raw?.createdAt ||
+      ""
+  );
+
+  if (Number.isFinite(time)) {
+    return time;
+  }
+
+  const numericMessageId = Number(message?.id);
+  return Number.isFinite(numericMessageId) ? numericMessageId : 0;
+};
+
+const shouldPreferCallLogMessage = (currentMessage, nextMessage) => {
+  const currentCallLog = currentMessage?.callLog || {};
+  const nextCallLog = nextMessage?.callLog || {};
+  const currentIsTerminal = isTerminalCallLogStatus(currentCallLog);
+  const nextIsTerminal = isTerminalCallLogStatus(nextCallLog);
+
+  if (currentIsTerminal !== nextIsTerminal) {
+    return nextIsTerminal;
+  }
+
+  const currentIsMissed = normalizeCallLogStatus(currentCallLog) === "MISSED";
+  const nextIsMissed = normalizeCallLogStatus(nextCallLog) === "MISSED";
+  if (currentIsMissed !== nextIsMissed) {
+    return nextIsMissed;
+  }
+
+  const currentDuration = Number(currentCallLog.durationSeconds || 0);
+  const nextDuration = Number(nextCallLog.durationSeconds || 0);
+  if (currentDuration !== nextDuration) {
+    return nextDuration > currentDuration;
+  }
+
+  return getCallLogTimeValue(nextMessage) >= getCallLogTimeValue(currentMessage);
+};
+
+const shouldRenderCallLogMessage = (message) => {
+  const callLog = message?.callLog || null;
+  if (!callLog) {
+    return false;
+  }
+
+  if (isTerminalCallLogStatus(callLog)) {
+    return true;
+  }
+
+  return Boolean(callLog.groupCallId);
+};
+
+const compactCallLogMessages = (messages) => {
+  if (!Array.isArray(messages)) {
+    return messages;
+  }
+
+  if (messages.length <= 1) {
+    return messages.filter(
+      (message) =>
+        !message?.isCallLog ||
+        (!message?.deletedAt && shouldRenderCallLogMessage(message))
+    );
+  }
+
+  const selectedCallLogByIdentity = new Map();
+
+  messages.forEach((message, index) => {
+    if (!message?.isCallLog || message?.deletedAt || !shouldRenderCallLogMessage(message)) {
+      return;
+    }
+
+    const identity = getCallLogIdentity(message);
+    if (!identity) {
+      return;
+    }
+
+    const currentSelection = selectedCallLogByIdentity.get(identity);
+    if (
+      !currentSelection ||
+      shouldPreferCallLogMessage(currentSelection.message, message)
+    ) {
+      selectedCallLogByIdentity.set(identity, { index, message });
+    }
+  });
+
+  const selectedCallLogIndexes = new Set(
+    Array.from(selectedCallLogByIdentity.values()).map((entry) => entry.index)
+  );
+
+  return messages.filter((message, index) => {
+    if (!message?.isCallLog) {
+      return true;
+    }
+
+    if (message?.deletedAt || !shouldRenderCallLogMessage(message)) {
+      return false;
+    }
+
+    const identity = getCallLogIdentity(message);
+    return identity ? selectedCallLogIndexes.has(index) : true;
+  });
 };
 
 const buildSelectedAttachment = (file, index) => ({
@@ -1605,6 +1866,7 @@ function ContainerMess({
   const voiceCancelPendingRef = useRef(false);
   const voiceMimeTypeRef = useRef("");
   const voicePreviewUrlRef = useRef(null);
+  const voicePreviewAudioRef = useRef(null);
   const dictationRecorderRef = useRef(null);
   const dictationStreamRef = useRef(null);
   const dictationChunksRef = useRef([]);
@@ -1612,7 +1874,6 @@ function ContainerMess({
   const dictationAutoStopTimeoutRef = useRef(null);
   const dictationStartedAtRef = useRef(null);
   const dictationMimeTypeRef = useRef("");
-  const voiceOptionPickerRef = useRef(null);
   const dictationCancelPendingRef = useRef(false);
   const selectedAttachmentsRef = useRef([]);
   const messagesRef = useRef([]);
@@ -1620,6 +1881,7 @@ function ContainerMess({
   const typingDebounceTimeoutRef = useRef(null);
   const typingIdleTimeoutRef = useRef(null);
   const remoteTypingTimeoutsRef = useRef(new Map());
+  const groupCallStatusRequestedRef = useRef(new Set());
   const lastMarkedSeenRef = useRef({
     conversationId: null,
     lastReadMessageId: null,
@@ -1632,6 +1894,7 @@ function ContainerMess({
   const markCursorSyncInFlightRef = useRef(false);
   const markCursorSyncPendingRef = useRef(false);
   const cursorSyncChannelRef = useRef(null);
+  const composerInputRowRef = useRef(null);
   const cursorSyncTabIdRef = useRef(
     `tab-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
   );
@@ -1646,6 +1909,8 @@ function ContainerMess({
   const [voiceRecorderState, setVoiceRecorderState] = useState("idle");
   const [voiceRecordingMs, setVoiceRecordingMs] = useState(0);
   const [voicePreview, setVoicePreview] = useState(null);
+  const [voicePreviewPlaybackMs, setVoicePreviewPlaybackMs] = useState(0);
+  const [isVoicePreviewPlaying, setIsVoicePreviewPlaying] = useState(false);
   const [dictationState, setDictationState] = useState("idle");
   const [dictationRecordingMs, setDictationRecordingMs] = useState(0);
   const [dictationJobId, setDictationJobId] = useState(null);
@@ -1654,6 +1919,12 @@ function ContainerMess({
   const [activeIconSend, setActiveIconSend] = useState(false);
   const [draftText, setDraftText] = useState("");
   const [mentionState, setMentionState] = useState(() => closeMentionState());
+  const [mentionPanelPosition, setMentionPanelPosition] = useState({
+    left: 16,
+    bottom: 72,
+    width: 360,
+  });
+  const [groupCallStatusById, setGroupCallStatusById] = useState(new Map());
   const [selectedComposerMentions, setSelectedComposerMentions] = useState([]);
   const [isPeerBlocked, setIsPeerBlocked] = useState(false);
   const [isPeerBlockStateLoading, setIsPeerBlockStateLoading] = useState(false);
@@ -1679,6 +1950,14 @@ function ContainerMess({
     remindAtLocal: buildDefaultReminderLocalValue(),
     timezone: resolveBrowserTimeZone(),
   }));
+  const [conversationReminderState, setConversationReminderState] = useState({
+    loading: false,
+    error: "",
+    items: [],
+    conversationId: null,
+  });
+  const [conversationReminderActionLoadingById, setConversationReminderActionLoadingById] =
+    useState({});
   const [openMessageMenuId, setOpenMessageMenuId] = useState(null);
   const [openMessageMenuPlacement, setOpenMessageMenuPlacement] = useState("down");
   const [pinningMessageId, setPinningMessageId] = useState(null);
@@ -1747,6 +2026,9 @@ function ContainerMess({
   }, [contactData, currentConversationNormalized, selectedConversationId]);
   const isConversationDisbanded = Boolean(activeConversation?.isDisbanded);
   const activeConversationType = resolveConversationType(activeConversation?.type);
+  const isAiConversation =
+    String(activeConversation?.id || "") === "AI_ASSISTANT" ||
+    activeConversationType === "ai";
   const hasMultipleOtherMembers =
     Array.isArray(activeConversation?.members) && activeConversation.members.length >= 2;
   const hasGroupFlag =
@@ -1813,14 +2095,12 @@ function ContainerMess({
     activeConversation?.backgroundImageUrl || "";
   const conversationBackgroundStyle = conversationBackgroundImageUrl
     ? {
-        backgroundImage: `url(${conversationBackgroundImageUrl})`,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-        backgroundRepeat: "no-repeat",
-        backgroundColor: "transparent",
+        "--conversation-background-color": "transparent",
+        "--conversation-background-image": `url(${conversationBackgroundImageUrl})`,
       }
     : {
-        background: conversationBackgroundColor,
+        "--conversation-background-color": conversationBackgroundColor,
+        "--conversation-background-image": "none",
       };
 
   useEffect(() => {
@@ -2375,6 +2655,51 @@ function ContainerMess({
 
     return matches;
   }, [backendConversationId, mentionCandidates, mentionState.open, mentionState.query]);
+  const updateMentionPanelPosition = useCallback(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const anchor = composerInputRowRef.current;
+    if (!anchor) {
+      return;
+    }
+
+    const rect = anchor.getBoundingClientRect();
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const width = Math.min(360, Math.max(260, rect.width - 24, viewportWidth - 32));
+    const left = Math.min(
+      Math.max(rect.left + 12, 12),
+      Math.max(12, viewportWidth - width - 12)
+    );
+    const bottom = Math.min(
+      Math.max(viewportHeight - rect.top + 8, 56),
+      Math.max(56, viewportHeight - 20)
+    );
+
+    setMentionPanelPosition({ left, bottom, width });
+  }, []);
+
+  useEffect(() => {
+    if (!mentionState.open) {
+      return undefined;
+    }
+
+    updateMentionPanelPosition();
+    window.addEventListener("resize", updateMentionPanelPosition);
+    window.addEventListener("scroll", updateMentionPanelPosition, true);
+
+    return () => {
+      window.removeEventListener("resize", updateMentionPanelPosition);
+      window.removeEventListener("scroll", updateMentionPanelPosition, true);
+    };
+  }, [
+    matchedMentionCandidates.length,
+    mentionState.open,
+    selectedAttachments.length,
+    updateMentionPanelPosition,
+  ]);
   const currentConversationMemberRole = useMemo(() => {
     if (!currentUserId) {
       return "MEMBER";
@@ -2754,6 +3079,7 @@ function ContainerMess({
           forwardingMessage.content,
           forwardingMessage.attachments
         ),
+        lastMessageSenderId: currentUserId,
         lastMessageTime: response?.createdAt || new Date().toISOString(),
         unreadCount: 0,
       });
@@ -3048,11 +3374,12 @@ function ContainerMess({
 
       updateConversationById(backendConversationId, {
         lastMessage: createAttachmentPreviewText(messageText, attachments),
+        lastMessageSenderId: currentUserId,
         lastMessageTime: updatedAt || new Date().toISOString(),
         unreadCount: 0,
       });
     },
-    [backendConversationId, updateConversationById]
+    [backendConversationId, currentUserId, updateConversationById]
   );
 
   const upsertMessage = useCallback((nextMessage) => {
@@ -3726,6 +4053,14 @@ function ContainerMess({
               });
             }
 
+            if (isReminderSystemMessage(mappedMessage)) {
+              window.dispatchEvent(
+                new CustomEvent("web:conversation-reminder-changed", {
+                  detail: { conversationId: mappedConversationId },
+                })
+              );
+            }
+
             if (isContextMode && !isAlreadyVisible) {
               setNewMessagesSinceContext((prevCount) => prevCount + 1);
               if (messageId) {
@@ -4203,6 +4538,43 @@ function ContainerMess({
     insertEmojiIntoComposer(value);
   };
 
+  const handleGetGif = async (gif) => {
+    if (!guardComposerInteraction() || !gif?.url || !backendConversationId) {
+      return;
+    }
+
+    const attachmentPayload = {
+      url: gif.url,
+      storageKey: "",
+      fileName: `${gif.id || "gif"}.gif`,
+      contentType: "image/gif",
+      fileSize: 0,
+      type: "IMAGE",
+    };
+
+    try {
+      setActionError("");
+      setMenuControl((prevState) => ({ ...prevState, tableIcon: false }));
+      const response = await sendMessageV1({
+        conversationId: backendConversationId,
+        attachments: [attachmentPayload],
+        ...(replyingToMessage?.id ? { replyToMessageId: replyingToMessage.id } : {}),
+      });
+
+      const nextMessage = mapMessage(response);
+      upsertMessage(nextMessage);
+      updateConversationPreview({
+        messageText: "Đã gửi GIF",
+        attachments: [attachmentPayload],
+        updatedAt: nextMessage.editedAt || nextMessage.createdAt,
+      });
+      setReplyingToMessage(null);
+    } catch (error) {
+      console.error("Failed to send GIF:", error);
+      setActionError("Không thể gửi GIF.");
+    }
+  };
+
   const handleImagePickerOpen = () => {
     if (!guardComposerInteraction()) {
       return;
@@ -4486,6 +4858,76 @@ function ContainerMess({
 
     resetVoiceComposer();
   }, [clearVoicePreview, resetVoiceComposer, stopVoiceRecording]);
+
+  useEffect(() => {
+    const audio = voicePreviewAudioRef.current;
+    if (!audio || !voicePreview?.previewUrl) {
+      setVoicePreviewPlaybackMs(0);
+      setIsVoicePreviewPlaying(false);
+      return undefined;
+    }
+
+    const handleTimeUpdate = () => {
+      setVoicePreviewPlaybackMs(Math.round((audio.currentTime || 0) * 1000));
+    };
+    const handleEnded = () => {
+      audio.currentTime = 0;
+      setVoicePreviewPlaybackMs(0);
+      setIsVoicePreviewPlaying(false);
+    };
+    const handlePause = () => setIsVoicePreviewPlaying(false);
+    const handlePlaying = () => setIsVoicePreviewPlaying(true);
+
+    audio.addEventListener("timeupdate", handleTimeUpdate);
+    audio.addEventListener("ended", handleEnded);
+    audio.addEventListener("pause", handlePause);
+    audio.addEventListener("playing", handlePlaying);
+
+    return () => {
+      audio.pause();
+      audio.removeEventListener("timeupdate", handleTimeUpdate);
+      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("playing", handlePlaying);
+      setVoicePreviewPlaybackMs(0);
+      setIsVoicePreviewPlaying(false);
+    };
+  }, [voicePreview?.previewUrl]);
+
+  const handleToggleVoicePreviewPlayback = useCallback(async () => {
+    const audio = voicePreviewAudioRef.current;
+    if (!audio) {
+      return;
+    }
+
+    if (!audio.paused) {
+      audio.pause();
+      return;
+    }
+
+    try {
+      await audio.play();
+    } catch (error) {
+      console.error("Failed to play voice preview:", error);
+      setActionError("Không thể phát bản ghi âm.");
+    }
+  }, []);
+
+  const handleSeekVoicePreview = useCallback(
+    (event) => {
+      const audio = voicePreviewAudioRef.current;
+      if (!audio || !voicePreview?.durationMs) {
+        return;
+      }
+
+      const rect = event.currentTarget.getBoundingClientRect();
+      const ratio = rect.width > 0 ? (event.clientX - rect.left) / rect.width : 0;
+      const nextTimeMs = Math.max(0, Math.min(voicePreview.durationMs, ratio * voicePreview.durationMs));
+      audio.currentTime = nextTimeMs / 1000;
+      setVoicePreviewPlaybackMs(nextTimeMs);
+    },
+    [voicePreview?.durationMs]
+  );
 
   const handleSendVoiceMessage = useCallback(async () => {
     if (!guardComposerInteraction()) {
@@ -5140,6 +5582,135 @@ function ContainerMess({
     }
   }, [backendConversationId, isReminderSubmitting, reminderDraft]);
 
+  const loadConversationReminderCards = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!backendConversationId || backendConversationId === "AI_ASSISTANT") {
+        setConversationReminderState({
+          loading: false,
+          error: "",
+          items: [],
+          conversationId: backendConversationId || null,
+        });
+        return;
+      }
+
+      setConversationReminderState((prevState) => ({
+        ...prevState,
+        loading: !silent,
+        error: "",
+        conversationId: backendConversationId,
+      }));
+
+      try {
+        const response = await getConversationReminders(backendConversationId, {
+          page: 0,
+          size: 50,
+        });
+        const items = Array.isArray(response?.items) ? response.items : [];
+        setConversationReminderState({
+          loading: false,
+          error: "",
+          items: items.sort((left, right) => {
+            const leftTime = new Date(left?.createdAt || left?.remindAt || 0).getTime();
+            const rightTime = new Date(right?.createdAt || right?.remindAt || 0).getTime();
+            return leftTime - rightTime;
+          }),
+          conversationId: backendConversationId,
+        });
+      } catch (error) {
+        setConversationReminderState({
+          loading: false,
+          error:
+            error?.response?.data?.message ||
+            error?.message ||
+            "Không thể tải lịch hẹn của đoạn chat.",
+          items: [],
+          conversationId: backendConversationId,
+        });
+      }
+    },
+    [backendConversationId]
+  );
+
+  useEffect(() => {
+    void loadConversationReminderCards();
+  }, [loadConversationReminderCards]);
+
+  useEffect(() => {
+    const handleConversationReminderChanged = (event) => {
+      const changedConversationId =
+        event?.detail?.conversationId || event?.detail?.id || null;
+      if (
+        changedConversationId &&
+        String(changedConversationId) !== String(backendConversationId || "")
+      ) {
+        return;
+      }
+      void loadConversationReminderCards({ silent: true });
+    };
+
+    window.addEventListener(
+      "web:conversation-reminder-changed",
+      handleConversationReminderChanged
+    );
+    return () => {
+      window.removeEventListener(
+        "web:conversation-reminder-changed",
+        handleConversationReminderChanged
+      );
+    };
+  }, [backendConversationId, loadConversationReminderCards]);
+
+  const handleConversationReminderAction = useCallback(
+    async (reminderId, action) => {
+      if (!reminderId) {
+        return;
+      }
+
+      const key = String(reminderId);
+      setConversationReminderActionLoadingById((prevState) => ({
+        ...prevState,
+        [key]: true,
+      }));
+
+      try {
+        if (action === "ACK") {
+          await ackReminder(reminderId);
+          setReminderNotice("Đã xác nhận nhắc hẹn.");
+        } else if (action === "DISMISS") {
+          await dismissReminder(reminderId);
+          setReminderNotice("Đã bỏ qua nhắc hẹn.");
+        } else if (action === "COMPLETE") {
+          await completeReminder(reminderId);
+          setReminderNotice("Đã hoàn thành nhắc hẹn.");
+        } else if (action === "CANCEL") {
+          await cancelReminder(reminderId);
+          setReminderNotice("Đã hủy nhắc hẹn.");
+        }
+
+        window.dispatchEvent(
+          new CustomEvent("web:conversation-reminder-changed", {
+            detail: { conversationId: backendConversationId },
+          })
+        );
+        window.dispatchEvent(new CustomEvent("web:reminders-global-refresh"));
+        await loadConversationReminderCards({ silent: true });
+      } catch (error) {
+        setActionError(
+          error?.response?.data?.message ||
+            error?.message ||
+            "Không thể cập nhật nhắc hẹn."
+        );
+      } finally {
+        setConversationReminderActionLoadingById((prevState) => ({
+          ...prevState,
+          [key]: false,
+        }));
+      }
+    },
+    [backendConversationId, loadConversationReminderCards]
+  );
+
   const handlePollOptionChange = (index, value) => {
     setPollDraft((prevState) => ({
       ...prevState,
@@ -5585,6 +6156,10 @@ function ContainerMess({
   };
 
   const handleReactionClick = async (message) => {
+    if (String(message?.senderId || "") === String(currentUserId || "")) {
+      return;
+    }
+
     if (isConversationDisbanded) {
       setActionError("Nhóm đã được giải tán.");
       return;
@@ -5622,6 +6197,10 @@ function ContainerMess({
   };
 
   const handleQuickReaction = async (message, reactionType) => {
+    if (String(message?.senderId || "") === String(currentUserId || "")) {
+      return;
+    }
+
     if (isConversationDisbanded) {
       setActionError("Nhóm đã được giải tán.");
       return;
@@ -5663,17 +6242,24 @@ function ContainerMess({
         return;
       }
 
+      const trackedStatus = groupCallStatusById.get(String(callLog.groupCallId));
+      const effectiveStatus = resolveEffectiveGroupCallStatus(callLog, trackedStatus);
+      if (!isLiveGroupCallStatus(effectiveStatus)) {
+        return;
+      }
+
       window.dispatchEvent(
         new CustomEvent("group-call-join-request", {
           detail: {
             ...callLog,
             conversationId: backendConversationId,
             callType: callLog.callType || callLog.raw?.type || "VOICE",
+            type: callLog.type || callLog.callType || callLog.raw?.type || "VOICE",
           },
         })
       );
     },
-    [backendConversationId]
+    [backendConversationId, groupCallStatusById]
   );
 
   const renderCallLogMessage = useCallback(
@@ -5684,11 +6270,33 @@ function ContainerMess({
       }
 
       const isVideo = String(callLog.callType || "VOICE").toUpperCase() === "VIDEO";
+      const normalizedCallStatus = String(callLog.callStatus || "ENDED").toUpperCase();
+      const isMissedCall = normalizedCallStatus === "MISSED";
+      const isCallMine = String(item.senderId || "") === String(currentUserId || "");
       const callDuration = formatCallDuration(callLog.durationSeconds);
       const fallbackName =
         callLog.initiatorName ||
         item.senderDisplayName ||
         getConversationDisplayName(activeConversation);
+      const CallLogIcon = isVideo ? IoVideocamOutline : IoCallOutline;
+      const groupCallId = String(callLog.groupCallId || "").trim();
+      const trackedGroupCallStatus = groupCallId
+        ? groupCallStatusById.get(groupCallId)
+        : "";
+      const effectiveGroupCallStatus = resolveEffectiveGroupCallStatus(
+        callLog,
+        trackedGroupCallStatus
+      );
+      const canJoinGroupCall =
+        Boolean(groupCallId) &&
+        activeConversation?.type === "group" &&
+        isLiveGroupCallStatus(effectiveGroupCallStatus);
+      const groupCallStatusLabel =
+        effectiveGroupCallStatus === CHECKING_GROUP_CALL_STATUS
+          ? "\u0110ang ki\u1ec3m tra..."
+          : canJoinGroupCall
+          ? "\u0110ang di\u1ec5n ra"
+          : "\u0110\u00e3 k\u1ebft th\u00fac";
 
       console.log("[CALL LOG RENDER]", {
         source: "web",
@@ -5696,25 +6304,42 @@ function ContainerMess({
         conversationId: backendConversationId,
         callType: callLog.callType,
         callStatus: callLog.callStatus,
+        effectiveGroupCallStatus,
         durationSeconds: callLog.durationSeconds,
         callerId: callLog.callerId,
       });
 
       return (
         <li key={item.id || index}>
-          <div className={`wrap-text-mess flex ${item.senderId === currentUserId ? "my-mess" : "you-mess"}`}>
-            {item.senderId !== currentUserId && (
+          <div
+            className={`wrap-text-mess flex call-log-message-row ${
+              isCallMine ? "my-mess" : "you-mess"
+            }`}
+          >
+            {!isCallMine && (
               <img
                 src={item.senderAvatarUrl || "https://cdn-icons-png.flaticon.com/512/149/149071.png"}
                 alt={fallbackName}
-                style={{ width: 40, height: 40, borderRadius: "50%", marginRight: 10 }}
+                className="call-log-avatar"
               />
             )}
-            <div className="detail-mess call-log-bubble">
-              {item.senderId !== currentUserId && activeConversation?.type === "group" && (
+            <div className="message-bubble-stack call-log-stack">
+            <div
+              className={`detail-mess call-log-bubble ${
+                isVideo ? "call-log-bubble--video" : "call-log-bubble--voice"
+              } ${isMissedCall ? "call-log-bubble--missed" : ""}`}
+            >
+              {!isCallMine && activeConversation?.type === "group" && (
                 <p className="name-mess">{fallbackName}</p>
               )}
               <div className="call-log-header">
+                <span
+                  className={`call-log-icon call-log-icon-rendered ${
+                    isVideo ? "video" : "voice"
+                  } ${isMissedCall ? "missed" : ""}`}
+                >
+                  <CallLogIcon />
+                </span>
                 <span className="call-log-icon">{isVideo ? "📹" : "📞"}</span>
                 <p className="call-log-title">{resolveCallLogTitle(callLog)}</p>
               </div>
@@ -5722,17 +6347,30 @@ function ContainerMess({
                 {resolveCallLogSubtitle(callLog, currentUserId, fallbackName)}
               </p>
               {callDuration ? <p className="call-log-duration">⏱ {callDuration}</p> : null}
-              {callLog.groupCallId && activeConversation?.type === "group" ? (
+              {groupCallId && activeConversation?.type === "group" ? (
+                canJoinGroupCall ? (
                 <button
                   className="message-action-btn primary call-log-action"
                   type="button"
                   onClick={() => handleJoinGroupCallFromLog(callLog)}
-                  style={{ marginTop: '8px', width: '100%', borderRadius: '8px' }}
                 >
+                  <CallLogIcon />
                   Tham gia cuộc gọi
                 </button>
+                ) : (
+                  <span
+                    className={`call-log-status-pill ${
+                      effectiveGroupCallStatus === CHECKING_GROUP_CALL_STATUS
+                        ? "call-log-status-pill-checking"
+                        : "call-log-status-pill-ended"
+                    }`}
+                  >
+                    {groupCallStatusLabel}
+                  </span>
+                )
               ) : null}
             </div>
+          </div>
           </div>
         </li>
       );
@@ -5741,6 +6379,97 @@ function ContainerMess({
   );
 
   const normalizedMessages = useMemo(() => normalizeMessageList(messages), [messages]);
+
+  useEffect(() => {
+    const groupCallIds = Array.from(
+      new Set(
+        normalizedMessages
+          .map((message) => String(message?.callLog?.groupCallId || "").trim())
+          .filter(Boolean)
+      )
+    );
+
+    if (!groupCallIds.length) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const missingGroupCallIds = groupCallIds.filter((groupCallId) => {
+      if (groupCallStatusRequestedRef.current.has(groupCallId)) {
+        return false;
+      }
+      groupCallStatusRequestedRef.current.add(groupCallId);
+      return true;
+    });
+
+    if (!missingGroupCallIds.length) {
+      return undefined;
+    }
+
+    setGroupCallStatusById((current) => {
+      const next = new Map(current);
+      missingGroupCallIds.forEach((groupCallId) => {
+        if (!next.has(groupCallId)) {
+          next.set(groupCallId, CHECKING_GROUP_CALL_STATUS);
+        }
+      });
+      return next;
+    });
+
+    missingGroupCallIds.forEach((groupCallId) => {
+      getGroupCallStatusApi(groupCallId)
+        .then((statusInfo) => {
+          if (cancelled) {
+            return;
+          }
+
+          const nextStatus = normalizeGroupCallStatusValue(
+            statusInfo?.isEnded ? "ENDED" : statusInfo?.status || "ENDED"
+          );
+          setGroupCallStatusById((current) => {
+            const next = new Map(current);
+            next.set(groupCallId, nextStatus || "ENDED");
+            return next;
+          });
+        })
+        .catch(() => {
+          if (cancelled) {
+            return;
+          }
+
+          setGroupCallStatusById((current) => {
+            const next = new Map(current);
+            next.set(groupCallId, "ENDED");
+            return next;
+          });
+        });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [normalizedMessages]);
+
+  useEffect(() => {
+    const handleGroupCallEnded = (event) => {
+      const payload = event?.detail || event || {};
+      const groupCallId = String(payload?.groupCallId || payload?.id || "").trim();
+      if (!groupCallId) {
+        return;
+      }
+
+      groupCallStatusRequestedRef.current.add(groupCallId);
+      setGroupCallStatusById((current) => {
+        const next = new Map(current);
+        next.set(groupCallId, "ENDED");
+        return next;
+      });
+    };
+
+    window.addEventListener("group-call-ended", handleGroupCallEnded);
+    return () => window.removeEventListener("group-call-ended", handleGroupCallEnded);
+  }, []);
+
   const pollStateById = useMemo(() => {
     const nextPollStateById = new Map();
 
@@ -5820,7 +6549,7 @@ function ContainerMess({
   }, [normalizedMessages]);
   const displayMessages = useMemo(
     () =>
-      normalizedMessages.filter((message) => {
+      compactCallLogMessages(normalizedMessages).filter((message) => {
         const systemMessage = parseSystemMessage(message?.content);
         if (!systemMessage) {
           return true;
@@ -6505,7 +7234,7 @@ function ContainerMess({
         continue;
       }
 
-      if (parseSystemMessage(message?.content)) {
+      if (parseSystemMessage(message?.content) || isSystemMessageType(message)) {
         continue;
       }
 
@@ -6544,6 +7273,54 @@ function ContainerMess({
       (!isNearBottom ||
         String(latestUnreadMentionedMessageId) !== String(latestDisplayMessageId || ""))
   );
+  const reminderTimelineItems = useMemo(() => {
+    if (
+      !backendConversationId ||
+      backendConversationId === "AI_ASSISTANT" ||
+      conversationReminderState.conversationId !== backendConversationId
+    ) {
+      return [];
+    }
+
+    return (conversationReminderState.items || [])
+      .filter((reminder) => reminder?.id)
+      .map((reminder) => ({
+        __timelineType: "reminder",
+        id: `reminder-${reminder.id}`,
+        reminder,
+        createdAt: reminder.createdAt || reminder.remindAt || null,
+        senderId: reminder.createdBy || null,
+        type: "REMINDER_CARD",
+      }));
+  }, [
+    backendConversationId,
+    conversationReminderState.conversationId,
+    conversationReminderState.items,
+  ]);
+  const renderedMessageList = useMemo(() => {
+    if (backendConversationId === "AI_ASSISTANT") {
+      return aiMessages;
+    }
+
+    if (isContextMode || !reminderTimelineItems.length) {
+      return displayMessages;
+    }
+
+    return [...displayMessages, ...reminderTimelineItems].sort((leftItem, rightItem) => {
+      const timeDelta = getTimelineItemTime(leftItem) - getTimelineItemTime(rightItem);
+      if (timeDelta !== 0) {
+        return timeDelta;
+      }
+
+      if (leftItem.__timelineType === "reminder" && !rightItem.__timelineType) {
+        return 1;
+      }
+      if (!leftItem.__timelineType && rightItem.__timelineType === "reminder") {
+        return -1;
+      }
+      return String(leftItem.id || "").localeCompare(String(rightItem.id || ""));
+    });
+  }, [aiMessages, backendConversationId, displayMessages, isContextMode, reminderTimelineItems]);
   useEffect(() => {
     if (!isContextMode && newMessagesSinceContext > 0) {
       setNewMessagesSinceContext(0);
@@ -6574,27 +7351,19 @@ function ContainerMess({
       <div className="pinned-panel" onClick={(event) => event.stopPropagation()}>
         <div className="pinned-panel-head">
           <p className="pinned-panel-title">
-            {isPinnedListExpanded
-              ? `Danh sách ghim (${pinnedMessages.length})`
-              : "Tin nhắn"}
+            <AiOutlinePushpin />
+            <span>Tin ghim</span>
           </p>
           <div className="pinned-panel-actions">
-            {extraPinnedCount > 0 && !isPinnedListExpanded ? (
+            {extraPinnedCount > 0 ? (
               <button
                 type="button"
                 className="pinned-panel-toggle"
-                onClick={() => setIsPinnedListExpanded(true)}
+                onClick={() => setIsPinnedListExpanded((value) => !value)}
+                aria-expanded={isPinnedListExpanded}
               >
-                +{extraPinnedCount} ghim
-              </button>
-            ) : null}
-            {isPinnedListExpanded ? (
-              <button
-                type="button"
-                className="pinned-panel-toggle"
-                onClick={() => setIsPinnedListExpanded(false)}
-              >
-                Thu gọn
+                <span>{pinnedMessages.length}</span>
+                {isPinnedListExpanded ? <IoChevronUpOutline /> : <IoChevronDownOutline />}
               </button>
             ) : null}
           </div>
@@ -6612,9 +7381,12 @@ function ContainerMess({
                   className="pinned-panel-item"
                   onClick={() => handleJumpToMessage(message.id)}
                 >
-                  <span className="pinned-panel-item-label">Tin nhắn</span>
+                  <span className="pinned-panel-item-label">
+                    <AiOutlinePushpin />
+                    {senderIdentity.displayName}
+                  </span>
                   <span className="pinned-panel-item-preview">
-                    {senderIdentity.displayName}: {messagePreview}
+                    {messagePreview}
                   </span>
                 </button>
               );
@@ -6626,9 +7398,11 @@ function ContainerMess({
             className="pinned-panel-item pinned-panel-item-single"
             onClick={() => handleJumpToMessage(newestPinnedMessage.id)}
           >
-            <span className="pinned-panel-item-label">Tin nhắn</span>
+            <span className="pinned-panel-item-label">
+              <AiOutlinePushpin />
+              {resolveMessageSenderIdentity(newestPinnedMessage).displayName}
+            </span>
             <span className="pinned-panel-item-preview">
-              {resolveMessageSenderIdentity(newestPinnedMessage).displayName}:{" "}
               {resolvePinnedMessagePreview(newestPinnedMessage)}
             </span>
           </button>
@@ -6687,7 +7461,8 @@ function ContainerMess({
           ...callData,
           initiatorId: currentUserId,
           initiatorName: userData?.displayName || "Bạn",
-          type: type.toUpperCase() // VIDEO/VOICE
+          type: type.toUpperCase(), // VIDEO/VOICE
+          callType: type.toUpperCase(),
         } 
       });
       window.dispatchEvent(event);
@@ -6739,7 +7514,7 @@ function ContainerMess({
                     <span />
                   </span>
                 </div>
-              ) : (
+              ) : !isGroupConversation && !isAiConversation ? (
                 <div className="conversation-presence-row">
                   <span
                     className={`presence-dot ${
@@ -6749,7 +7524,7 @@ function ContainerMess({
                   />
                   <p>{statusHint}</p>
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
         </div>
@@ -6809,9 +7584,134 @@ function ContainerMess({
         <div>
           {pinnedPanelNode}
           <ul>
-            {(backendConversationId === "AI_ASSISTANT" ? aiMessages : displayMessages).map((item, index) => {
+            {renderedMessageList.map((item, index) => {
               const isMine = item.senderId === currentUserId;
               const isAi = item.senderId === 'AI';
+
+              if (item.__timelineType === "reminder") {
+                const reminder = item.reminder || {};
+                const reminderId = String(reminder.id || "");
+                const isCreator = String(reminder.createdBy || "") === String(currentUserId || "");
+                const myParticipant = Array.isArray(reminder.participants)
+                  ? reminder.participants.find(
+                      (participant) =>
+                        String(participant?.userId || "") === String(currentUserId || "")
+                    ) || null
+                  : null;
+                const statusCode = String(reminder.status || "SCHEDULED").toUpperCase();
+                const isCancelled = statusCode === "CANCELLED";
+                const isCompleted = statusCode === "COMPLETED";
+                const isActionLoading = Boolean(
+                  conversationReminderActionLoadingById[reminderId]
+                );
+                const participantCount = Array.isArray(reminder.participants)
+                  ? reminder.participants.length
+                  : 0;
+
+                return (
+                  <li
+                    ref={index === renderedMessageList.length - 1 ? scrollRef : null}
+                    key={item.id || `${reminderId}-${index}`}
+                    id={item.id ? `message-row-${item.id}` : undefined}
+                    className="conversation-reminder-row"
+                  >
+                    <article
+                      className={`conversation-reminder-card status-${statusCode.toLowerCase()}`}
+                    >
+                      <div className="conversation-reminder-card-main">
+                        <span className="conversation-reminder-card-icon" aria-hidden="true">
+                          <RiCalendarTodoFill />
+                        </span>
+                        <div className="conversation-reminder-card-content">
+                          <div className="conversation-reminder-card-head">
+                            <p className="conversation-reminder-card-title">
+                              {reminder.title || "Nhắc hẹn"}
+                            </p>
+                            <span
+                              className={`conversation-reminder-status status-${statusCode.toLowerCase()}`}
+                            >
+                              {REMINDER_STATUS_LABELS[statusCode] || reminder.status || "N/A"}
+                            </span>
+                          </div>
+                          <p className="conversation-reminder-card-time">
+                            {formatReminderDateTime(reminder.remindAt)}
+                            {participantCount ? ` • ${participantCount} người` : ""}
+                          </p>
+                          {reminder.description ? (
+                            <p className="conversation-reminder-card-desc">
+                              {reminder.description}
+                            </p>
+                          ) : null}
+                          <div className="conversation-reminder-card-meta">
+                            <span>
+                              Tạo bởi {reminder.createdByName || "một thành viên"}
+                            </span>
+                            {myParticipant ? (
+                              <span>
+                                {REMINDER_PARTICIPANT_STATUS_LABELS[
+                                  String(myParticipant.status || "").toUpperCase()
+                                ] ||
+                                  myParticipant.status ||
+                                  ""}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                      {!isCancelled && !isCompleted ? (
+                        <div className="conversation-reminder-actions">
+                          {isCreator ? (
+                            <button
+                              type="button"
+                              className="message-action-btn subtle"
+                              disabled={isActionLoading}
+                              onClick={() =>
+                                handleConversationReminderAction(reminderId, "CANCEL")
+                              }
+                            >
+                              Hủy
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="message-action-btn primary"
+                            disabled={isActionLoading}
+                            onClick={() =>
+                              handleConversationReminderAction(reminderId, "COMPLETE")
+                            }
+                          >
+                            Hoàn thành
+                          </button>
+                          {!isCreator && myParticipant?.status !== "DISMISSED" ? (
+                            <button
+                              type="button"
+                              className="message-action-btn subtle"
+                              disabled={isActionLoading}
+                              onClick={() =>
+                                handleConversationReminderAction(reminderId, "ACK")
+                              }
+                            >
+                              Xác nhận
+                            </button>
+                          ) : null}
+                          {!isCreator && myParticipant?.status !== "DONE" ? (
+                            <button
+                              type="button"
+                              className="message-action-btn subtle"
+                              disabled={isActionLoading}
+                              onClick={() =>
+                                handleConversationReminderAction(reminderId, "DISMISS")
+                              }
+                            >
+                              Bỏ qua
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </article>
+                  </li>
+                );
+              }
 
               if (item.isCallLog && !Boolean(item.deletedAt)) {
                 const callLogNode = renderCallLogMessage(item, index);
@@ -6822,66 +7722,169 @@ function ContainerMess({
 
               const isDeleted = Boolean(item.deletedAt);
               const systemMessage = parseSystemMessage(item?.content);
-              const systemPayload = systemMessage?.payload || {};
-              const actorNameForSystemMessage = String(
-                systemPayload?.actorName ||
-                  item?.senderDisplayName ||
-                  resolveSystemUserNameFallback(
-                    conversationMembers.find(
-                      (member) =>
-                        String(member?.userId || "") === String(item?.senderId || "")
-                    )
-                  ) ||
-                  "Ai đó"
-              ).trim();
-              const targetNameForSystemMessage = (() => {
-                const targetUserId = String(systemPayload?.targetUserId || "").trim();
-                if (targetUserId) {
-                  return (
-                    String(systemPayload?.targetName || "").trim() ||
+              const resolveTimelineSystemDisplay = (message) => {
+                if (!message || message.deletedAt) {
+                  return null;
+                }
+
+                const parsedSystemMessage = parseSystemMessage(message?.content);
+                if (!parsedSystemMessage && isSystemMessageType(message)) {
+                  const text = String(message?.content || "").trim();
+                  if (!text) {
+                    return null;
+                  }
+
+                  return {
+                    message,
+                    text,
+                    title: message.createdAt
+                      ? new Date(message.createdAt).toLocaleString("vi-VN")
+                      : undefined,
+                    timeLabel: message.createdAt
+                      ? new Date(message.createdAt).toLocaleString("vi-VN", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "numeric",
+                        })
+                      : "",
+                  };
+                }
+
+                if (!parsedSystemMessage) {
+                  return null;
+                }
+
+                const systemPayload = parsedSystemMessage?.payload || {};
+                const actorName = String(
+                  systemPayload?.actorName ||
+                    message?.senderDisplayName ||
                     resolveSystemUserNameFallback(
                       conversationMembers.find(
-                        (member) => String(member?.userId || "") === targetUserId
+                        (member) =>
+                          String(member?.userId || "") === String(message?.senderId || "")
                       )
                     ) ||
-                    "một thành viên"
+                    "Ai đó"
+                ).trim();
+                const targetName = (() => {
+                  const targetUserId = String(systemPayload?.targetUserId || "").trim();
+                  if (targetUserId) {
+                    return (
+                      String(systemPayload?.targetName || "").trim() ||
+                      resolveSystemUserNameFallback(
+                        conversationMembers.find(
+                          (member) => String(member?.userId || "") === targetUserId
+                        )
+                      ) ||
+                      "một thành viên"
+                    );
+                  }
+                  return String(systemPayload?.targetName || "một thành viên").trim();
+                })();
+                const text = resolveGroupSystemMessageText(parsedSystemMessage, {
+                  actorName,
+                  targetName,
+                });
+
+                if (!text) {
+                  return null;
+                }
+
+                return {
+                  message,
+                  text,
+                  title: message.createdAt
+                    ? new Date(message.createdAt).toLocaleString("vi-VN")
+                    : undefined,
+                  timeLabel: message.createdAt
+                    ? new Date(message.createdAt).toLocaleString("vi-VN", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                      })
+                    : "",
+                };
+              };
+              const currentGroupSystemDisplay = resolveTimelineSystemDisplay(item);
+              if (currentGroupSystemDisplay) {
+                if (resolveTimelineSystemDisplay(renderedMessageList[index - 1])) {
+                  return null;
+                }
+
+                const groupedSystemMessages = [];
+                for (let cursor = index; cursor < renderedMessageList.length; cursor += 1) {
+                  const nextGroupSystemDisplay = resolveTimelineSystemDisplay(renderedMessageList[cursor]);
+                  if (!nextGroupSystemDisplay) {
+                    break;
+                  }
+                  groupedSystemMessages.push(nextGroupSystemDisplay);
+                }
+                const shouldAttachScrollRef = groupedSystemMessages.some(
+                  ({ message }) =>
+                    String(message?.id || "") ===
+                    String(renderedMessageList[renderedMessageList.length - 1]?.id || "")
+                );
+
+                if (groupedSystemMessages.length > 1) {
+                  return (
+                    <li
+                      ref={shouldAttachScrollRef ? scrollRef : null}
+                      key={`group-system-${item.id || item.createdAt || index}`}
+                      className="group-system-message-row"
+                    >
+                      <details className="group-system-message-dropdown">
+                        <summary className="group-system-message-chip">
+                          <span className="group-system-message-icon" aria-hidden="true">
+                            <AiOutlineBell />
+                          </span>
+                          <span className="group-system-message-text">
+                            {groupedSystemMessages.length} cập nhật hội thoại
+                          </span>
+                          <span className="group-system-message-time">
+                            {currentGroupSystemDisplay.timeLabel}
+                          </span>
+                          <IoChevronDownOutline className="group-system-message-chevron" />
+                        </summary>
+                        <div className="group-system-message-dropdown-list">
+                          {groupedSystemMessages.map((entry) => (
+                            <button
+                              type="button"
+                              key={entry.message.id || entry.message.createdAt || entry.text}
+                              className="group-system-message-dropdown-item"
+                              onClick={() => handleJumpToMessage(entry.message.id)}
+                            >
+                              <span>{entry.text}</span>
+                              {entry.timeLabel ? <small>{entry.timeLabel}</small> : null}
+                            </button>
+                          ))}
+                        </div>
+                      </details>
+                    </li>
                   );
                 }
-                return String(systemPayload?.targetName || "một thành viên").trim();
-              })();
-              const groupSystemMessageText = resolveGroupSystemMessageText(systemMessage, {
-                actorName: actorNameForSystemMessage,
-                targetName: targetNameForSystemMessage,
-              });
-              if (!isDeleted && groupSystemMessageText) {
-                const groupSystemTimeLabel = item.createdAt
-                  ? new Date(item.createdAt).toLocaleString("vi-VN", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      day: "2-digit",
-                      month: "2-digit",
-                      year: "numeric",
-                    })
-                  : "";
 
                 return (
                   <li
-                    ref={index === displayMessages.length - 1 ? scrollRef : null}
+                    ref={index === renderedMessageList.length - 1 ? scrollRef : null}
                     key={item.id || `${item.createdAt}-${index}`}
                     id={item.id ? `message-row-${item.id}` : undefined}
                     className="group-system-message-row"
-                    title={item.createdAt ? new Date(item.createdAt).toLocaleString("vi-VN") : undefined}
+                    title={currentGroupSystemDisplay.title}
                   >
                     <span className="group-system-message-chip">
                       <span className="group-system-message-icon" aria-hidden="true">
                         <AiOutlineBell />
                       </span>
                       <span className="group-system-message-text">
-                        {groupSystemMessageText}
+                        {currentGroupSystemDisplay.text}
                       </span>
-                      {groupSystemTimeLabel ? (
+                      {currentGroupSystemDisplay.timeLabel ? (
                         <span className="group-system-message-time">
-                          {groupSystemTimeLabel}
+                          {currentGroupSystemDisplay.timeLabel}
                         </span>
                       ) : null}
                     </span>
@@ -6904,6 +7907,7 @@ function ContainerMess({
               const audioAttachments = visibleAttachments.filter(
                 (attachment) =>
                   !isImageAttachment(attachment) &&
+                  !isVideoAttachment(attachment) &&
                   (isAudioAttachment(attachment) ||
                     isAudioMessage)
               );
@@ -7049,7 +8053,7 @@ function ContainerMess({
 
               return (
                 <li
-                  ref={index === displayMessages.length - 1 ? scrollRef : null}
+                  ref={index === renderedMessageList.length - 1 ? scrollRef : null}
                   key={item.id || `${item.createdAt}-${index}`}
                   id={item.id ? `message-row-${item.id}` : undefined}
                   className={`wrap-text-mess ${isMine ? "my-mess" : ""} ${
@@ -7142,17 +8146,25 @@ function ContainerMess({
                         {videoAttachments.length > 0 && (
                           <div className="message-video-list">
                             {videoAttachments.map((attachment) => (
-                              <video
-                                className="message-video-player"
+                              <div
+                                className="message-video-card"
                                 key={attachment.id || attachment.url}
-                                controls
-                                preload="metadata"
                               >
-                                <source
-                                  src={attachment.url}
-                                  type={attachment.contentType || "video/mp4"}
-                                />
-                              </video>
+                                <video
+                                  className="message-video-player"
+                                  controls
+                                  playsInline
+                                  preload="metadata"
+                                >
+                                  <source
+                                    src={attachment.url}
+                                    type={attachment.contentType || "video/mp4"}
+                                  />
+                                  <a href={attachment.url} target="_blank" rel="noreferrer">
+                                    Tải video
+                                  </a>
+                                </video>
+                              </div>
                             ))}
                           </div>
                         )}
@@ -7391,7 +8403,9 @@ function ContainerMess({
                           <p className="message-state-chip">Đã chỉnh sửa</p>
                         ) : null}
                         {isPinned && !isDeleted ? (
-                          <p className="message-state-chip">Đã ghim</p>
+                          <p className="message-state-chip message-state-chip-icon" title="Đã ghim">
+                            <AiOutlinePushpin />
+                          </p>
                         ) : null}
                       </>
                     )}
@@ -7402,6 +8416,7 @@ function ContainerMess({
                             item.myReaction === "LIKE" ? "active-reaction" : "subtle"
                           }`}
                           type="button"
+                          style={isMine ? { display: "none" } : undefined}
                           aria-label={item.myReaction === "LIKE" ? "Bỏ thích" : "Thích"}
                           title={item.myReaction === "LIKE" ? "Bỏ thích" : "Thích"}
                           onClick={() => handleReactionClick(item)}
@@ -7413,7 +8428,10 @@ function ContainerMess({
                           )}
                         </button>
 
-                        <div className="message-reaction-picker">
+                        <div
+                          className="message-reaction-picker"
+                          style={isMine ? { display: "none" } : undefined}
+                        >
                           <button
                             className={`message-reaction-trigger ${
                               item.myReaction && item.myReaction !== "LIKE"
@@ -7495,6 +8513,25 @@ function ContainerMess({
                               >
                                 Chuyển tiếp
                               </button>
+                              {isMine && audioAttachments.length > 0 ? (
+                                <button
+                                  className="message-action-menu-item"
+                                  type="button"
+                                  onClick={() => {
+                                    handleCloseMessageMenu();
+                                    window.dispatchEvent(
+                                      new CustomEvent("web:voice-transcript-request", {
+                                        detail: {
+                                          messageId: item.id,
+                                          attachmentId: audioAttachments[0]?.id || null,
+                                        },
+                                      })
+                                    );
+                                  }}
+                                >
+                                  Chuyển thành văn bản
+                                </button>
+                              ) : null}
                               {canTogglePin ? (
                                 <button
                                   className="message-action-menu-item"
@@ -7691,7 +8728,7 @@ function ContainerMess({
                       </div>
                     ) : null}
 
-                    {index === displayMessages.length - 1 ? (
+                    {index === renderedMessageList.length - 1 ? (
                       <div className="time-mess">
                         <p>
                           {formatTime(item.editedAt || item.createdAt)}
@@ -7778,7 +8815,7 @@ function ContainerMess({
               />
               {menuControl.tableIcon ? (
                 <div className="wrap-seticon">
-                  <Icon handleGetIcon={handleGetIcon} />
+                  <Icon handleGetIcon={handleGetIcon} handleGetGif={handleGetGif} />
                 </div>
               ) : null}
             </div>
@@ -7790,38 +8827,58 @@ function ContainerMess({
               className={`icon-header ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
               onClick={handleFilePickerOpen}
             />
+            <div className="voice-option-picker">
             <button
               type="button"
               className={`icon-header icon-header-btn ${
-                isComposerInteractionLocked ||
-                voiceRecorderState === "processing" ||
-                dictationState === "recording" ||
-                dictationState === "processing" ||
-                dictationState === "stopping"
-                  ? "composer-icon-disabled"
-                : ""
-              } ${voiceRecorderState === "recording" ? "voice-recording-active" : ""}`}
-              onClick={
-                isComposerInteractionLocked ||
-                voiceRecorderState === "processing" ||
-                dictationState === "recording" ||
-                dictationState === "processing" ||
-                dictationState === "stopping"
-                  ? undefined
-                  : voiceRecorderState === "recording"
-                  ? () => stopVoiceRecording({ cancel: false })
-                  : handleStartVoiceRecording
-              }
+                isVoiceModeDisabled ? "composer-icon-disabled" : ""
+              } ${
+                voiceRecorderState === "recording" ||
+                dictationState === "recording"
+                  ? "voice-recording-active"
+                  : ""
+              }`}
+              onClick={isVoiceModeDisabled ? undefined : handleVoiceModeClick}
               aria-label={
-                voiceRecorderState === "recording"
+                voiceRecorderState === "recording" ||
+                dictationState === "recording"
                   ? "Dừng ghi âm"
                   : "Bắt đầu ghi âm tin nhắn thoại"
               }
             >
-              {voiceRecorderState === "recording" ? <IoStop /> : <IoMicOutline />}
+              {voiceRecorderState === "recording" ||
+              dictationState === "recording" ? (
+                <IoStop />
+              ) : (
+                <IoMicOutline />
+              )}
             </button>
+              {isVoiceOptionOpen ? (
+                <div className="voice-option-menu">
+                  <button
+                    type="button"
+                    className="voice-option-tab"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={handleSelectVoiceRecording}
+                  >
+                    <IoMicOutline />
+                    <span>Ghi âm</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="voice-option-tab"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={handleSelectDictation}
+                  >
+                    <IoDocumentTextOutline />
+                    <span>Nhập giọng nói</span>
+                  </button>
+                </div>
+              ) : null}
+            </div>
             <button
               type="button"
+              style={{ display: "none" }}
               className={`icon-header icon-header-btn ${
                 isComposerInteractionLocked ||
                 dictationState === "processing" ||
@@ -7958,21 +9015,49 @@ function ContainerMess({
                 </div>
                 <audio
                   className="voice-preview-audio"
+                  ref={voicePreviewAudioRef}
                   src={voicePreview.previewUrl}
-                  controls
                   preload="metadata"
                 />
-                <div className="voice-preview-waveform">
-                  {(Array.isArray(voicePreview.waveform)
-                    ? voicePreview.waveform
-                    : buildFallbackWaveformSamples(32)
-                  ).map((sample, index) => (
+                <div className="voice-preview-player">
+                  <button
+                    type="button"
+                    className="voice-preview-play-btn"
+                    onClick={handleToggleVoicePreviewPlayback}
+                    aria-label={isVoicePreviewPlaying ? "Tạm dừng bản ghi âm" : "Phát bản ghi âm"}
+                  >
+                    {isVoicePreviewPlaying ? <IoStop /> : <IoPlay />}
+                  </button>
+                  <div
+                    className="voice-preview-progress"
+                    role="slider"
+                    tabIndex={0}
+                    aria-label="Tiến độ bản ghi âm"
+                    aria-valuemin={0}
+                    aria-valuemax={Math.max(0, Math.round((voicePreview.durationMs || 0) / 1000))}
+                    aria-valuenow={Math.max(0, Math.round(voicePreviewPlaybackMs / 1000))}
+                    onClick={handleSeekVoicePreview}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        void handleToggleVoicePreviewPlayback();
+                      }
+                    }}
+                  >
                     <span
-                      key={`voice-preview-wave-${index}`}
-                      className="voice-preview-wave-bar"
-                      style={{ height: `${Math.max(18, Math.round(sample * 100))}%` }}
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          Math.max(
+                            0,
+                            voicePreview.durationMs
+                              ? (voicePreviewPlaybackMs / voicePreview.durationMs) * 100
+                              : 0
+                          )
+                        )}%`,
+                      }}
                     />
-                  ))}
+                  </div>
                 </div>
                 <div className="voice-preview-actions">
                   <button
@@ -8115,9 +9200,16 @@ function ContainerMess({
                 </div>
               </div>
             ) : null}
-            <div className="composer-input-row">
+            <div className="composer-input-row" ref={composerInputRowRef}>
               {mentionFeatureEnabled && mentionState.open ? (
-                <div className="mention-suggestion-panel mention-suggestion-panel-above-composer">
+                <div
+                  className="mention-suggestion-panel mention-suggestion-panel-above-composer mention-suggestion-panel-fixed"
+                  style={{
+                    "--mention-panel-left": `${mentionPanelPosition.left}px`,
+                    "--mention-panel-bottom": `${mentionPanelPosition.bottom}px`,
+                    "--mention-panel-width": `${mentionPanelPosition.width}px`,
+                  }}
+                >
                   {matchedMentionCandidates.length > 0 ? (
                     matchedMentionCandidates.map((candidate) => (
                       <button

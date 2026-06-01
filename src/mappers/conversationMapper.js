@@ -52,6 +52,40 @@ const pickFirstString = (...values) => {
   return "";
 };
 
+const resolveBackendAssetUrl = (value) => {
+  const rawUrl = normalizeNonEmptyString(value);
+  if (!rawUrl) {
+    return "";
+  }
+
+  if (/^(https?:|data:|blob:)/i.test(rawUrl)) {
+    return rawUrl;
+  }
+
+  if (rawUrl.startsWith("//")) {
+    const protocol =
+      typeof window !== "undefined" && window.location?.protocol
+        ? window.location.protocol
+        : "http:";
+    return `${protocol}${rawUrl}`;
+  }
+
+  try {
+    const apiBaseUrl = new URL(
+      import.meta.env?.VITE_BASE_API_URL || "http://localhost:8080/api/v1"
+    );
+    if (rawUrl.startsWith("/api/")) {
+      return `${apiBaseUrl.origin}${rawUrl}`;
+    }
+
+    return new URL(rawUrl.startsWith("/") ? rawUrl : `/${rawUrl}`, `${apiBaseUrl.origin}/`).href;
+  } catch {
+    return rawUrl;
+  }
+};
+
+const pickFirstAssetUrl = (...values) => resolveBackendAssetUrl(pickFirstString(...values));
+
 const parseGroupSystemPreviewPayload = (value) => {
   const content = typeof value === "string" ? value.trim() : "";
   if (!content.startsWith(GROUP_SYSTEM_PREFIX)) {
@@ -215,11 +249,17 @@ const normalizeMemberEntry = (member) => {
       String(userId)
     ),
     nickname: pickFirstString(source?.nickname, member.nickname),
-    avatarUrl: pickFirstString(
+    avatarUrl: pickFirstAssetUrl(
       source?.avatarUrl,
       source?.avatar,
+      source?.avatar_url,
+      source?.imageUrl,
+      source?.photoUrl,
       member.avatarUrl,
-      member.avatar
+      member.avatar,
+      member.avatar_url,
+      member.imageUrl,
+      member.photoUrl
     ),
     role: normalizeMemberRole(resolveMemberRoleValue(member)),
     raw: member,
@@ -404,7 +444,7 @@ const resolvePrivateIdentity = (conversation, options = {}) => {
     peerMember?.displayName,
     conversation?.trustedDisplayName
   );
-  const peerAvatarUrl = pickFirstString(
+  const peerAvatarUrl = pickFirstAssetUrl(
     conversation?.peerAvatarUrl,
     conversation?.raw?.peerAvatarUrl,
     peerMember?.avatarUrl,
@@ -433,14 +473,24 @@ const resolveGroupIdentity = (conversation) => {
     conversation?.trustedDisplayName,
     conversation?.customName ? "" : conversation?.displayName
   );
-  const trustedAvatarUrl = pickFirstString(
+  const trustedAvatarUrl = pickFirstAssetUrl(
+    rawConversation?.groupAvatarUrl,
+    rawConversation?.groupAvatar,
+    rawConversation?.group_avatar_url,
     rawConversation?.avatarUrl,
     rawConversation?.avatar,
-    rawConversation?.groupAvatarUrl,
+    rawConversation?.avatar_url,
+    rawConversation?.imageUrl,
+    rawConversation?.photoUrl,
     conversation?.groupAvatarUrl,
+    conversation?.groupAvatar,
+    conversation?.group_avatar_url,
     conversation?.trustedAvatarUrl,
     conversation?.avatarUrl,
-    conversation?.avatar
+    conversation?.avatar,
+    conversation?.avatar_url,
+    conversation?.imageUrl,
+    conversation?.photoUrl
   );
 
   return {
@@ -586,7 +636,9 @@ export const mergeConversationPatch = (currentConversation, patch) => {
 
   const nextPeerUserId = resolveIdentityPatchValue(patch, nextRaw, "peerUserId");
   const nextPeerDisplayName = resolveIdentityPatchValue(patch, nextRaw, "peerDisplayName");
-  const nextPeerAvatarUrl = resolveIdentityPatchValue(patch, nextRaw, "peerAvatarUrl");
+  const nextPeerAvatarUrl = resolveBackendAssetUrl(
+    resolveIdentityPatchValue(patch, nextRaw, "peerAvatarUrl")
+  );
   const nextTrustedDisplayName =
     isGroupConversation
       ? resolveGroupMetadataPatchValue(patch, nextRaw, "trustedDisplayName", [
@@ -595,14 +647,20 @@ export const mergeConversationPatch = (currentConversation, patch) => {
           "groupName",
         ])
       : resolveIdentityPatchValue(patch, nextRaw, "trustedDisplayName");
-  const nextTrustedAvatarUrl =
+  const nextTrustedAvatarUrlRaw =
     isGroupConversation
       ? resolveGroupMetadataPatchValue(patch, nextRaw, "trustedAvatarUrl", [
+          "groupAvatarUrl",
+          "groupAvatar",
+          "group_avatar_url",
           "avatarUrl",
           "avatar",
-          "groupAvatarUrl",
+          "avatar_url",
+          "imageUrl",
+          "photoUrl",
         ])
       : resolveIdentityPatchValue(patch, nextRaw, "trustedAvatarUrl");
+  const nextTrustedAvatarUrl = resolveBackendAssetUrl(nextTrustedAvatarUrlRaw);
 
   nextConversation.peerUserId = preserveIdentityValue(
     currentConversation.peerUserId,
@@ -699,6 +757,17 @@ export const normalizeConversationInput = (conversation, options = {}) => {
     lastMessage: resolveConversationPreviewText(
       conversation?.lastMessage ?? rawConversation?.lastMessage ?? ""
     ),
+    lastMessageSenderId:
+      conversation?.lastMessageSenderId ??
+      rawConversation?.lastMessageSenderId ??
+      rawConversation?.lastMessageSenderUserId ??
+      rawConversation?.lastSenderId ??
+      rawConversation?.lastMessage?.senderId ??
+      rawConversation?.lastMessage?.senderUserId ??
+      rawConversation?.lastMessage?.userId ??
+      rawConversation?.lastMessage?.sender?.id ??
+      rawConversation?.lastMessage?.sender?.userId ??
+      null,
     lastMessageTime:
       conversation?.lastMessageTime ?? rawConversation?.lastMessageTime ?? null,
     lastActive: conversation?.lastActive ?? rawConversation?.lastActive ?? null,
