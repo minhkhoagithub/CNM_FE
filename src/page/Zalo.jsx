@@ -365,7 +365,7 @@ export default function Zalo() {
         // Sử dụng fetch keepalive để gửi request với auth header khi đóng tab
         const token = localStorage.getItem('token');
         if (token) {
-           const baseUrl = import.meta.env.VITE_APP_API_URL || 'http://localhost:8080/api/v1';
+           const baseUrl = import.meta.env.VITE_BASE_API_URL || 'http://localhost:8080/api/v1';
            const url = `${baseUrl}/group-calls/${groupCallData.groupCallId}/leave`;
            fetch(url, {
              method: 'POST',
