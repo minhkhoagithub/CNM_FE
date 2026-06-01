@@ -1857,6 +1857,7 @@ function ContainerMess({
   const imageInputRef = useRef(null);
   const fileInputRef = useRef(null);
   const voiceRecorderRef = useRef(null);
+  const voiceOptionPickerRef = useRef(null);
   const voiceStreamRef = useRef(null);
   const voiceChunksRef = useRef([]);
   const voiceTimerRef = useRef(null);
@@ -8827,7 +8828,7 @@ function ContainerMess({
               className={`icon-header ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
               onClick={handleFilePickerOpen}
             />
-            <div className="voice-option-picker">
+            <div className="voice-option-picker" ref={voiceOptionPickerRef}>
             <button
               type="button"
               className={`icon-header icon-header-btn ${
