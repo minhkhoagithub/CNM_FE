@@ -14,6 +14,10 @@ const resolveWebSocketUrl = () => {
   return `${origin}/ws`;
 };
 
+const sockJsOptions = {
+  transports: ["websocket", "xhr-streaming", "xhr-polling"],
+};
+
 class WebSocketService {
   constructor() {
     this.client = null;
@@ -39,7 +43,7 @@ class WebSocketService {
       try {
         console.log("[WebSocket] Connecting to /ws...");
 
-        const socket = new SockJS(resolveWebSocketUrl());
+        const socket = new SockJS(resolveWebSocketUrl(), null, sockJsOptions);
         const client = Stomp.over(socket);
         client.debug = () => {};
         this.client = client;

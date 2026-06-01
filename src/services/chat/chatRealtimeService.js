@@ -15,6 +15,10 @@ const resolveRealtimeUrls = () => {
   }
 };
 
+const sockJsOptions = {
+  transports: ["websocket", "xhr-streaming", "xhr-polling"],
+};
+
 const parseRealtimeMessage = (message) => {
   if (!message?.body) {
     return null;
@@ -74,7 +78,7 @@ class ChatRealtimeService {
         currentIndex += 1;
 
         try {
-          const socket = new SockJS(targetUrl);
+          const socket = new SockJS(targetUrl, null, sockJsOptions);
           const client = Stomp.over(socket);
           client.debug = () => {};
           client.reconnect_delay = 5000;
