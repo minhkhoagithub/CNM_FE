@@ -11,16 +11,44 @@ import {
 } from "react-icons/md";
 import "../resource/style/Login/register.css";
 import {
+  checkIdentifierExists,
   checkEmailExists,
   sendRegisterOtp,
   userRegisterWithOtp,
   verifyRegisterOtp,
 } from "../util/api";
+import {
+  isDuplicatePhoneError,
+  normalizeEmail,
+  normalizePhone,
+  toRegistrationErrorMessage,
+  validateRegistrationEmail,
+  validateRegistrationFields,
+} from "../util/registrationValidation";
 
 const extractPayload = (response) =>
   response?.data?.data ?? response?.data ?? response ?? null;
 
-const normalizeEmail = (rawEmail) => String(rawEmail || "").trim().toLowerCase();
+const extractApiErrorMessage = (error, fallbackMessage) => {
+  const responseData = error?.response?.data;
+  const validationReason = Array.isArray(responseData?.errors)
+    ? responseData.errors.find((item) => item?.reason)?.reason
+    : "";
+
+  return (
+    validationReason ||
+    responseData?.message ||
+    responseData?.error ||
+    error?.message ||
+    fallbackMessage
+  );
+};
+
+const assertApiSuccess = (response, fallbackMessage) => {
+  if (response?.data?.success === false) {
+    throw new Error(response.data.message || fallbackMessage);
+  }
+};
 
 const REGISTER_STEPS = [
   {
@@ -69,8 +97,9 @@ export default function Register() {
 
   const handleCheckEmail = async () => {
     const normalizedEmail = normalizeEmail(email);
-    if (!normalizedEmail) {
-      setError("Vui lòng nhập email.");
+    const emailValidationMessage = validateRegistrationEmail(email);
+    if (emailValidationMessage) {
+      setError(emailValidationMessage);
       return;
     }
 
@@ -89,36 +118,65 @@ export default function Register() {
 
       setStep("REGISTER_FORM");
     } catch (err) {
-      setError(err.response?.data?.message || "Không thể kiểm tra email.");
+      setError(
+        toRegistrationErrorMessage(
+          extractApiErrorMessage(err, "Không thể kiểm tra email."),
+          "Không thể kiểm tra email.",
+        ),
+      );
     } finally {
       setLoading(false);
     }
   };
 
   const handleSendRegisterOtp = async () => {
-    const { phone, password, confirmPassword, firstName, lastName, dob, gender } = registerData;
-    if (!phone || !password || !firstName || !lastName || !dob || !gender) {
-      setError("Vui lòng điền đầy đủ thông tin.");
+    const emailValidationMessage = validateRegistrationEmail(email);
+    if (emailValidationMessage) {
+      setError(emailValidationMessage);
+      setStep("EMAIL");
       return;
     }
-    if (password !== confirmPassword) {
-      setError("Mật khẩu xác nhận không khớp.");
+
+    const validationMessage = validateRegistrationFields(registerData);
+    if (validationMessage) {
+      setError(validationMessage);
       return;
     }
+
+    const normalizedPhone = normalizePhone(registerData.phone);
 
     try {
       setLoading(true);
       setError("");
-      await sendRegisterOtp({ email: normalizeEmail(email) });
+      const phoneCheckResponse = await checkIdentifierExists({ identifier: normalizedPhone });
+      if (Boolean(extractPayload(phoneCheckResponse))) {
+        setError("Số điện thoại đã được đăng ký. Vui lòng dùng số khác.");
+        return;
+      }
+
+      const otpResponse = await sendRegisterOtp({ email: normalizeEmail(email) });
+      assertApiSuccess(otpResponse, "Không thể gửi OTP.");
       setStep("REGISTER_OTP");
     } catch (err) {
-      setError(err.response?.data?.message || "Không thể gửi OTP.");
+      setError(
+        toRegistrationErrorMessage(
+          extractApiErrorMessage(err, "Không thể gửi OTP."),
+          "Không thể gửi OTP.",
+        ),
+      );
     } finally {
       setLoading(false);
     }
   };
 
   const handleVerifyOtp = async () => {
+    const emailValidationMessage = validateRegistrationEmail(email);
+    if (emailValidationMessage) {
+      setError(emailValidationMessage);
+      setStep("EMAIL");
+      return;
+    }
+
     if (!otpCode) {
       setError("Vui lòng nhập OTP.");
       return;
@@ -132,6 +190,7 @@ export default function Register() {
         otpCode: otpCode.trim(),
         type: "REGISTER",
       });
+      assertApiSuccess(response, "OTP không hợp lệ.");
       const token = extractPayload(response);
       if (!token) {
         setError("Không nhận được register token từ hệ thống.");
@@ -140,19 +199,48 @@ export default function Register() {
       setRegisterToken(String(token));
       setStep("REGISTER_SUBMIT");
     } catch (err) {
-      setError(err.response?.data?.message || "OTP không hợp lệ.");
+      setError(
+        toRegistrationErrorMessage(
+          extractApiErrorMessage(err, "OTP không hợp lệ."),
+          "OTP không hợp lệ.",
+        ),
+      );
     } finally {
       setLoading(false);
     }
   };
 
   const handleRegister = async () => {
+    const emailValidationMessage = validateRegistrationEmail(email);
+    if (emailValidationMessage) {
+      setError(emailValidationMessage);
+      setStep("EMAIL");
+      return;
+    }
+
+    const validationMessage = validateRegistrationFields(registerData);
+    if (validationMessage) {
+      setError(validationMessage);
+      setStep("REGISTER_FORM");
+      return;
+    }
+
+    const normalizedPhone = normalizePhone(registerData.phone);
+
     try {
       setLoading(true);
       setError("");
-      await userRegisterWithOtp({
+      const phoneCheckResponse = await checkIdentifierExists({ identifier: normalizedPhone });
+      if (Boolean(extractPayload(phoneCheckResponse))) {
+        setError("Số điện thoại đã được đăng ký. Vui lòng dùng số khác.");
+        setStep("REGISTER_FORM");
+        setRegisterToken("");
+        return;
+      }
+
+      const registerResponse = await userRegisterWithOtp({
         email: normalizeEmail(email),
-        phone: registerData.phone,
+        phone: normalizedPhone,
         registerToken,
         password: registerData.password,
         firstName: registerData.firstName,
@@ -160,9 +248,18 @@ export default function Register() {
         dob: registerData.dob,
         gender: registerData.gender,
       });
+      assertApiSuccess(registerResponse, "Đăng ký thất bại.");
       navigate("/auth/login");
     } catch (err) {
-      setError(err.response?.data?.message || "Đăng ký thất bại.");
+      const errorMessage = toRegistrationErrorMessage(
+        extractApiErrorMessage(err, "Đăng ký thất bại."),
+        "Đăng ký thất bại.",
+      );
+      if (isDuplicatePhoneError(errorMessage)) {
+        setStep("REGISTER_FORM");
+        setRegisterToken("");
+      }
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -285,7 +382,7 @@ export default function Register() {
                       placeholder="Nhập số điện thoại"
                       value={registerData.phone}
                       onChange={(event) =>
-                        setRegisterData((prev) => ({ ...prev, phone: event.target.value }))
+                        setRegisterData((prev) => ({ ...prev, phone: normalizePhone(event.target.value) }))
                       }
                     />
                   </div>

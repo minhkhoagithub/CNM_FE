@@ -28,6 +28,17 @@ export const NOTIFICATION_SETTINGS_CHANGED_EVENT = "notification-settings-change
 const normalizeCount = (payload) =>
   Number(payload?.unreadCount ?? payload?.count ?? payload ?? 0) || 0;
 
+const hasAuthenticatedWebSession = () => {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return (
+    window.localStorage.getItem("isLogin") === "true" &&
+    Boolean(window.localStorage.getItem("userProfile"))
+  );
+};
+
 export const NotificationProvider = ({ children }) => {
   const [items, setItems] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -48,11 +59,35 @@ export const NotificationProvider = ({ children }) => {
   }, [nextCursor]);
 
   const loadUnreadCount = useCallback(async () => {
-    const payload = await getUnreadCount();
-    setUnreadCount(normalizeCount(payload));
+    if (!hasAuthenticatedWebSession()) {
+      setUnreadCount(0);
+      return 0;
+    }
+
+    try {
+      const payload = await getUnreadCount();
+      const nextCount = normalizeCount(payload);
+      setUnreadCount(nextCount);
+      return nextCount;
+    } catch (err) {
+      if (err?.response?.status !== 401) {
+        console.warn("[NotificationContext] loadUnreadCount failed", err);
+      }
+      setUnreadCount(0);
+      return 0;
+    }
   }, []);
 
   const loadNotifications = useCallback(async ({ reset = true, unreadOnly = false } = {}) => {
+    if (!hasAuthenticatedWebSession()) {
+      setItems([]);
+      setUnreadCount(0);
+      setNextCursor(null);
+      setHasMore(false);
+      setError("");
+      return null;
+    }
+
     setLoading(true);
     setError("");
     try {
@@ -65,9 +100,14 @@ export const NotificationProvider = ({ children }) => {
       setItems((current) => (reset ? nextItems : [...current, ...nextItems]));
       setNextCursor(payload?.nextCursor ?? null);
       setHasMore(Boolean(payload?.hasMore));
+      return payload;
     } catch (err) {
+      if (err?.response?.status === 401) {
+        return null;
+      }
       console.error("[NotificationContext] loadNotifications failed", err);
       setError("Không thể tải thông báo.");
+      return null;
     } finally {
       setLoading(false);
     }
@@ -78,6 +118,10 @@ export const NotificationProvider = ({ children }) => {
   }, [loadNotifications, loadUnreadCount]);
 
   const markRead = useCallback(async (notificationId) => {
+    if (!hasAuthenticatedWebSession()) {
+      return null;
+    }
+
     const updated = await markNotificationRead(notificationId);
     setItems((current) =>
       current.map((item) =>
@@ -216,6 +260,11 @@ export const NotificationProvider = ({ children }) => {
   );
 
   const markAllRead = useCallback(async () => {
+    if (!hasAuthenticatedWebSession()) {
+      setUnreadCount(0);
+      return;
+    }
+
     await markAllNotificationsRead();
     setItems((current) =>
       current.map((item) => ({
@@ -228,12 +277,21 @@ export const NotificationProvider = ({ children }) => {
   }, []);
 
   const hideNotification = useCallback(async (notificationId) => {
+    if (!hasAuthenticatedWebSession()) {
+      return;
+    }
+
     await deleteNotificationApi(notificationId);
     setItems((current) => current.filter((item) => item.id !== notificationId));
     await loadUnreadCount();
   }, [loadUnreadCount]);
 
   const registerPush = useCallback(async () => {
+    if (!hasAuthenticatedWebSession()) {
+      setPushStatus("idle");
+      return { registered: false, reason: "NOT_AUTHENTICATED" };
+    }
+
     setPushStatus("checking");
     try {
       const result = await registerWebPushToken();
@@ -247,6 +305,10 @@ export const NotificationProvider = ({ children }) => {
   }, []);
 
   const revokeWebPush = useCallback(async () => {
+    if (!hasAuthenticatedWebSession()) {
+      return;
+    }
+
     try {
       await revokeDeviceToken({
         deviceId: getOrCreateWebDeviceId(),
@@ -266,6 +328,11 @@ export const NotificationProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
+    if (!hasAuthenticatedWebSession()) {
+      notificationSoundEnabledRef.current = true;
+      return undefined;
+    }
+
     let isMounted = true;
 
     getUserSettings()

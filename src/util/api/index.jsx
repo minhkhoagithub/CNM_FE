@@ -55,6 +55,12 @@ export const checkEmailExists = async ({ email }) => {
   });
   return response;
 };
+export const checkIdentifierExists = async ({ identifier }) => {
+  const response = await apiClient.get("/auth/check-existence", {
+    params: { identifier: String(identifier || "").trim() },
+  });
+  return response;
+};
 export const userRegister = async ({ username, password }) => {
   const response = await apiClient.post("/auth/register", {
     username,

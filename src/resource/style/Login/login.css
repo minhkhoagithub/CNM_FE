@@ -148,7 +148,10 @@
 .login-login-qr,
 .login-login-account {
   width: 400px;
-  height: 360px;
+  min-height: 360px;
+}
+.login-login-account-register {
+  min-height: 0;
 }
 .login-wrap-qr {
   display: flex;
@@ -190,16 +193,16 @@
   position: relative;
 }
 .login-form-login-account .state-login {
-  position: absolute;
   color: #dc2626;
   font-size: 13px;
-  left: 50%;
-  top: 148px;
-  right: 50%;
-  width: 290px;
+  width: auto;
+  margin: -12px 30px 18px;
+  padding: 10px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fff5f5;
   text-align: center;
   line-height: 1.4;
-  transform: translate(-50%, -50%);
 }
 .login-form-login-account .icon-login {
   width: 20px;
@@ -210,9 +213,12 @@
   margin: 0 10px;
   line-height: 20px;
 }
-.login-form-login-wrap div {
+.login-form-login-wrap > .flex {
   margin: 0px 30px 30px 30px;
   border-bottom: 1px solid rgb(209, 209, 209);
+}
+.login-login-account-register .login-form-login-wrap > .flex {
+  margin-bottom: 18px;
 }
 .login-form-login-wrap input {
   background-color: rgba(255, 255, 255, 0.5);
@@ -222,6 +228,14 @@
   line-height: 30px;
   font-size: 15px;
 }
+.login-form-login-wrap select {
+  width: 250px;
+  height: 30px;
+  border: none;
+  outline: none;
+  background-color: rgba(255, 255, 255, 0.5);
+  font-size: 15px;
+}
 .login-form-login input:focus {
   border: none;
   outline: none;
@@ -229,6 +243,9 @@
 .login-container-btn {
   transition: opacity 0.3s;
   margin-top: 40px;
+}
+.login-login-account-register .login-container-btn {
+  margin-top: 18px;
 }
 .login-container-btn div {
   margin: 30px 0;

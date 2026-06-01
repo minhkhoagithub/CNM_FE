@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useContext, useEffect, useState } from "react";
+﻿import React, { useContext, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import FingerprintJS from "@fingerprintjs/fingerprintjs";
 import QRCode from "qrcode";
@@ -8,6 +8,7 @@ import { UAParser } from "ua-parser-js";
 import { UserContext } from "../Context/UserContext";
 import "../resource/style/Login/login.css";
 import {
+  checkIdentifierExists,
   checkEmailExists,
   checkDeviceLoginStatus,
   createDeviceLoginRequest,
@@ -18,9 +19,64 @@ import {
   userRegisterWithOtp,
   verifyRegisterOtp,
 } from "../util/api";
+import {
+  isDuplicatePhoneError,
+  normalizeEmail,
+  normalizePhone,
+  toRegistrationErrorMessage,
+  validateRegistrationEmail,
+  validateRegistrationFields,
+} from "../util/registrationValidation";
 
 const extractPayload = (response) =>
   response?.data?.data ?? response?.data ?? response ?? null;
+
+const extractApiErrorMessage = (error, fallbackMessage) => {
+  const responseData = error?.response?.data;
+  const validationReason = Array.isArray(responseData?.errors)
+    ? responseData.errors.find((item) => item?.reason)?.reason
+    : "";
+
+  return (
+    validationReason ||
+    responseData?.message ||
+    responseData?.error ||
+    error?.message ||
+    fallbackMessage
+  );
+};
+
+const assertApiSuccess = (response, fallbackMessage) => {
+  if (response?.data?.success === false) {
+    throw new Error(response.data.message || fallbackMessage);
+  }
+};
+
+const toLoginErrorMessage = (message) => {
+  const rawMessage = String(message || "").trim();
+
+  if (!rawMessage) {
+    return "Tài khoản hoặc mật khẩu không đúng.";
+  }
+
+  if (/incorrect password|wrong password|password is incorrect/i.test(rawMessage)) {
+    return "Mật khẩu không đúng. Vui lòng thử lại.";
+  }
+
+  if (/bad credentials|invalid credentials|invalid username|invalid password/i.test(rawMessage)) {
+    return "Tài khoản hoặc mật khẩu không đúng.";
+  }
+
+  if (/account.*not found|user.*not found|username.*not found|email.*not found/i.test(rawMessage)) {
+    return "Tài khoản không tồn tại.";
+  }
+
+  if (/account.*locked|account.*disabled|banned/i.test(rawMessage)) {
+    return "Tài khoản đã bị khóa hoặc bị vô hiệu hóa.";
+  }
+
+  return rawMessage;
+};
 
 const applyZaloLockState = async () => {
   try {
@@ -463,11 +519,11 @@ function LoginAccount({ handleChangeStateChat }) {
   const handleChangeData = (event) => {
     setValue({ ...value, [event.target.name]: event.target.value });
   };
-  const normalizeEmail = useCallback((rawEmail) => String(rawEmail || "").trim().toLowerCase(), []);
   const handleCheckEmail = async () => {
     const normalizedEmail = normalizeEmail(email);
-    if (!normalizedEmail) {
-      setStateLogin("Vui lòng nhập email.");
+    const emailValidationMessage = validateRegistrationEmail(email);
+    if (emailValidationMessage) {
+      setStateLogin(emailValidationMessage);
       return;
     }
 
@@ -485,14 +541,18 @@ function LoginAccount({ handleChangeStateChat }) {
       }
 
       if (nextStep === "REGISTER" || payload?.exists === false) {
-        setStep("REGISTER_FORM");
+        setStep("EMAIL");
+        setStateLogin("Email chưa có tài khoản. Vui lòng bấm Đăng ký ngay để tạo tài khoản mới.");
         return;
       }
 
       setStateLogin(payload?.message || "Không xác định được bước tiếp theo.");
     } catch (error) {
       setStateLogin(
-        error.response?.data?.message || "Không thể kiểm tra email lúc này."
+        toRegistrationErrorMessage(
+          extractApiErrorMessage(error, "Không thể kiểm tra email lúc này."),
+          "Không thể kiểm tra email lúc này.",
+        ),
       );
     } finally {
       setLoading(false);
@@ -528,12 +588,11 @@ function LoginAccount({ handleChangeStateChat }) {
         navigate(pinRequired ? "/auth/lock" : "/");
       }
     } catch (error) {
-      const errorMessage =
-        error.response?.data?.message ||
-        error.response?.data?.error ||
-        "Tài khoản hoặc mật khẩu không đúng.";
-
-      setStateLogin(errorMessage);
+      setStateLogin(
+        toLoginErrorMessage(
+          extractApiErrorMessage(error, "Tài khoản hoặc mật khẩu không đúng."),
+        ),
+      );
     } finally {
       setLoading(false);
     }
@@ -541,28 +600,40 @@ function LoginAccount({ handleChangeStateChat }) {
 
   const handleSendRegisterOtp = async () => {
     const normalizedEmail = normalizeEmail(email);
-    if (!normalizedEmail) {
-      setStateLogin("Email không hợp lệ.");
+    const emailValidationMessage = validateRegistrationEmail(email);
+    if (emailValidationMessage) {
+      setStateLogin(emailValidationMessage);
+      setStep("EMAIL");
       return;
     }
 
-    const { phone, password, confirmPassword, firstName, lastName, dob, gender } = registerData;
-    if (!phone || !password || !firstName || !lastName || !dob || !gender) {
-      setStateLogin("Vui lòng nhập đầy đủ thông tin đăng ký.");
+    const validationMessage = validateRegistrationFields(registerData);
+    if (validationMessage) {
+      setStateLogin(validationMessage);
       return;
     }
-    if (password !== confirmPassword) {
-      setStateLogin("Mật khẩu xác nhận không khớp.");
-      return;
-    }
+
+    const normalizedPhone = normalizePhone(registerData.phone);
 
     try {
       setLoading(true);
       setStateLogin("");
-      await sendRegisterOtp({ email: normalizedEmail });
+      const phoneCheckResponse = await checkIdentifierExists({ identifier: normalizedPhone });
+      if (Boolean(extractPayload(phoneCheckResponse))) {
+        setStateLogin("Số điện thoại đã được đăng ký. Vui lòng dùng số khác.");
+        return;
+      }
+
+      const otpResponse = await sendRegisterOtp({ email: normalizedEmail });
+      assertApiSuccess(otpResponse, "Không thể gửi OTP đăng ký.");
       setStep("REGISTER_OTP");
     } catch (error) {
-      setStateLogin(error.response?.data?.message || "Không thể gửi OTP đăng ký.");
+      setStateLogin(
+        toRegistrationErrorMessage(
+          extractApiErrorMessage(error, "Không thể gửi OTP đăng ký."),
+          "Không thể gửi OTP đăng ký.",
+        ),
+      );
     } finally {
       setLoading(false);
     }
@@ -570,6 +641,13 @@ function LoginAccount({ handleChangeStateChat }) {
 
   const handleVerifyRegisterOtp = async () => {
     const normalizedEmail = normalizeEmail(email);
+    const emailValidationMessage = validateRegistrationEmail(email);
+    if (emailValidationMessage) {
+      setStateLogin(emailValidationMessage);
+      setStep("EMAIL");
+      return;
+    }
+
     if (!otpCode) {
       setStateLogin("Vui lòng nhập OTP.");
       return;
@@ -583,6 +661,7 @@ function LoginAccount({ handleChangeStateChat }) {
         otpCode: otpCode.trim(),
         type: "REGISTER",
       });
+      assertApiSuccess(response, "OTP không hợp lệ.");
       const token = extractPayload(response);
       if (!token) {
         setStateLogin("Không nhận được register token từ máy chủ.");
@@ -591,7 +670,12 @@ function LoginAccount({ handleChangeStateChat }) {
       setRegisterToken(String(token));
       setStep("REGISTER_SUBMIT");
     } catch (error) {
-      setStateLogin(error.response?.data?.message || "OTP không hợp lệ.");
+      setStateLogin(
+        toRegistrationErrorMessage(
+          extractApiErrorMessage(error, "OTP không hợp lệ."),
+          "OTP không hợp lệ.",
+        ),
+      );
     } finally {
       setLoading(false);
     }
@@ -599,12 +683,36 @@ function LoginAccount({ handleChangeStateChat }) {
 
   const handleSubmitRegister = async () => {
     const normalizedEmail = normalizeEmail(email);
+    const emailValidationMessage = validateRegistrationEmail(email);
+    if (emailValidationMessage) {
+      setStateLogin(emailValidationMessage);
+      setStep("EMAIL");
+      return;
+    }
+
+    const validationMessage = validateRegistrationFields(registerData);
+    if (validationMessage) {
+      setStateLogin(validationMessage);
+      setStep("REGISTER_FORM");
+      return;
+    }
+
+    const normalizedPhone = normalizePhone(registerData.phone);
+
     try {
       setLoading(true);
       setStateLogin("");
-      await userRegisterWithOtp({
+      const phoneCheckResponse = await checkIdentifierExists({ identifier: normalizedPhone });
+      if (Boolean(extractPayload(phoneCheckResponse))) {
+        setStateLogin("Số điện thoại đã được đăng ký. Vui lòng dùng số khác.");
+        setStep("REGISTER_FORM");
+        setRegisterToken("");
+        return;
+      }
+
+      const registerResponse = await userRegisterWithOtp({
         email: normalizedEmail,
-        phone: registerData.phone,
+        phone: normalizedPhone,
         registerToken,
         password: registerData.password,
         firstName: registerData.firstName,
@@ -612,11 +720,20 @@ function LoginAccount({ handleChangeStateChat }) {
         dob: registerData.dob,
         gender: registerData.gender,
       });
+      assertApiSuccess(registerResponse, "Đăng ký thất bại.");
       setStateLogin("Đăng ký thành công. Vui lòng đăng nhập.");
       setStep("LOGIN");
       setValue((prev) => ({ ...prev, password: "" }));
     } catch (error) {
-      setStateLogin(error.response?.data?.message || "Đăng ký thất bại.");
+      const errorMessage = toRegistrationErrorMessage(
+        extractApiErrorMessage(error, "Đăng ký thất bại."),
+        "Đăng ký thất bại.",
+      );
+      if (isDuplicatePhoneError(errorMessage)) {
+        setStep("REGISTER_FORM");
+        setRegisterToken("");
+      }
+      setStateLogin(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -629,8 +746,12 @@ function LoginAccount({ handleChangeStateChat }) {
   };
 
   return (
-    <div className="login-login-account">
-      <div className="login-form-login-account">
+    <div
+      className={`login-login-account ${
+        step.startsWith("REGISTER") ? "login-login-account-register" : ""
+      }`}
+    >
+      <form className="login-form-login-account" onSubmit={(event) => event.preventDefault()}>
         <div className="login-form-login-wrap">
           {step === "EMAIL" ? (
             <div className="flex">
@@ -677,7 +798,7 @@ function LoginAccount({ handleChangeStateChat }) {
                   placeholder="Số điện thoại"
                   value={registerData.phone}
                   onChange={(event) =>
-                    setRegisterData((prev) => ({ ...prev, phone: event.target.value }))
+                    setRegisterData((prev) => ({ ...prev, phone: normalizePhone(event.target.value) }))
                   }
                 />
               </div>
@@ -777,33 +898,33 @@ function LoginAccount({ handleChangeStateChat }) {
         <div className={`login-container-btn ${loading ? "login-disable" : ""}`}>
           <div className="login-btn-login">
             {step === "EMAIL" ? (
-              <button onClick={handleCheckEmail} disabled={loading}>
+              <button type="button" onClick={handleCheckEmail} disabled={loading}>
                 Tiếp tục
               </button>
             ) : null}
             {step === "LOGIN" ? (
-              <button onClick={handleLoginAccount} disabled={loading || !value.password}>
+              <button type="button" onClick={handleLoginAccount} disabled={loading || !value.password}>
                 Đăng nhập với mật khẩu
               </button>
             ) : null}
             {step === "REGISTER_FORM" ? (
-              <button onClick={handleSendRegisterOtp} disabled={loading}>
+              <button type="button" onClick={handleSendRegisterOtp} disabled={loading}>
                 Xác thực email
               </button>
             ) : null}
             {step === "REGISTER_OTP" ? (
-              <button onClick={handleVerifyRegisterOtp} disabled={loading || !otpCode}>
+              <button type="button" onClick={handleVerifyRegisterOtp} disabled={loading || !otpCode}>
                 Xác thực OTP
               </button>
             ) : null}
             {step === "REGISTER_SUBMIT" ? (
-              <button onClick={handleSubmitRegister} disabled={loading || !registerToken}>
+              <button type="button" onClick={handleSubmitRegister} disabled={loading || !registerToken}>
                 Đăng ký tài khoản
               </button>
             ) : null}
           </div>
           <div className="login-btn-login-phone">
-            <button>Đăng nhập bằng thiết bị di động</button>
+            <button type="button">Đăng nhập bằng thiết bị di động</button>
             <div
               className={`login-introduce-login ${
                 loading ? "" : "login-introduce-login-active"
@@ -832,7 +953,7 @@ function LoginAccount({ handleChangeStateChat }) {
             </span>
           </div>
         ) : null}
-      </div>
+      </form>
 
       <div
         className="login-forgot-pass"
