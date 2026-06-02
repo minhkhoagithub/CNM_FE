@@ -38,6 +38,8 @@ export default function Message({ showPageAddressBook, onConversationSelect }) {
     getInitialInfoPanelVisibility
   )
   const [isAddMemberModalRequested, setIsAddMemberModalRequested] = useState(false)
+  const [isGroupDisbandModalOpen, setIsGroupDisbandModalOpen] = useState(false)
+  const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false)
 
   const activeConversation = currentConversationNormalized;
   const currentUserId = userData?.userId || userData?._id || null;
@@ -80,6 +82,8 @@ export default function Message({ showPageAddressBook, onConversationSelect }) {
 
   useEffect(() => {
     handleCloseImageGallery();
+    setIsGroupDisbandModalOpen(false);
+    setIsAddMemberModalOpen(false);
     if (onConversationSelect) {
       onConversationSelect(conversationId);
     }
@@ -237,6 +241,8 @@ export default function Message({ showPageAddressBook, onConversationSelect }) {
                 setIsInfoPanelVisible(true)
                 setIsAddMemberModalRequested(true)
               }}
+              isGroupDisbandModalOpen={isGroupDisbandModalOpen}
+              isAddMemberModalOpen={isAddMemberModalOpen}
             />
           ) : (
             <div className="message-empty-state" aria-label="Zalo">
@@ -254,6 +260,8 @@ export default function Message({ showPageAddressBook, onConversationSelect }) {
               onRequestClose={() => setIsInfoPanelVisible(false)}
               autoOpenAddMember={isAddMemberModalRequested}
               onCloseAddMemberModal={() => setIsAddMemberModalRequested(false)}
+              onDisbandModalChange={setIsGroupDisbandModalOpen}
+              onAddMemberModalChange={setIsAddMemberModalOpen}
             />
           </div>
         ) : null}

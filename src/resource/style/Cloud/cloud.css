@@ -1,9 +1,11 @@
 .cloud-library-shell {
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   background: #f6f8fc;
   color: #0f172a;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .cloud-library-header {
@@ -144,6 +146,7 @@
 
 .cloud-library-body {
   flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
   overflow: hidden;
@@ -153,6 +156,7 @@
   border-right: 1px solid #e2e8f0;
   background: #f8faff;
   padding: 18px 14px;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -283,7 +287,33 @@
 .cloud-library-content {
   background: #ffffff;
   padding: 20px;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.cloud-library-content::-webkit-scrollbar,
+.cloud-library-sidebar::-webkit-scrollbar {
+  width: 10px;
+}
+
+.cloud-library-content::-webkit-scrollbar-track,
+.cloud-library-sidebar::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+.cloud-library-content::-webkit-scrollbar-thumb,
+.cloud-library-sidebar::-webkit-scrollbar-thumb {
+  border: 2px solid #f1f5f9;
+  border-radius: 999px;
+  background: #94a3b8;
+}
+
+.cloud-library-content::-webkit-scrollbar-thumb:hover,
+.cloud-library-sidebar::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
 }
 
 .cloud-library-filter-row {

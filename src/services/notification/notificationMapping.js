@@ -128,7 +128,136 @@ export const getNotificationTitle = (notification) => {
   return notification?.title || meta.fallbackTitle;
 };
 
+const pickFirstText = (...values) => {
+  for (const value of values) {
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    const normalizedValue = value.trim();
+    if (normalizedValue) {
+      return normalizedValue;
+    }
+  }
+
+  return "";
+};
+
+const extractActorNameFromBody = (body) => {
+  const normalizedBody = String(body || "").trim();
+  const payloadSeparatorMatch = normalizedBody.match(
+    /^(.+?):\s*(?:\[\[[A-Z_]+\]\]|(?:\{|\[)\s*")/
+  );
+  if (payloadSeparatorMatch?.[1]) {
+    return payloadSeparatorMatch[1].trim();
+  }
+
+  const technicalMarkerIndex = normalizedBody.search(/\[\[[A-Z_]+\]\]/);
+  if (technicalMarkerIndex <= 0) {
+    return "";
+  }
+
+  return normalizedBody
+    .slice(0, technicalMarkerIndex)
+    .replace(/[:\s]+$/g, "")
+    .trim();
+};
+
+const getNotificationActorName = (notification = {}) => {
+  const metadata = notification?.metadata || {};
+
+  return pickFirstText(
+    metadata.actorName,
+    metadata.callerName,
+    metadata.senderDisplayName,
+    metadata.senderName,
+    metadata.displayName,
+    notification.actorName,
+    notification.callerName,
+    notification.senderDisplayName,
+    notification.senderName,
+    extractActorNameFromBody(notification.body),
+  );
+};
+
+const isTechnicalNotificationBody = (body) => {
+  const normalizedBody = String(body || "").trim();
+  return (
+    /\[\[[A-Z_]+\]\]/.test(normalizedBody) ||
+    /^(?:\{|\[)\s*"/.test(normalizedBody) ||
+    /:\s*(?:\{|\[)\s*"/.test(normalizedBody)
+  );
+};
+
+const getCallNotificationBody = (notification) => {
+  const type = String(notification?.type || "").toUpperCase();
+  const actorName = getNotificationActorName(notification) || "Ai đó";
+
+  if (type === "MISSED_PRIVATE_CALL") {
+    return `${actorName} đã gọi`;
+  }
+  if (type === "INCOMING_PRIVATE_CALL") {
+    return `${actorName} đang gọi cho bạn`;
+  }
+  if (type === "GROUP_CALL_STARTED") {
+    return `${actorName} đã bắt đầu cuộc gọi nhóm`;
+  }
+  if (type === "MISSED_GROUP_CALL") {
+    return `${actorName} đã gọi nhóm`;
+  }
+
+  return `${actorName} đã gọi`;
+};
+
+const getSystemMessageNotificationBody = (notification) => {
+  const body = String(notification?.body || "");
+  const actorName = getNotificationActorName(notification) || "Ai đó";
+
+  if (/"?callId"?\s*:/.test(body)) {
+    return `${actorName} đã gọi`;
+  }
+  if (body.includes("[[POLL_VOTE]]")) {
+    return `${actorName} đã bình chọn`;
+  }
+  if (body.includes("[[POLL_CREATE]]")) {
+    return `${actorName} đã tạo bình chọn`;
+  }
+  if (body.includes("[[POLL_ADD_OPTION]]")) {
+    return `${actorName} đã thêm phương án bình chọn`;
+  }
+  if (body.includes("[[GROUP_SYSTEM]]")) {
+    return `${actorName} đã cập nhật cuộc trò chuyện`;
+  }
+
+  return "";
+};
+
 export const getNotificationBody = (notification) => {
   const meta = getNotificationMeta(notification?.type);
-  return notification?.body || meta.fallbackBody;
+  const type = String(notification?.type || "").toUpperCase();
+  const actorName = getNotificationActorName(notification) || "Ai đó";
+
+  if (type.includes("CALL")) {
+    return getCallNotificationBody(notification);
+  }
+
+  const systemBody = getSystemMessageNotificationBody(notification);
+  if (systemBody) {
+    return systemBody;
+  }
+
+  if (notification?.body && !isTechnicalNotificationBody(notification.body)) {
+    return notification.body;
+  }
+
+  if (isTechnicalNotificationBody(notification?.body)) {
+    if (type === "NEW_GROUP_MESSAGE" || type === "GROUP_MENTION") {
+      return `${actorName} đã gửi một tin nhắn`;
+    }
+    if (type === "NEW_PRIVATE_MESSAGE") {
+      return `${actorName} đã gửi một tin nhắn`;
+    }
+  }
+
+  return meta.fallbackBody;
 };

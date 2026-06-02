@@ -721,10 +721,65 @@
 }
 .message-reply-preview {
   margin-bottom: 10px;
-  padding: 8px 10px;
+  width: 100%;
+  padding: 7px 9px;
   border-left: 3px solid #0a84ff;
-  border-radius: 10px;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-radius: 4px;
   background-color: #f4f8ff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.message-reply-preview:not(:disabled):hover {
+  background-color: #e7f1ff;
+  box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.14);
+}
+
+.message-reply-preview:disabled {
+  cursor: default;
+}
+
+.message-reply-media {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 4px;
+  overflow: hidden;
+  background-color: #dbeafe;
+  color: #0a5bd3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.message-reply-thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.message-reply-media-badge {
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.message-reply-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .message-forwarded-preview {
   margin-bottom: 10px;
@@ -758,6 +813,11 @@
 .message-reply-sender,
 .message-reply-text {
   margin: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .message-reply-sender {
   font-size: 12px;
@@ -4033,6 +4093,14 @@
 
 .container-containermess .footer-chat {
   z-index: 2200 !important;
+}
+
+.container-containermess .footer-chat.footer-chat-under-modal {
+  z-index: 900 !important;
+  filter: blur(2px);
+  opacity: 0.42;
+  pointer-events: none;
+  user-select: none;
 }
 
 .container-containermess .chat-input-web .composer-input-row {
