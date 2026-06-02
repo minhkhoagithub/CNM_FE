@@ -887,9 +887,11 @@ const compactCallLogMessages = (messages) => {
 };
 
 const buildSelectedAttachment = (file, index) => ({
-  id: `${file.name}-${file.size}-${file.lastModified}-${index}`,
+  id: `${file.name || "clipboard-file"}-${file.size}-${file.lastModified}-${index}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`,
   file,
-  fileName: file.name,
+  fileName: file.name || "clipboard-file",
   contentType: file.type || "",
   previewUrl: isImageFile(file) || isVideoFile(file) ? URL.createObjectURL(file) : "",
   isImage: isImageFile(file),
@@ -4729,6 +4731,20 @@ function ContainerMess({
     fileInputRef.current?.click();
   };
 
+  const appendSelectedAttachmentFiles = useCallback((files) => {
+    const nextFiles = Array.from(files || []).filter((file) => file instanceof File);
+    if (!nextFiles.length) {
+      return false;
+    }
+
+    setSelectedAttachments((prevState) => [
+      ...prevState,
+      ...nextFiles.map((file, index) => buildSelectedAttachment(file, index)),
+    ]);
+
+    return true;
+  }, []);
+
   const handleAttachmentPick = (event) => {
     if (!guardComposerInteraction()) {
       event.target.value = "";
@@ -4740,12 +4756,44 @@ function ContainerMess({
       return;
     }
 
-    setSelectedAttachments((prevState) => [
-      ...prevState,
-      ...files.map((file, index) => buildSelectedAttachment(file, index)),
-    ]);
+    appendSelectedAttachmentFiles(files);
     event.target.value = "";
   };
+
+  const handleComposerPaste = useCallback(
+    (event) => {
+      const clipboardData = event.clipboardData;
+      if (!clipboardData) {
+        return;
+      }
+
+      const itemFiles = Array.from(clipboardData.items || [])
+        .filter((item) => item.kind === "file")
+        .map((item) => item.getAsFile())
+        .filter(Boolean);
+      const clipboardFiles = Array.from(clipboardData.files || []);
+      const pastedFiles = itemFiles.length ? itemFiles : clipboardFiles;
+
+      if (!pastedFiles.length) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (!guardComposerInteraction()) {
+        return;
+      }
+
+      const didAppend = appendSelectedAttachmentFiles(pastedFiles);
+      if (didAppend) {
+        setActionError("");
+        requestAnimationFrame(() => {
+          inputMessage.current?.focus();
+        });
+      }
+    },
+    [appendSelectedAttachmentFiles, guardComposerInteraction]
+  );
 
   const clearVoiceTimers = useCallback(() => {
     if (voiceTimerRef.current) {
@@ -9594,6 +9642,7 @@ function ContainerMess({
                   onMouseUp={captureComposerSelection}
                   onSelect={captureComposerSelection}
                   onKeyDown={handleButtonSendMess}
+                  onPaste={handleComposerPaste}
                 />
               </div>
               <div className="composer-submit-actions">
