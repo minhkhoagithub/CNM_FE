@@ -6,7 +6,7 @@ import './CallRoom.css';
 /**
  * IncomingCallModal – hiển thị khi nhận được thông báo cuộc gọi đến (qua STOMP)
  */
-function IncomingCallModal({ callerName, callerAvatar, callType, onAccept, onReject }) {
+function IncomingCallModal({ callerName, callerAvatar, callType, onAccept, onReject, isAccepting = false }) {
   return (
     <div className="call-modal-overlay">
       <div className="call-modal-card ringing-card">
@@ -29,10 +29,10 @@ function IncomingCallModal({ callerName, callerAvatar, callType, onAccept, onRej
         <p className="call-modal-status">đang gọi cho bạn...</p>
 
         <div className="call-modal-actions">
-          <button className="call-btn btn-danger btn-circle" onClick={onReject} title="Từ chối">
+          <button className="call-btn btn-danger btn-circle" onClick={onReject} disabled={isAccepting} title="Từ chối">
             <MdCallEnd size={32} />
           </button>
-          <button className="call-btn btn-success btn-circle" onClick={onAccept} title="Chấp nhận">
+          <button className="call-btn btn-success btn-circle" onClick={onAccept} disabled={isAccepting} title="Chấp nhận">
             <MdCall size={32} />
           </button>
         </div>
