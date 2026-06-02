@@ -304,6 +304,8 @@ function MessageInfor({
   onRequestClose,
   autoOpenAddMember,
   onCloseAddMemberModal,
+  onDisbandModalChange,
+  onAddMemberModalChange,
 }) {
   const [showTool, setShowTool] = useState([]);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
@@ -637,6 +639,7 @@ function MessageInfor({
     setIsBackgroundPanelOpen(false);
     setIsEditingGroupName(false);
     setIsCloseGroupModalOpen(false);
+    setShowAddMemberModal(false);
     setSavingNicknameUserId(null);
     setSettingsError("");
   }, [
@@ -652,6 +655,29 @@ function MessageInfor({
     currentConversationBackgroundColorForPicker,
     conversationId,
   ]);
+
+  useEffect(() => {
+    if (typeof onDisbandModalChange === "function") {
+      onDisbandModalChange(isCloseGroupModalOpen);
+    }
+  }, [isCloseGroupModalOpen, onDisbandModalChange]);
+
+  useEffect(() => {
+    if (typeof onAddMemberModalChange === "function") {
+      onAddMemberModalChange(showAddMemberModal);
+    }
+  }, [onAddMemberModalChange, showAddMemberModal]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof onDisbandModalChange === "function") {
+        onDisbandModalChange(false);
+      }
+      if (typeof onAddMemberModalChange === "function") {
+        onAddMemberModalChange(false);
+      }
+    };
+  }, [onAddMemberModalChange, onDisbandModalChange]);
 
   useEffect(() => {
     let shouldIgnore = false;

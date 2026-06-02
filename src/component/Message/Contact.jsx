@@ -40,6 +40,11 @@ import {
   resolveConversationPreviewText,
 } from "../../mappers/conversationMapper";
 import {
+  isAudioAttachment,
+  isImageAttachment,
+  isVideoAttachment,
+} from "../../mappers/messageMapper";
+import {
   GROUP_LABEL_OPTIONS,
   resolveGroupLabelMeta,
 } from "../../constants/groupConversationLabels";
@@ -125,6 +130,208 @@ const getConversationLastMessageSenderId = (conversation) => {
     rawLastMessage?.sender?.userId ||
     ""
   );
+};
+
+const LAST_PREVIEW_URL_PATTERN = /\b(?:https?:\/\/|www\.)\S+/i;
+
+const stripSelfColonPrefix = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/^Bạn\s*:\s*/i, "")
+    .trim();
+
+const stripSelfActorPrefix = (value) =>
+  stripSelfColonPrefix(value).replace(/^Bạn\s+/i, "").trim();
+
+const lowerFirstPreviewChar = (value) => {
+  const content = String(value || "").trim();
+  return content ? `${content.charAt(0).toLocaleLowerCase("vi-VN")}${content.slice(1)}` : "";
+};
+
+const getConversationLastMessageAttachments = (conversation) => {
+  const rawLastMessage = conversation?.raw?.lastMessage;
+  const candidates = [
+    rawLastMessage?.attachments,
+    rawLastMessage?.files,
+    conversation?.raw?.lastMessageAttachments,
+    conversation?.lastMessageAttachments,
+    conversation?.raw?.attachments,
+    conversation?.attachments,
+  ];
+
+  return candidates.find((items) => Array.isArray(items) && items.length) || [];
+};
+
+const getConversationLastMessageType = (conversation) => {
+  const rawLastMessage = conversation?.raw?.lastMessage;
+  return String(
+    rawLastMessage?.messageType ||
+      rawLastMessage?.type ||
+      conversation?.raw?.lastMessageType ||
+      conversation?.lastMessageType ||
+      ""
+  ).toUpperCase();
+};
+
+const isGifPreviewAttachment = (attachment) => {
+  const contentType = String(attachment?.contentType || "").toLowerCase();
+  const fileName = String(attachment?.fileName || attachment?.name || "").toLowerCase();
+  const attachmentType = String(attachment?.type || "").toUpperCase();
+
+  return (
+    contentType === "image/gif" ||
+    attachmentType === "GIF" ||
+    fileName.endsWith(".gif")
+  );
+};
+
+const resolveAttachmentPreviewAction = (attachments, messageType = "") => {
+  const normalizedType = String(messageType || "").toUpperCase();
+  const attachmentCount = Array.isArray(attachments) ? attachments.length : 0;
+  const firstAttachment = attachmentCount ? attachments[0] : { type: normalizedType };
+
+  if (attachmentCount > 1) {
+    if (attachments.every((attachment) => isImageAttachment(attachment))) {
+      return `đã gửi ${attachmentCount} ảnh`;
+    }
+    return `đã gửi ${attachmentCount} file`;
+  }
+
+  if (
+    attachmentCount === 1 &&
+    (isGifPreviewAttachment(firstAttachment) || normalizedType === "GIF")
+  ) {
+    return "đã gửi một GIF";
+  }
+
+  if (
+    attachmentCount === 1 &&
+    (isImageAttachment(firstAttachment) || normalizedType === "IMAGE")
+  ) {
+    return "đã gửi một ảnh";
+  }
+
+  if (
+    attachmentCount === 1 &&
+    (isAudioAttachment(firstAttachment) || normalizedType === "AUDIO")
+  ) {
+    return "đã gửi một đoạn ghi âm";
+  }
+
+  if (
+    attachmentCount === 1 &&
+    (isVideoAttachment(firstAttachment) || normalizedType === "VIDEO")
+  ) {
+    return "đã gửi một video";
+  }
+
+  if (
+    attachmentCount === 1 ||
+    ["ATTACHMENT", "FILE", "DOCUMENT"].includes(normalizedType)
+  ) {
+    return "đã gửi 1 file";
+  }
+
+  if (normalizedType === "GIF") {
+    return "đã gửi một GIF";
+  }
+
+  if (["IMAGE", "PHOTO"].includes(normalizedType)) {
+    return "đã gửi một ảnh";
+  }
+
+  if (["AUDIO", "VOICE", "VOICE_MESSAGE"].includes(normalizedType)) {
+    return "đã gửi một đoạn ghi âm";
+  }
+
+  if (normalizedType === "VIDEO") {
+    return "đã gửi một video";
+  }
+
+  if (["LINK", "URL"].includes(normalizedType)) {
+    return "đã gửi một liên kết";
+  }
+
+  return "";
+};
+
+const normalizeMediaPreviewAction = (conversation, preview) => {
+  const messageType = getConversationLastMessageType(conversation);
+  const attachments = getConversationLastMessageAttachments(conversation);
+  const attachmentPreview = resolveAttachmentPreviewAction(attachments, messageType);
+
+  if (attachmentPreview) {
+    return attachmentPreview;
+  }
+
+  const content = String(preview || "").trim();
+  if (!content) {
+    return "";
+  }
+
+  if (
+    /^(?:đã\s+)?gửi.*(?:tin nhắn thoại|đoạn ghi âm|voice|audio)/i.test(content) ||
+    /^(?:tin nhắn thoại|đoạn ghi âm|voice|audio)$/i.test(content)
+  ) {
+    return "đã gửi một đoạn ghi âm";
+  }
+
+  if (/^(?:đã\s+)?gửi.*\bgif\b/i.test(content) || /^gif$/i.test(content)) {
+    return "đã gửi một GIF";
+  }
+
+  if (
+    /^(?:đã\s+)?gửi.*(?:hình ảnh|ảnh|image|photo)/i.test(content) ||
+    /^(?:hình ảnh|ảnh|image|photo)$/i.test(content)
+  ) {
+    return "đã gửi một ảnh";
+  }
+
+  if (/^(?:đã\s+)?gửi.*video/i.test(content) || /^video$/i.test(content)) {
+    return "đã gửi một video";
+  }
+
+  if (
+    /^(?:đã\s+)?gửi.*(?:tệp đính kèm|đính kèm|tệp|file)/i.test(content) ||
+    /^\d+\s*(?:tệp đính kèm|đính kèm|tệp|file)$/i.test(content)
+  ) {
+    const count = Number(content.match(/\d+/)?.[0] || 1);
+    return count > 1 ? `đã gửi ${count} file` : "đã gửi 1 file";
+  }
+
+  if (LAST_PREVIEW_URL_PATTERN.test(content)) {
+    return "đã gửi một liên kết";
+  }
+
+  return content;
+};
+
+const formatConversationPreviewBySender = (
+  conversation,
+  currentUserId,
+  preview,
+  options = {}
+) => {
+  const content = String(preview || "").trim();
+  if (!content) {
+    return "";
+  }
+
+  const senderId = options.senderId || getConversationLastMessageSenderId(conversation);
+  const isCurrentUserSender =
+    currentUserId && senderId && String(senderId) === String(currentUserId);
+
+  if (!isCurrentUserSender) {
+    return stripSelfColonPrefix(
+      options.isCall ? content : normalizeMediaPreviewAction(conversation, content)
+    );
+  }
+
+  const normalizedContent = options.isCall
+    ? lowerFirstPreviewChar(stripSelfActorPrefix(content))
+    : normalizeMediaPreviewAction(conversation, stripSelfColonPrefix(content));
+
+  return normalizedContent ? `Bạn: ${normalizedContent}` : "";
 };
 
 const parseCallPreviewPayload = (value) => {
@@ -216,23 +423,17 @@ const resolveCallPreviewText = (conversation, currentUserId) => {
 const getConversationPreview = (conversation, currentUserId) => {
   const callPreview = resolveCallPreviewText(conversation, currentUserId);
   if (callPreview) {
-    return callPreview;
+    const callPayload = getConversationCallPayload(conversation);
+    return formatConversationPreviewBySender(conversation, currentUserId, callPreview, {
+      isCall: true,
+      senderId: callPayload?.callerId || callPayload?.senderId || "",
+    });
   }
 
   const preview =
     resolveConversationPreviewText(conversation?.lastMessage) ||
     `Gửi lời chào đến ${getConversationDisplayName(conversation)}`;
-  const senderId = getConversationLastMessageSenderId(conversation);
-  if (
-    preview &&
-    currentUserId &&
-    senderId &&
-    String(senderId) === String(currentUserId) &&
-    !String(preview).startsWith("Bạn:")
-  ) {
-    return `Bạn: ${preview}`;
-  }
-  return preview;
+  return formatConversationPreviewBySender(conversation, currentUserId, preview);
 };
 
 const formatPresenceLastSeenText = (value) => {

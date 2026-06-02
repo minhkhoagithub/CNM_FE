@@ -21,14 +21,6 @@
       : null,
 });
 
-const mapReaction = (reaction) => ({
-  type: reaction?.type || null,
-  count: Number(reaction?.count || 0),
-  userIds: Array.isArray(reaction?.userIds)
-    ? reaction.userIds.map(normalizeUserId).filter(Boolean)
-    : [],
-});
-
 export const RECALLED_MESSAGE_PLACEHOLDER = "Tin nhắn da duoc thu hoi";
 
 const normalizeUserId = (value) => {
@@ -41,6 +33,69 @@ const normalizeUserId = (value) => {
   }
 
   return String(value).trim();
+};
+
+const mapReactionUser = (user) => {
+  const userId = normalizeUserId(
+    user?.userId || user?.id || user?._id || user?.profile?.userId || user?.user?.userId
+  );
+
+  if (!userId) {
+    return null;
+  }
+
+  return {
+    userId,
+    displayName:
+      pickFirstText(
+        user?.displayName,
+        user?.username,
+        user?.name,
+        user?.profile?.displayName,
+        user?.profile?.username,
+        user?.user?.displayName,
+        user?.user?.username
+      ) || "",
+    avatarUrl:
+      pickFirstText(
+        user?.avatarUrl,
+        user?.avatar,
+        user?.profile?.avatarUrl,
+        user?.profile?.avatar,
+        user?.user?.avatarUrl,
+        user?.user?.avatar
+      ) || "",
+  };
+};
+
+const uniqueReactionUsers = (users) => {
+  const seenUserIds = new Set();
+
+  return (Array.isArray(users) ? users : [])
+    .map(mapReactionUser)
+    .filter(Boolean)
+    .filter((user) => {
+      if (seenUserIds.has(user.userId)) {
+        return false;
+      }
+
+      seenUserIds.add(user.userId);
+      return true;
+    });
+};
+
+const mapReaction = (reaction) => {
+  const users = uniqueReactionUsers(reaction?.users || reaction?.reactors || reaction?.reactionUsers);
+  const userIds = Array.isArray(reaction?.userIds)
+    ? reaction.userIds.map(normalizeUserId).filter(Boolean)
+    : users.map((user) => user.userId);
+
+  return {
+    type: reaction?.type || null,
+    count: Number(reaction?.count || userIds.length || users.length || 0),
+    userIds,
+    users,
+  };
 };
 
 const pickReadUserId = (value) =>
@@ -515,13 +570,121 @@ const pickFirstText = (...values) => {
 };
 
 const getAttachmentCount = (value) =>
-  Array.isArray(value?.attachments)
-    ? value.attachments.length
-    : Array.isArray(value?.files)
-      ? value.files.length
-      : Array.isArray(value?.attachmentSnapshots)
-        ? value.attachmentSnapshots.length
-        : 0;
+  getReplyPreviewAttachments(value).length;
+
+const getReplyPreviewAttachments = (value) => {
+  const candidates = [
+    value?.attachments,
+    value?.files,
+    value?.attachmentSnapshots,
+    value?.raw?.attachments,
+    value?.raw?.files,
+    value?.raw?.attachmentSnapshots,
+  ];
+
+  return candidates.find((candidate) => Array.isArray(candidate) && candidate.length) || [];
+};
+
+const getReplyAttachmentFileName = (attachment) =>
+  pickFirstText(attachment?.fileName, attachment?.name, attachment?.originalFileName);
+
+const getReplyAttachmentContentType = (attachment) =>
+  String(
+    attachment?.contentType ||
+      attachment?.fileType ||
+      attachment?.mimeType ||
+      ""
+  )
+    .trim()
+    .toLowerCase();
+
+const getReplyAttachmentType = (attachment) =>
+  String(attachment?.type || attachment?.attachmentType || "").trim().toUpperCase();
+
+const getReplyAttachmentExtension = (attachment) => {
+  const fileName = getReplyAttachmentFileName(attachment).toLowerCase();
+  if (!fileName.includes(".")) {
+    return "";
+  }
+
+  return fileName.split(".").pop() || "";
+};
+
+const isReplyAudioAttachment = (attachment) => {
+  const contentType = getReplyAttachmentContentType(attachment);
+  const attachmentType = getReplyAttachmentType(attachment);
+  const ext = getReplyAttachmentExtension(attachment);
+  const fileName = getReplyAttachmentFileName(attachment).toLowerCase();
+  const hasAudioMetadata =
+    Boolean(attachment?.audioFormat) ||
+    Array.isArray(attachment?.waveform) ||
+    fileName.startsWith("voice-message-");
+  const isExplicitVideo = attachmentType === "VIDEO" || contentType.startsWith("video/");
+
+  return (
+    contentType.startsWith("audio/") ||
+    attachmentType === "AUDIO" ||
+    (contentType.startsWith("video/") && hasAudioMetadata) ||
+    (!isExplicitVideo &&
+      (hasAudioMetadata ||
+        ["mp3", "wav", "ogg", "m4a", "aac", "opus", "flac", "webm"].includes(ext)))
+  );
+};
+
+const isReplyGifAttachment = (attachment) =>
+  getReplyAttachmentContentType(attachment) === "image/gif" ||
+  getReplyAttachmentExtension(attachment) === "gif";
+
+const isReplyImageAttachment = (attachment) =>
+  isReplyGifAttachment(attachment) ||
+  getReplyAttachmentContentType(attachment).startsWith("image/") ||
+  getReplyAttachmentType(attachment) === "IMAGE";
+
+const isReplyVideoAttachment = (attachment) =>
+  !isReplyAudioAttachment(attachment) &&
+  (getReplyAttachmentContentType(attachment).startsWith("video/") ||
+    getReplyAttachmentType(attachment) === "VIDEO");
+
+const createReplyAttachmentPreviewText = (attachment) => {
+  const fileName = getReplyAttachmentFileName(attachment);
+
+  if (isReplyAudioAttachment(attachment)) {
+    return "Tin nh\u1EAFn tho\u1EA1i";
+  }
+  if (isReplyGifAttachment(attachment)) {
+    return fileName ? `GIF: ${fileName}` : "GIF";
+  }
+  if (isReplyImageAttachment(attachment)) {
+    return fileName ? `H\u00ECnh \u1EA3nh: ${fileName}` : "H\u00ECnh \u1EA3nh";
+  }
+  if (isReplyVideoAttachment(attachment)) {
+    return fileName ? `Video: ${fileName}` : "Video";
+  }
+  if (fileName) {
+    return `T\u1EC7p: ${fileName}`;
+  }
+
+  return "T\u1EC7p \u0111\u00EDnh k\u00E8m";
+};
+
+const createReplyTypePreviewText = (value) => {
+  const type = String(value?.type || value?.messageType || "").trim().toUpperCase();
+
+  if (type === "AUDIO") {
+    return "Tin nh\u1EAFn tho\u1EA1i";
+  }
+  if (type === "IMAGE") {
+    return "H\u00ECnh \u1EA3nh";
+  }
+  if (type === "VIDEO") {
+    return "Video";
+  }
+  if (type === "FILE") {
+    return "T\u1EC7p \u0111\u00EDnh k\u00E8m";
+  }
+
+  return "";
+};
 
 export const createReplyPreviewText = (value) => {
   if (value?.deletedAt || value?.deleted) {
@@ -533,10 +696,32 @@ export const createReplyPreviewText = (value) => {
     value?.content,
     value?.text,
     value?.message,
-    value?.body
+    value?.body,
+    value?.originalLinkUrl,
+    value?.linkUrl,
+    value?.raw?.originalLinkUrl,
+    value?.metadata?.originalLinkUrl,
+    value?.metadata?.previewUrl,
+    value?.metadata?.linkPreview?.url,
+    value?.linkPreview?.url,
+    value?.linkPreview?.originalUrl
   );
   if (contentPreview) {
     return contentPreview;
+  }
+
+  const attachments = getReplyPreviewAttachments(value);
+  if (attachments.length === 1) {
+    return createReplyAttachmentPreviewText(attachments[0]);
+  }
+
+  if (attachments.length > 1) {
+    return `\u0110\u00E3 g\u1EEDi ${attachments.length} t\u1EC7p \u0111\u00EDnh k\u00E8m`;
+  }
+
+  const typePreview = createReplyTypePreviewText(value);
+  if (typePreview) {
+    return typePreview;
   }
 
   const attachmentCount = getAttachmentCount(value);

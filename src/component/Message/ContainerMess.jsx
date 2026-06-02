@@ -115,6 +115,7 @@ const REMOTE_TYPING_TIMEOUT_MS = 3000;
 const BLOCK_STATE_LOADING_MESSAGE = "Đang kiểm tra trạng thái chặn...";
 const PRIVATE_BLOCKED_COMPOSER_MESSAGE =
   "Bạn đã chặn người dùng này. Bỏ chặn trong Thông tin hội thoại để trò chuyện lại.";
+const GROUP_DISBANDED_COMPOSER_MESSAGE = "Nhóm đã giải tán";
 const PRIVATE_CONVERSATION_LABEL = "Người dùng";
 const GROUP_CONVERSATION_LABEL = "Nhóm";
 const MAX_READ_RECEIPT_AVATARS = 5;
@@ -1449,6 +1450,98 @@ const buildForwardDraft = (message) => {
 const buildReplyPreview = (message) =>
   truncateText(createReplyPreviewText(message), 90) || "Tin nhắn";
 
+const getReplyPreviewAttachments = (message) => {
+  const candidates = [
+    message?.attachments,
+    message?.raw?.attachments,
+    message?.files,
+    message?.raw?.files,
+  ];
+
+  return candidates.find((candidate) => Array.isArray(candidate) && candidate.length) || [];
+};
+
+const isGifAttachment = (attachment) => {
+  const contentType = String(attachment?.contentType || "").toLowerCase();
+  const fileName = String(attachment?.fileName || attachment?.name || "").toLowerCase();
+
+  return contentType === "image/gif" || fileName.endsWith(".gif");
+};
+
+const getReplyLinkUrl = (message) =>
+  normalizeUrlForPreview(
+    trimUrlToken(
+      extractFirstUrlFromText(
+        message?.content ||
+          message?.originalLinkUrl ||
+          message?.raw?.originalLinkUrl ||
+          message?.contentPreview ||
+          ""
+      )
+    )
+  );
+
+const buildReplyPreviewMeta = (replyTo, sourceMessage) => {
+  const previewSource = sourceMessage || replyTo || {};
+  const attachments = getReplyPreviewAttachments(previewSource);
+  const imageAttachment = attachments.find(isImageAttachment);
+  const firstAttachment = attachments[0] || null;
+  const previewText = buildReplyPreview(previewSource);
+
+  if (imageAttachment?.url) {
+    return {
+      kind: isGifAttachment(imageAttachment) ? "gif" : "image",
+      badge: isGifAttachment(imageAttachment) ? "GIF" : "IMG",
+      thumbnailUrl: imageAttachment.url,
+      text: previewText,
+    };
+  }
+
+  if (firstAttachment) {
+    const fileMeta = resolveAttachmentTypeMeta(firstAttachment);
+    const isAudio = isAudioAttachment(firstAttachment);
+    const isVideo = isVideoAttachment(firstAttachment);
+
+    return {
+      kind: isAudio ? "audio" : isVideo ? "video" : "file",
+      badge: isAudio ? "AUD" : isVideo ? "VID" : fileMeta.label,
+      thumbnailUrl: "",
+      text: previewText,
+    };
+  }
+
+  const linkUrl = getReplyLinkUrl(previewSource);
+  if (linkUrl) {
+    return {
+      kind: "link",
+      badge: "LINK",
+      thumbnailUrl: "",
+      text: previewText || linkUrl,
+    };
+  }
+
+  const type = String(replyTo?.type || previewSource?.type || "").toUpperCase();
+  if (type === "AUDIO") {
+    return { kind: "audio", badge: "AUD", thumbnailUrl: "", text: previewText };
+  }
+  if (type === "IMAGE") {
+    return { kind: "image", badge: "IMG", thumbnailUrl: "", text: previewText };
+  }
+  if (type === "VIDEO") {
+    return { kind: "video", badge: "VID", thumbnailUrl: "", text: previewText };
+  }
+  if (type === "FILE") {
+    return { kind: "file", badge: "FILE", thumbnailUrl: "", text: previewText };
+  }
+
+  return {
+    kind: "text",
+    badge: "TXT",
+    thumbnailUrl: "",
+    text: previewText,
+  };
+};
+
 const normalizeTypingPayload = (event) => {
   const payload =
     event?.payload && typeof event.payload === "object" ? event.payload : event;
@@ -1940,6 +2033,8 @@ function ContainerMess({
   isInfoPanelVisible = true,
   onToggleInfoPanel,
   onOpenAddMember,
+  isGroupDisbandModalOpen = false,
+  isAddMemberModalOpen = false,
 }) {
   const scrollRef = useRef(null);
   const messageScrollContainerRef = useRef(null);
@@ -2038,6 +2133,8 @@ function ContainerMess({
   const [isForwarding, setIsForwarding] = useState(false);
   const [forwardNotice, setForwardNotice] = useState("");
   const [isReminderModalOpen, setIsReminderModalOpen] = useState(false);
+  const shouldHideComposerInput = isReminderModalOpen || isGroupDisbandModalOpen;
+  const shouldDimFooterChat = isGroupDisbandModalOpen || isAddMemberModalOpen;
   const [isReminderSubmitting, setIsReminderSubmitting] = useState(false);
   const [reminderError, setReminderError] = useState("");
   const [reminderNotice, setReminderNotice] = useState("");
@@ -2251,7 +2348,8 @@ function ContainerMess({
   }, [availableForwardConversations, forwardSearchQuery]);
   const currentUserAvatar = userData?.avatarUrl || userData?.avatar || null;
   const shouldSuppressComposerBlockError =
-    isComposerBlocked && actionError === PRIVATE_BLOCKED_COMPOSER_MESSAGE;
+    (isComposerBlocked && actionError === PRIVATE_BLOCKED_COMPOSER_MESSAGE) ||
+    (isConversationDisbanded && actionError === GROUP_DISBANDED_COMPOSER_MESSAGE);
   const composerLinkUrl = useMemo(() => {
     const directTextUrl = normalizeUrlForPreview(
       trimUrlToken(extractFirstUrlFromText(draftText))
@@ -2350,12 +2448,18 @@ function ContainerMess({
       return BLOCK_STATE_LOADING_MESSAGE;
     }
 
+    if (isConversationDisbanded) {
+      return GROUP_DISBANDED_COMPOSER_MESSAGE;
+    }
+
     if (isComposerBlocked) {
       return PRIVATE_BLOCKED_COMPOSER_MESSAGE;
     }
 
     return "";
-  }, [isComposerBlocked, isPeerBlockStateLoading]);
+  }, [isComposerBlocked, isConversationDisbanded, isPeerBlockStateLoading]);
+
+  const composerLockMessage = getComposerLockMessage();
 
   const guardComposerInteraction = useCallback(() => {
     const lockMessage = getComposerLockMessage();
@@ -5131,7 +5235,7 @@ function ContainerMess({
     }
 
     if (isConversationDisbanded) {
-      setActionError("Nhóm đã được giải tán.");
+      setActionError(GROUP_DISBANDED_COMPOSER_MESSAGE);
       return;
     }
 
@@ -6010,7 +6114,7 @@ function ContainerMess({
     }
 
     if (isConversationDisbanded) {
-      setActionError("Nhóm đã được giải tán.");
+      setActionError(GROUP_DISBANDED_COMPOSER_MESSAGE);
       return;
     }
 
@@ -6343,7 +6447,7 @@ function ContainerMess({
 
   const handleReactionClick = async (message) => {
     if (isConversationDisbanded) {
-      setActionError("Nhóm đã được giải tán.");
+      setActionError(GROUP_DISBANDED_COMPOSER_MESSAGE);
       return;
     }
 
@@ -6380,7 +6484,7 @@ function ContainerMess({
 
   const handleQuickReaction = async (message, reactionType) => {
     if (isConversationDisbanded) {
-      setActionError("Nhóm đã được giải tán.");
+      setActionError(GROUP_DISBANDED_COMPOSER_MESSAGE);
       return;
     }
 
@@ -6557,6 +6661,120 @@ function ContainerMess({
   );
 
   const normalizedMessages = useMemo(() => normalizeMessageList(messages), [messages]);
+  const reactionParticipantIdentityMap = useMemo(() => {
+    const identityMap = new Map();
+    const upsertIdentity = (userId, identity = {}) => {
+      const normalizedUserId = String(userId || "").trim();
+      if (!normalizedUserId) {
+        return;
+      }
+
+      const currentIdentity = identityMap.get(normalizedUserId) || {};
+      identityMap.set(normalizedUserId, {
+        displayName:
+          String(identity.displayName || "").trim() ||
+          currentIdentity.displayName ||
+          (normalizedUserId === String(currentUserId || "")
+            ? currentUserDisplayName || "Bạn"
+            : ""),
+        avatarUrl:
+          String(identity.avatarUrl || "").trim() ||
+          currentIdentity.avatarUrl ||
+          (normalizedUserId === String(currentUserId || "")
+            ? currentUserAvatar || ""
+            : ""),
+      });
+    };
+
+    upsertIdentity(currentUserId, {
+      displayName: currentUserDisplayName || "Bạn",
+      avatarUrl: currentUserAvatar || "",
+    });
+
+    memberIdentityMap.forEach((identity, userId) => {
+      upsertIdentity(userId, identity);
+    });
+
+    (Array.isArray(memberReadStates) ? memberReadStates : []).forEach((stateItem) => {
+      upsertIdentity(stateItem?.userId, {
+        displayName: stateItem?.displayName || stateItem?.username || "",
+        avatarUrl: stateItem?.avatarUrl || "",
+      });
+    });
+
+    normalizedMessages.forEach((message) => {
+      upsertIdentity(message?.senderId, {
+        displayName:
+          message?.senderDisplayName ||
+          message?.raw?.senderDisplayName ||
+          message?.raw?.senderName ||
+          message?.raw?.sender?.displayName ||
+          message?.raw?.sender?.username ||
+          "",
+        avatarUrl:
+          message?.senderAvatarUrl ||
+          message?.raw?.senderAvatarUrl ||
+          message?.raw?.senderAvatar ||
+          message?.raw?.sender?.avatarUrl ||
+          message?.raw?.sender?.avatar ||
+          "",
+      });
+
+      (Array.isArray(message?.seenByUsers) ? message.seenByUsers : []).forEach((reader) => {
+        upsertIdentity(reader?.userId, {
+          displayName: reader?.displayName || reader?.username || "",
+          avatarUrl: reader?.avatarUrl || "",
+        });
+      });
+    });
+
+    return identityMap;
+  }, [
+    currentUserAvatar,
+    currentUserDisplayName,
+    currentUserId,
+    memberIdentityMap,
+    memberReadStates,
+    normalizedMessages,
+  ]);
+  const resolveReactionUserIdentity = useCallback(
+    (userId) => {
+      const normalizedUserId = String(userId || "").trim();
+      if (!normalizedUserId) {
+        return {
+          displayName: "Người dùng",
+          avatarUrl: "",
+        };
+      }
+
+      const participantIdentity = reactionParticipantIdentityMap.get(normalizedUserId);
+      if (participantIdentity?.displayName || participantIdentity?.avatarUrl) {
+        return {
+          displayName:
+            participantIdentity.displayName ||
+            `Người dùng ${normalizedUserId.slice(0, 8)}`,
+          avatarUrl: participantIdentity.avatarUrl || "",
+        };
+      }
+
+      return {
+        displayName: `Người dùng ${normalizedUserId.slice(0, 8)}`,
+        avatarUrl: "",
+      };
+    },
+    [reactionParticipantIdentityMap]
+  );
+  const messageById = useMemo(() => {
+    const nextMessageById = new Map();
+
+    normalizedMessages.forEach((message) => {
+      if (message?.id) {
+        nextMessageById.set(String(message.id), message);
+      }
+    });
+
+    return nextMessageById;
+  }, [normalizedMessages]);
 
   useEffect(() => {
     const groupCallIds = Array.from(
@@ -7297,7 +7515,7 @@ function ContainerMess({
         return true;
       } catch (error) {
         console.error("Failed to load message context:", error);
-        setActionError("Không thể tải ngữ cảnh tin nhắn đã ghim.");
+        setActionError("Không thể tải ngữ cảnh tin nhắn.");
         return false;
       } finally {
         setIsLoadingContext(false);
@@ -8279,6 +8497,12 @@ function ContainerMess({
               const replyPreviewText = !isDeleted && item.replyTo
                 ? truncateText(item.replyTo.contentPreview || "Tin nhắn", 90)
                 : "";
+              const replySourceMessage = !isDeleted && item.replyTo?.messageId
+                ? messageById.get(String(item.replyTo.messageId)) || null
+                : null;
+              const replyPreviewMeta = !isDeleted && item.replyTo
+                ? buildReplyPreviewMeta(item.replyTo, replySourceMessage)
+                : null;
               const displayText = isDeleted
                 ? RECALLED_MESSAGE_PLACEHOLDER
                 : systemMessage?.kind === "poll_create"
@@ -8373,12 +8597,37 @@ function ContainerMess({
                       (reaction) => reaction.type === openReactionDetails?.reactionType
                     ) || null
                   : null;
-              const activeReactionUsers = Array.isArray(activeReactionDetails?.userIds)
-                ? activeReactionDetails.userIds.map((userId) => ({
-                    userId,
-                    ...resolveReadStateIdentity(userId),
-                  }))
+              const activeReactionPayloadUsers = Array.isArray(activeReactionDetails?.users)
+                ? activeReactionDetails.users
+                    .map((user) => ({
+                      userId: String(user?.userId || user?.id || user?._id || "").trim(),
+                      displayName: String(user?.displayName || user?.username || user?.name || "").trim(),
+                      avatarUrl: String(user?.avatarUrl || user?.avatar || "").trim(),
+                    }))
+                    .filter((user) => user.userId)
                 : [];
+              const activeReactionPayloadUserById = new Map(
+                activeReactionPayloadUsers.map((user) => [user.userId, user])
+              );
+              const activeReactionUserIds = Array.from(
+                new Set([
+                  ...(Array.isArray(activeReactionDetails?.userIds)
+                    ? activeReactionDetails.userIds
+                    : []),
+                  ...activeReactionPayloadUsers.map((user) => user.userId),
+                ]
+                  .map((userId) => String(userId || "").trim())
+                  .filter(Boolean))
+              );
+              const activeReactionUsers = activeReactionUserIds.map((userId) => {
+                const payloadUser = activeReactionPayloadUserById.get(userId) || {};
+                const resolvedIdentity = resolveReactionUserIdentity(userId);
+                return {
+                  userId,
+                  displayName: payloadUser.displayName || resolvedIdentity.displayName,
+                  avatarUrl: payloadUser.avatarUrl || resolvedIdentity.avatarUrl,
+                };
+              });
               const privateDeliveryStatus =
                 isPrivateConversation && isMine
                   ? privateDeliveryStatusByMessageId.get(String(item.id || "")) ||
@@ -8449,12 +8698,44 @@ function ContainerMess({
                           </div>
                         ) : null}
                         {!isDeleted && item.replyTo ? (
-                          <div className="message-reply-preview">
-                            <p className="message-reply-sender">
-                              {replyPreviewSenderName || "Tin nhắn duoc tra loi"}
-                            </p>
-                            <p className="message-reply-text">{replyPreviewText}</p>
-                          </div>
+                          <button
+                            type="button"
+                            className={`message-reply-preview reply-${replyPreviewMeta?.kind || "text"}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (item.replyTo?.messageId) {
+                                handleJumpToMessage(item.replyTo.messageId);
+                              }
+                            }}
+                            disabled={!item.replyTo?.messageId}
+                            title={
+                              item.replyTo?.messageId
+                                ? "Chuyển đến tin nhắn được trả lời"
+                                : "Tin nhắn được trả lời"
+                            }
+                          >
+                            <span className="message-reply-media" aria-hidden="true">
+                              {replyPreviewMeta?.thumbnailUrl ? (
+                                <img
+                                  src={replyPreviewMeta.thumbnailUrl}
+                                  alt=""
+                                  className="message-reply-thumbnail"
+                                />
+                              ) : (
+                                <span className="message-reply-media-badge">
+                                  {replyPreviewMeta?.badge || "TXT"}
+                                </span>
+                              )}
+                            </span>
+                            <span className="message-reply-body">
+                              <span className="message-reply-sender">
+                                {replyPreviewSenderName || "Tin nhắn được trả lời"}
+                              </span>
+                              <span className="message-reply-text">
+                                {replyPreviewMeta?.text || replyPreviewText || "Tin nhắn"}
+                              </span>
+                            </span>
+                          </button>
                         ) : null}
                         {imageAttachments.length > 0 && (
                           <ul className="list-imgs-mess flex">
@@ -8995,7 +9276,7 @@ function ContainerMess({
                                 ))
                               ) : (
                                 <span className="message-reaction-details-empty">
-                                  Chưa có dữ liệu thành viên
+                                  Chưa có danh sách người thả từ server
                                 </span>
                               )}
                             </span>
@@ -9193,7 +9474,7 @@ function ContainerMess({
           ) : null}
         </div>
       ) : null}
-      <div className="footer-chat">
+      <div className={`footer-chat ${shouldDimFooterChat ? "footer-chat-under-modal" : ""}`}>
         <div className="chat-input flex">
           <div className="flex">
             <div className="wrap-set-icon">
@@ -9327,12 +9608,13 @@ function ContainerMess({
             hidden
             onChange={handleAttachmentPick}
           />
-          <div className="chat-input-web">
-            {isComposerBlocked ? (
-              <div className="composer-block-banner">
-                <p>{PRIVATE_BLOCKED_COMPOSER_MESSAGE}</p>
-              </div>
-            ) : null}
+          {!shouldHideComposerInput ? (
+            <div className="chat-input-web">
+              {composerLockMessage ? (
+                <div className="composer-block-banner">
+                  <p>{composerLockMessage}</p>
+                </div>
+              ) : null}
             {replyingToMessage ? (
               <div className="composer-reply-banner">
                 <div className="composer-reply-text composer-reply-inline">
@@ -9684,6 +9966,7 @@ function ContainerMess({
               </div>
             </div>
           </div>
+          ) : null}
         </form>
         {isForwardPickerOpen ? (
           <div className="forward-picker-overlay" onClick={handleCloseForwardPicker}>
@@ -9737,9 +10020,6 @@ function ContainerMess({
                             )}
                             <span className="forward-target-meta">
                               <strong>{conversationName}</strong>
-                              <span>
-                                {conversation.lastMessage || "Cuộc trò chuyện sẵn có"}
-                              </span>
                             </span>
                           </button>
                         </li>
@@ -9873,13 +10153,10 @@ function ContainerMess({
         {dictationError ? <p className="composer-feedback-error">{dictationError}</p> : null}
         {!isForwardPickerOpen &&
         !isPollComposerOpen &&
-        !isReminderModalOpen &&
+        !shouldHideComposerInput &&
         actionError &&
         !shouldSuppressComposerBlockError ? (
           <p className="composer-feedback-error">{actionError}</p>
-        ) : null}
-        {isConversationDisbanded ? (
-          <p className="composer-feedback-error">Nhóm đã được giải tán</p>
         ) : null}
         {isPollComposerOpen ? (
           <div className="forward-picker-overlay" onClick={handleClosePollComposer}>
