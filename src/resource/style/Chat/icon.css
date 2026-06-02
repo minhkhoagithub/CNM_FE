@@ -1,6 +1,6 @@
 .wrap-seticon {
-  width: 275px;
-  height: 250px;
+  width: 360px;
+  height: 340px;
   bottom: 55px;
   left: 10px;
   background-color: white;
@@ -57,8 +57,8 @@
   border-radius: 10px; /* Bo góc của thanh cuộn */
 }
 .wraper-list-icon {
-  width: 275px;
-  height: 214px;
+  width: 360px;
+  height: 304px;
   overflow-y: auto;
   overflow-x: none;
   flex-wrap: wrap;
@@ -97,11 +97,11 @@
 }
 
 .gif-library-grid {
-  height: 214px;
-  padding: 8px;
+  height: 304px;
+  padding: 10px;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px;
   overflow-y: auto;
   box-sizing: border-box;
 }
@@ -120,7 +120,7 @@
 }
 
 .gif-library-item {
-  height: 84px;
+  height: 132px;
   padding: 0;
   border: 1px solid #e2e8f0;
   border-radius: 10px;

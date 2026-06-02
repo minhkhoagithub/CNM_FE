@@ -27,6 +27,17 @@ export const getConversationMessages = async (conversationId, { cursor = null, s
   return unwrapResponseData(response);
 };
 
+export const searchMessagesV1 = async (keyword, { size = 100 } = {}) => {
+  const response = await chatHttpClient.get("/messages/search", {
+    params: {
+      q: keyword,
+      size,
+    },
+  });
+
+  return unwrapResponseData(response);
+};
+
 export const sendMessageV1 = async (payload) => {
   const response = await chatHttpClient.post("/messages", payload);
   return unwrapResponseData(response);

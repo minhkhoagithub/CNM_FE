@@ -17,7 +17,6 @@ import { HiOutlineUserGroup, HiOutlineUserPlus } from "react-icons/hi2";
 import { CiSearch } from "react-icons/ci";
 import {
   IoVideocamOutline,
-  IoCameraOutline,
   IoMicOutline,
   IoStop,
   IoPlay,
@@ -36,7 +35,6 @@ import {
 } from "react-icons/io5";
 import { AiOutlineBell, AiOutlineLike, AiFillLike, AiOutlinePicture, AiOutlineSend, AiOutlinePushpin } from "react-icons/ai";
 import { IoMdClose, IoMdAttach,IoMdMore  } from "react-icons/io";
-import { MdOutlineContactMail } from "react-icons/md";
 import {
   RiCalendarTodoFill,
   RiEmojiStickerLine,
@@ -317,8 +315,79 @@ const resolveReactionEmoji = (reactionType) =>
 const getConversationAvatarUrl = (conversation) =>
   conversation?.avatarUrl || conversation?.trustedAvatarUrl || conversation?.peerAvatarUrl || "";
 
-const isReusableForwardAttachment = (attachment) =>
-  Boolean(attachment?.url && (attachment?.storageKey || attachment?.id));
+const resolveForwardAttachmentType = (attachment) => {
+  const normalizedType = String(attachment?.type || "").toUpperCase();
+  if (["IMAGE", "VIDEO", "AUDIO", "FILE"].includes(normalizedType)) {
+    return normalizedType;
+  }
+
+  if (isImageAttachment(attachment)) {
+    return "IMAGE";
+  }
+  if (isVideoAttachment(attachment)) {
+    return "VIDEO";
+  }
+  if (isAudioAttachment(attachment)) {
+    return "AUDIO";
+  }
+
+  return "FILE";
+};
+
+const resolveForwardAttachmentFileName = (attachment, type) => {
+  const currentFileName = String(attachment?.fileName || attachment?.name || "").trim();
+  if (currentFileName) {
+    return currentFileName;
+  }
+
+  const contentType = String(attachment?.contentType || "").toLowerCase();
+  if (contentType === "image/gif") {
+    return "forwarded.gif";
+  }
+
+  return {
+    IMAGE: "forwarded-image",
+    VIDEO: "forwarded-video",
+    AUDIO: "forwarded-audio",
+    FILE: "forwarded-file",
+  }[type];
+};
+
+const normalizeForwardAttachment = (attachment) => {
+  const url = String(attachment?.url || "").trim();
+  if (!url) {
+    return null;
+  }
+
+  const type = resolveForwardAttachmentType(attachment);
+  const parsedFileSize = Number(attachment?.fileSize);
+  const normalizedAttachment = {
+    url,
+    storageKey: attachment?.storageKey || "",
+    fileName: resolveForwardAttachmentFileName(attachment, type),
+    contentType: attachment?.contentType || "",
+    fileSize:
+      Number.isFinite(parsedFileSize) && parsedFileSize >= 0
+        ? Math.trunc(parsedFileSize)
+        : 0,
+    type,
+  };
+
+  if (type === "AUDIO") {
+    const parsedDurationMs = Number(attachment?.durationMs);
+    if (Number.isFinite(parsedDurationMs) && parsedDurationMs > 0) {
+      normalizedAttachment.durationMs = Math.trunc(parsedDurationMs);
+    }
+    if (Array.isArray(attachment?.waveform)) {
+      normalizedAttachment.waveform = attachment.waveform;
+    }
+    if (attachment?.audioFormat) {
+      normalizedAttachment.audioFormat = attachment.audioFormat;
+    }
+  }
+
+  return normalizedAttachment;
+};
 
 const formatTime = (value) => {
   if (!value) {
@@ -1215,27 +1284,46 @@ const resolveAttachmentTypeMeta = (attachment) => {
   return { icon: "📎", label: (ext || "FILE").slice(0, 6).toUpperCase() };
 };
 
-const applyLocalReactionChange = (message, nextReaction) => {
+const applyLocalReactionChange = (message, nextReaction, currentUserId) => {
+  const normalizedCurrentUserId = String(currentUserId || "");
   const reactionMap = new Map(
     (Array.isArray(message?.reactions) ? message.reactions : []).map((reaction) => [
       reaction.type,
-      Number(reaction.count || 0),
+      {
+        count: Number(reaction.count || 0),
+        userIds: Array.isArray(reaction.userIds)
+          ? reaction.userIds.map((userId) => String(userId || "")).filter(Boolean)
+          : [],
+      },
     ])
   );
   const previousReaction = message?.myReaction || null;
 
   if (previousReaction && reactionMap.has(previousReaction)) {
-    reactionMap.set(previousReaction, Math.max(0, reactionMap.get(previousReaction) - 1));
+    const previousReactionState = reactionMap.get(previousReaction);
+    reactionMap.set(previousReaction, {
+      count: Math.max(0, previousReactionState.count - 1),
+      userIds: normalizedCurrentUserId
+        ? previousReactionState.userIds.filter((userId) => userId !== normalizedCurrentUserId)
+        : previousReactionState.userIds,
+    });
   }
 
   if (nextReaction) {
-    reactionMap.set(nextReaction, Number(reactionMap.get(nextReaction) || 0) + 1);
+    const nextReactionState = reactionMap.get(nextReaction) || { count: 0, userIds: [] };
+    reactionMap.set(nextReaction, {
+      count: nextReactionState.count + 1,
+      userIds:
+        normalizedCurrentUserId && !nextReactionState.userIds.includes(normalizedCurrentUserId)
+          ? [...nextReactionState.userIds, normalizedCurrentUserId]
+          : nextReactionState.userIds,
+    });
   }
 
   return {
     reactions: Array.from(reactionMap.entries())
-      .filter(([, count]) => count > 0)
-      .map(([type, count]) => ({ type, count })),
+      .filter(([, reaction]) => reaction.count > 0)
+      .map(([type, reaction]) => ({ type, ...reaction })),
     myReaction: nextReaction,
   };
 };
@@ -1277,14 +1365,15 @@ const buildForwardMessageSummary = (message) => {
 };
 
 const buildForwardDraft = (message) => {
-  const attachments = Array.isArray(message?.attachments)
-    ? message.attachments.map((attachment) => ({ ...attachment }))
+  const sourceAttachments = Array.isArray(message?.attachments)
+    ? message.attachments
     : [];
+  const attachments = sourceAttachments.map(normalizeForwardAttachment).filter(Boolean);
   const content = String(message?.content || "").trim();
   const deletedAt = message?.deletedAt || null;
-  const hasAttachments = attachments.length > 0;
+  const hasAttachments = sourceAttachments.length > 0;
   const attachmentsAreReusable =
-    !hasAttachments || attachments.every(isReusableForwardAttachment);
+    !hasAttachments || attachments.length === sourceAttachments.length;
   const hasUsableContent = Boolean(content);
 
   if (deletedAt) {
@@ -1853,11 +1942,12 @@ function ContainerMess({
   const scrollRef = useRef(null);
   const messageScrollContainerRef = useRef(null);
   const inputMessage = useRef(null);
+  const messageSearchInputRef = useRef(null);
   const composerSelectionRef = useRef(null);
   const imageInputRef = useRef(null);
   const fileInputRef = useRef(null);
-  const voiceRecorderRef = useRef(null);
   const voiceOptionPickerRef = useRef(null);
+  const voiceRecorderRef = useRef(null);
   const voiceStreamRef = useRef(null);
   const voiceChunksRef = useRef([]);
   const voiceTimerRef = useRef(null);
@@ -1900,9 +1990,13 @@ function ContainerMess({
     `tab-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
   );
   const [messages, setMessages] = useState([]);
+  const [isMessageSearchOpen, setIsMessageSearchOpen] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState("");
+  const [activeMessageSearchIndex, setActiveMessageSearchIndex] = useState(-1);
   const [memberReadStates, setMemberReadStates] = useState([]);
   const [openReadReceiptTooltipMessageId, setOpenReadReceiptTooltipMessageId] =
     useState(null);
+  const [openReactionDetails, setOpenReactionDetails] = useState(null);
   const [menuControl, setMenuControl] = useState({
     tableIcon: false,
   });
@@ -2983,6 +3077,38 @@ function ContainerMess({
     [availableForwardConversations.length, backendConversationId]
   );
 
+  useEffect(() => {
+    const handleForwardGalleryImage = (event) => {
+      const image = event?.detail?.image || null;
+      if (!image?.url) {
+        return;
+      }
+
+      handleOpenForwardPicker({
+        id: image.messageId || image.id || image.url,
+        content: "",
+        type: "IMAGE",
+        senderDisplayName: image.senderDisplayName || getConversationDisplayName(activeConversation),
+        attachments: [
+          {
+            id: image.id || image.messageId || image.url,
+            url: image.url,
+            storageKey: image.storageKey || "",
+            fileName: image.fileName || "Ảnh đã chia sẻ",
+            contentType: image.contentType || "image/*",
+            fileSize: image.fileSize || 0,
+            type: "IMAGE",
+          },
+        ],
+      });
+    };
+
+    window.addEventListener("web:gallery-forward-image", handleForwardGalleryImage);
+    return () => {
+      window.removeEventListener("web:gallery-forward-image", handleForwardGalleryImage);
+    };
+  }, [activeConversation, handleOpenForwardPicker]);
+
   const handleCloseForwardPicker = useCallback(() => {
     setActionError("");
     clearForwardState();
@@ -3090,8 +3216,15 @@ function ContainerMess({
         `Đã chuyển tiếp tới ${getConversationDisplayName(targetConversation)}.`
       );
     } catch (error) {
-      console.error("[WEB FORWARD ERROR]", error);
-      setActionError("Không thể chuyển tiếp tin nhắn này.");
+      console.error("[WEB FORWARD ERROR]", {
+        error,
+        status: error?.response?.status || null,
+        response: error?.response?.data || null,
+      });
+      setActionError(
+        error?.response?.data?.message ||
+          "Không thể chuyển tiếp tin nhắn này."
+      );
     } finally {
       setIsForwarding(false);
     }
@@ -3636,6 +3769,9 @@ function ContainerMess({
         setOpenMessageMenuId(null);
         setOpenMessageMenuPlacement("down");
       }
+      if (!event.target.closest(".message-reaction-summary-wrap")) {
+        setOpenReactionDetails(null);
+      }
 
       if (
         voiceOptionPickerRef.current &&
@@ -3758,6 +3894,7 @@ function ContainerMess({
   useEffect(() => {
     setTypingUsers([]);
     setReplyingToMessage(null);
+    setOpenReactionDetails(null);
     setOpenMessageMenuId(null);
     setOpenMessageMenuPlacement("down");
     setMentionState(closeMentionState());
@@ -6157,10 +6294,6 @@ function ContainerMess({
   };
 
   const handleReactionClick = async (message) => {
-    if (String(message?.senderId || "") === String(currentUserId || "")) {
-      return;
-    }
-
     if (isConversationDisbanded) {
       setActionError("Nhóm đã được giải tán.");
       return;
@@ -6174,7 +6307,7 @@ function ContainerMess({
       });
       if (message.myReaction === "LIKE") {
         await removeReactionV1(message.id);
-        const nextReactionState = applyLocalReactionChange(message, null);
+        const nextReactionState = applyLocalReactionChange(message, null, currentUserId);
         syncMessageReactionSummary(
           message.id,
           nextReactionState.reactions,
@@ -6184,7 +6317,7 @@ function ContainerMess({
       }
 
       await addOrUpdateReactionV1(message.id, "LIKE");
-      const nextReactionState = applyLocalReactionChange(message, "LIKE");
+      const nextReactionState = applyLocalReactionChange(message, "LIKE", currentUserId);
 
       syncMessageReactionSummary(
         message.id,
@@ -6198,10 +6331,6 @@ function ContainerMess({
   };
 
   const handleQuickReaction = async (message, reactionType) => {
-    if (String(message?.senderId || "") === String(currentUserId || "")) {
-      return;
-    }
-
     if (isConversationDisbanded) {
       setActionError("Nhóm đã được giải tán.");
       return;
@@ -6215,7 +6344,7 @@ function ContainerMess({
       });
       if (message.myReaction === reactionType) {
         await removeReactionV1(message.id);
-        const nextReactionState = applyLocalReactionChange(message, null);
+        const nextReactionState = applyLocalReactionChange(message, null, currentUserId);
         syncMessageReactionSummary(
           message.id,
           nextReactionState.reactions,
@@ -6225,7 +6354,7 @@ function ContainerMess({
       }
 
       await addOrUpdateReactionV1(message.id, reactionType);
-      const nextReactionState = applyLocalReactionChange(message, reactionType);
+      const nextReactionState = applyLocalReactionChange(message, reactionType, currentUserId);
       syncMessageReactionSummary(
         message.id,
         nextReactionState.reactions,
@@ -7322,6 +7451,85 @@ function ContainerMess({
       return String(leftItem.id || "").localeCompare(String(rightItem.id || ""));
     });
   }, [aiMessages, backendConversationId, displayMessages, isContextMode, reminderTimelineItems]);
+  const messageSearchMatches = useMemo(() => {
+    const normalizedQuery = normalizeSearchText(messageSearchQuery).trim();
+    if (!normalizedQuery) {
+      return [];
+    }
+
+    return renderedMessageList.filter(
+      (item) =>
+        item?.id &&
+        item.__timelineType !== "reminder" &&
+        normalizeSearchText(item?.content).includes(normalizedQuery)
+    );
+  }, [messageSearchQuery, renderedMessageList]);
+  const handleOpenMessageSearch = useCallback(() => {
+    setIsMessageSearchOpen(true);
+    window.setTimeout(() => messageSearchInputRef.current?.focus(), 0);
+  }, []);
+  const handleCloseMessageSearch = useCallback(() => {
+    setIsMessageSearchOpen(false);
+    setMessageSearchQuery("");
+    setActiveMessageSearchIndex(-1);
+  }, []);
+  const handleNavigateMessageSearch = useCallback(
+    (direction) => {
+      if (!messageSearchMatches.length) {
+        return;
+      }
+
+      setActiveMessageSearchIndex((previousIndex) => {
+        const currentIndex =
+          previousIndex >= 0 && previousIndex < messageSearchMatches.length
+            ? previousIndex
+            : messageSearchMatches.length - 1;
+        return (
+          (currentIndex + direction + messageSearchMatches.length) %
+          messageSearchMatches.length
+        );
+      });
+    },
+    [messageSearchMatches.length]
+  );
+  useEffect(() => {
+    if (!messageSearchQuery.trim() || !messageSearchMatches.length) {
+      setActiveMessageSearchIndex(-1);
+      return;
+    }
+
+    setActiveMessageSearchIndex((previousIndex) =>
+      previousIndex >= 0 && previousIndex < messageSearchMatches.length
+        ? previousIndex
+        : messageSearchMatches.length - 1
+    );
+  }, [messageSearchMatches.length, messageSearchQuery]);
+  useEffect(() => {
+    if (
+      !isMessageSearchOpen ||
+      activeMessageSearchIndex < 0 ||
+      activeMessageSearchIndex >= messageSearchMatches.length
+    ) {
+      return;
+    }
+
+    const messageId = messageSearchMatches[activeMessageSearchIndex]?.id;
+    if (!messageId) {
+      return;
+    }
+
+    void handleJumpToMessage(messageId);
+  }, [
+    activeMessageSearchIndex,
+    handleJumpToMessage,
+    isMessageSearchOpen,
+    messageSearchMatches,
+  ]);
+  useEffect(() => {
+    setIsMessageSearchOpen(false);
+    setMessageSearchQuery("");
+    setActiveMessageSearchIndex(-1);
+  }, [backendConversationId]);
   useEffect(() => {
     if (!isContextMode && newMessagesSinceContext > 0) {
       setNewMessagesSinceContext(0);
@@ -7540,7 +7748,13 @@ function ContainerMess({
               ✨
             </div>
           )}
-          <CiSearch className="header-action-icon" />
+          <CiSearch
+            className={`header-action-icon message-search-trigger ${
+              isMessageSearchOpen ? "active" : ""
+            }`}
+            onClick={handleOpenMessageSearch}
+            title="Tìm tin nhắn trong cuộc trò chuyện"
+          />
           {activeConversation?.type === 'group' ? (
             <>
               <IoCallOutline className="header-action-icon" onClick={() => handleStartGroupCall("VOICE")} />
@@ -7577,6 +7791,62 @@ function ContainerMess({
           ) : null}
         </div>
       </div>
+      {isMessageSearchOpen ? (
+        <form
+          className="message-search-panel"
+          onClick={(event) => event.stopPropagation()}
+          onSubmit={(event) => {
+            event.preventDefault();
+            handleNavigateMessageSearch(-1);
+          }}
+        >
+          <CiSearch className="message-search-panel-icon" aria-hidden="true" />
+          <input
+            ref={messageSearchInputRef}
+            type="text"
+            value={messageSearchQuery}
+            onChange={(event) => setMessageSearchQuery(event.target.value)}
+            placeholder="Tìm trong cuộc trò chuyện"
+            aria-label="Tìm tin nhắn trong cuộc trò chuyện"
+          />
+          <span className="message-search-count">
+            {messageSearchQuery.trim()
+              ? `${
+                  activeMessageSearchIndex >= 0 ? activeMessageSearchIndex + 1 : 0
+                }/${messageSearchMatches.length}`
+              : ""}
+          </span>
+          <button
+            type="button"
+            className="message-search-nav-btn"
+            onClick={() => handleNavigateMessageSearch(-1)}
+            disabled={!messageSearchMatches.length}
+            title="Kết quả trước"
+            aria-label="Kết quả trước"
+          >
+            <IoChevronUpOutline />
+          </button>
+          <button
+            type="button"
+            className="message-search-nav-btn"
+            onClick={() => handleNavigateMessageSearch(1)}
+            disabled={!messageSearchMatches.length}
+            title="Kết quả sau"
+            aria-label="Kết quả sau"
+          >
+            <IoChevronDownOutline />
+          </button>
+          <button
+            type="button"
+            className="message-search-nav-btn"
+            onClick={handleCloseMessageSearch}
+            title="Đóng tìm kiếm"
+            aria-label="Đóng tìm kiếm"
+          >
+            <IoMdClose />
+          </button>
+        </form>
+      ) : null}
       <div
         className="infor-container"
         style={conversationBackgroundStyle}
@@ -8046,6 +8316,21 @@ function ContainerMess({
               const isReadReceiptTooltipOpen =
                 String(openReadReceiptTooltipMessageId || "") ===
                 String(item.id || "");
+              const visibleMessageReactions = Array.isArray(item.reactions)
+                ? item.reactions.filter((reaction) => Number(reaction.count || 0) > 0)
+                : [];
+              const activeReactionDetails =
+                String(openReactionDetails?.messageId || "") === String(item.id || "")
+                  ? visibleMessageReactions.find(
+                      (reaction) => reaction.type === openReactionDetails?.reactionType
+                    ) || null
+                  : null;
+              const activeReactionUsers = Array.isArray(activeReactionDetails?.userIds)
+                ? activeReactionDetails.userIds.map((userId) => ({
+                    userId,
+                    ...resolveReadStateIdentity(userId),
+                  }))
+                : [];
               const privateDeliveryStatus =
                 isPrivateConversation && isMine
                   ? privateDeliveryStatusByMessageId.get(String(item.id || "")) ||
@@ -8109,11 +8394,10 @@ function ContainerMess({
                         {item.forwarded && !isDeleted ? (
                           <div className="message-forwarded-preview">
                             <p className="message-forwarded-label">Chuyển tiếp</p>
-                            {forwardedFromSenderName ? (
-                              <p className="message-forwarded-meta">
-                                tu {forwardedFromSenderName}
-                              </p>
-                            ) : null}
+                            <p className="message-forwarded-meta">
+                              <span className="message-forwarded-meta-label">Người gửi gốc</span>
+                              <strong>{forwardedFromSenderName || "Không rõ"}</strong>
+                            </p>
                           </div>
                         ) : null}
                         {!isDeleted && item.replyTo ? (
@@ -8415,10 +8699,9 @@ function ContainerMess({
                         <button
                           className={`message-action-btn ${
                             item.myReaction === "LIKE" ? "active-reaction" : "subtle"
-                          }`}
-                          type="button"
-                          style={isMine ? { display: "none" } : undefined}
-                          aria-label={item.myReaction === "LIKE" ? "Bỏ thích" : "Thích"}
+                           }`}
+                           type="button"
+                           aria-label={item.myReaction === "LIKE" ? "Bỏ thích" : "Thích"}
                           title={item.myReaction === "LIKE" ? "Bỏ thích" : "Thích"}
                           onClick={() => handleReactionClick(item)}
                         >
@@ -8429,10 +8712,9 @@ function ContainerMess({
                           )}
                         </button>
 
-                        <div
-                          className="message-reaction-picker"
-                          style={isMine ? { display: "none" } : undefined}
-                        >
+                         <div
+                           className="message-reaction-picker"
+                         >
                           <button
                             className={`message-reaction-trigger ${
                               item.myReaction && item.myReaction !== "LIKE"
@@ -8603,15 +8885,74 @@ function ContainerMess({
                         </div>
                       </div>
                     )}
-                    {!isDeleted && Array.isArray(item.reactions) && item.reactions.length > 0 ? (
-                      <span className="message-reaction-summary">
-                        {item.reactions
-                          .filter((reaction) => Number(reaction.count || 0) > 0)
-                          .map(
-                            (reaction) =>
-                              `${resolveReactionEmoji(reaction.type)} ${reaction.count}`
-                          )
-                          .join(' ')}
+                    {!isDeleted && visibleMessageReactions.length > 0 ? (
+                      <span className="message-reaction-summary message-reaction-summary-wrap">
+                        {visibleMessageReactions.map((reaction) => (
+                          <button
+                            className={`message-reaction-summary-item ${
+                              item.myReaction === reaction.type ? "active" : ""
+                            }`}
+                            key={reaction.type}
+                            type="button"
+                            title={
+                              isGroupConversation
+                                ? "Xem thành viên đã thả cảm xúc"
+                                : undefined
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (!isGroupConversation) {
+                                return;
+                              }
+                              setOpenReactionDetails((currentDetails) =>
+                                String(currentDetails?.messageId || "") === String(item.id || "") &&
+                                currentDetails?.reactionType === reaction.type
+                                  ? null
+                                  : {
+                                      messageId: item.id,
+                                      reactionType: reaction.type,
+                                    }
+                              );
+                            }}
+                          >
+                            <span aria-hidden="true">{resolveReactionEmoji(reaction.type)}</span>
+                            <strong>{reaction.count}</strong>
+                          </button>
+                        ))}
+                        {isGroupConversation && activeReactionDetails ? (
+                          <span
+                            className="message-reaction-details-popover"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <span className="message-reaction-details-title">
+                              <span aria-hidden="true">
+                                {resolveReactionEmoji(activeReactionDetails.type)}
+                              </span>
+                              <strong>{activeReactionDetails.count}</strong>
+                            </span>
+                            <span className="message-reaction-details-list">
+                              {activeReactionUsers.length > 0 ? (
+                                activeReactionUsers.map((reactionUser) => (
+                                  <span
+                                    className="message-reaction-details-user"
+                                    key={String(reactionUser.userId)}
+                                  >
+                                    {renderAvatar(
+                                      reactionUser.avatarUrl,
+                                      "message-reaction-details-avatar",
+                                      reactionUser.displayName
+                                    )}
+                                    <span>{reactionUser.displayName}</span>
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="message-reaction-details-empty">
+                                  Chưa có dữ liệu thành viên
+                                </span>
+                              )}
+                            </span>
+                          </span>
+                        ) : null}
                       </span>
                     ) : null}
                     </div>
@@ -8913,12 +9254,6 @@ function ContainerMess({
             >
               {dictationState === "recording" ? <IoStop /> : <IoMicOutline />}
             </button>
-            <IoCameraOutline
-              className={`icon-header ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
-            />
-            <MdOutlineContactMail
-              className={`icon-header ${isComposerInteractionLocked ? "composer-icon-disabled" : ""}`}
-            />
             {activeConversation?.type === "group" ? (
               <IoBarChartOutline className="icon-header" onClick={handleOpenPollComposer} />
             ) : null}

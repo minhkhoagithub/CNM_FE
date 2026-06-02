@@ -24,6 +24,9 @@
 const mapReaction = (reaction) => ({
   type: reaction?.type || null,
   count: Number(reaction?.count || 0),
+  userIds: Array.isArray(reaction?.userIds)
+    ? reaction.userIds.map(normalizeUserId).filter(Boolean)
+    : [],
 });
 
 export const RECALLED_MESSAGE_PLACEHOLDER = "Tin nhắn da duoc thu hoi";

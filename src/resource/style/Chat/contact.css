@@ -510,6 +510,41 @@
   line-height: 50px;
   margin-left: 15px;
 }
+.wrap-result-search .contact-search-result-main {
+  min-width: 0;
+  align-items: center;
+}
+.wrap-result-search .contact-search-result-copy {
+  min-width: 0;
+  margin-left: 14px;
+}
+.wrap-result-search .contact-search-result-copy p {
+  margin: 0;
+  line-height: 1.35;
+}
+.wrap-result-search .contact-search-result-name {
+  color: #172033;
+  font-size: 14px;
+  font-weight: 700;
+}
+.wrap-result-search .contact-search-result-snippet {
+  display: -webkit-box;
+  margin-top: 4px !important;
+  overflow: hidden;
+  color: #66788a;
+  font-size: 12px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.contact-search-feedback {
+  margin: 18px 20px;
+  color: #66788a;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.contact-search-feedback-error {
+  color: #b42318;
+}
 .screen-mask {
   position: absolute;
   top: 0;
@@ -527,12 +562,12 @@
   position: fixed;
   top: 0;
   left: 0;
-  z-index: 1000;
+  z-index: 12000;
   width: 100vw;
   height: 100vh;
   background-color: rgba(15, 23, 42, 0.4);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
   justify-content: center;
   align-items: center;

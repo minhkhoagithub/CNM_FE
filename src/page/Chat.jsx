@@ -151,6 +151,11 @@ function Chat({ handleLogout, onConversationSelect }) {
     setShowPageAddressBook(value);
   };
 
+  const handleAddressBookOpenChat = () => {
+    setShowPageAddressBook(false);
+    setMenuactive(0);
+  };
+
   const handleShowSetting = (value) => {
     setShowSetting(value);
   };
@@ -160,7 +165,7 @@ function Chat({ handleLogout, onConversationSelect }) {
       showPageAddressBook={showPageAddressBook} 
       onConversationSelect={onConversationSelect} 
     />,
-    <AddressBook onClick={() => handleShowPageAddressBook(true)} />,
+    <AddressBook onOpenChat={handleAddressBookOpenChat} />,
     <ToDo />,
     <Clod />,
     <ToolBox />,

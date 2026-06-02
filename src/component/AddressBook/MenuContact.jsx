@@ -7,7 +7,6 @@ import { CiSearch } from "react-icons/ci";
 import { HiOutlineUsers, HiOutlineUserPlus, HiOutlineUserGroup } from "react-icons/hi2";
 import { IoMdClose } from "react-icons/io";
 import { IoTriangle } from "react-icons/io5";
-import { BsFillCameraFill } from "react-icons/bs";
 // import {
 //   getFriendByName,
 //   getAllGroup,
@@ -18,7 +17,6 @@ import { BsFillCameraFill } from "react-icons/bs";
 //   getAllFriend,
 // } from "../../util/api/index.jsx";
 import {
-  getGroupReq,
   searchUsersV2,
   getFriendsV2,
   getIncomingFriendRequestsV2,
@@ -42,7 +40,6 @@ import { uploadAttachmentV1 } from "../../services/chat/messageApi";
 import { mapConversation } from "../../mappers/conversationMapper";
 
 export const LoiMoiKetBan = "Lời mời kết bạn";
-export const LoiMoiVaoNhom = "Lời mời vào nhóm";
 export const DanhSachBanBe = "Danh sách bạn bè";
 export const DanhSachNhom = "Danh sách nhóm";
 export const DanhSachChan = "Danh sách chặn";
@@ -180,7 +177,6 @@ useEffect(() => {
     { title: DanhSachBanBe, icon: <HiOutlineUsers /> },
     { title: DanhSachNhom, icon: <HiOutlineUserGroup /> },
     { title: LoiMoiKetBan, icon: <HiOutlineUserPlus /> },
-    { title: LoiMoiVaoNhom, icon: <HiOutlineUserGroup /> },
     { title: DanhSachChan, icon: <HiOutlineUsers />},
   ];
   const [textSearch, setTextSearch] = useState("");
@@ -690,15 +686,6 @@ const handleShowAddFriend = (value) => {
     }));
   };
 
-  const handleRemoveGroupAvatar = () => {
-    setDataCreateGr((prevState) => ({
-      ...prevState,
-      avatar: null,
-      avatarFile: null,
-      avatarPreview: "",
-    }));
-  };
-
   const handleSaveAvatarGr = () => {
     if (dataCreateGr.avatar !== null) {
       handleShowAvatarGr(false);
@@ -1095,16 +1082,6 @@ const handleSendFriendRequestFromSearch = async (user) => {
     return;
   }
 
-  if (title === LoiMoiVaoNhom) {
-    // Temporarily disable group invitation endpoint to avoid 500s.
-    handleSetContentMenuContact({
-      state: true,
-      data: [],
-      title: LoiMoiVaoNhom,
-      count: "Lời mời vào nhóm (0)",
-    });
-    return;
-  }
   if (title === DanhSachChan) {
     const response = await getBlockedUsersV2();
     const blockedUsers = Array.isArray(response.data)
@@ -1361,13 +1338,13 @@ useEffect(() => {
                 <div className="screen-mask">
                   <div className="wrap-add wrap-add-group">
                     <div className="header-add-friend flex">
-              <p>Tạo nhóm</p>
+                      <p>Create Group</p>
                       <IoMdClose
                         className="btn-close"
                         onClick={() => handleShowAddGroup(false)}
                       />
                     </div>
-                    <div className="add-by-phone">
+                    <div className="modal-body-content">
                       <input
                         ref={groupAvatarInputRef}
                         type="file"
@@ -1375,68 +1352,110 @@ useEffect(() => {
                         hidden
                         onChange={handleGroupAvatarFilePick}
                       />
-                      <div className="phone-group flex">
-                        {dataCreateGr.avatarPreview || dataCreateGr.avatar ? (
-                          <img
-                            src={dataCreateGr.avatarPreview || dataCreateGr.avatar}
+
+                      <div className="group-info-inputs-container flex">
+                        <div className="group-avatar-dashed-picker-wrapper">
+                          <div
+                            className="group-avatar-dashed-picker flex items-center justify-center"
                             onClick={() => handleShowAvatarGr(true)}
-                          />
-                        ) : (
-                          <BsFillCameraFill
-                            className="avatar-group"
-                            onClick={() => handleShowAvatarGr(true)}
-                          />
-                        )}
-                        <div className="input-number group">
-                          <input
-                            type="text"
-                  placeholder="Nhập tên nhóm"
-                            onChange={handleChangeNameGr}
-                            value={dataCreateGr.username}
-                          />
+                          >
+                            {dataCreateGr.avatarPreview || dataCreateGr.avatar ? (
+                              <img
+                                src={dataCreateGr.avatarPreview || dataCreateGr.avatar}
+                                alt="Group Preview"
+                                className="group-avatar-preview-img"
+                              />
+                            ) : (
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8 camera-svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
+                              </svg>
+                            )}
+                            <div
+                              className="avatar-add-badge flex items-center justify-center"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                groupAvatarInputRef.current?.click();
+                              }}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-3 h-3">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                              </svg>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="group-name-input-wrapper flex flex-col">
+                          <div className="modal-section-label">GROUP NAME</div>
+                          <div className="input-number group">
+                            <input
+                              type="text"
+                              placeholder="Enter group name..."
+                              onChange={handleChangeNameGr}
+                              value={dataCreateGr.username}
+                            />
+                          </div>
                         </div>
                       </div>
-                      <div
-                        className="flex"
-                        style={{ gap: 8, marginTop: 10, alignItems: "center" }}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => groupAvatarInputRef.current?.click()}
-                        >
-                          Chọn ảnh
-                        </button>
-                        {dataCreateGr.avatarPreview || dataCreateGr.avatar ? (
-                          <button type="button" onClick={handleRemoveGroupAvatar}>
-                            Gỡ ảnh
-                          </button>
-                        ) : null}
+
+                      <div className="modal-section-label" style={{ marginTop: 24 }}>
+                        SELECT MEMBERS
                       </div>
+                      <div className="search-input-container">
+                        <svg className="search-input-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.608 10.608Z" />
+                        </svg>
+                        <input type="text" placeholder="Enter name or phone..." />
+                      </div>
+
                       <div className="list-contact">
-                        {friendOptions.map((item) => (
-                          <li key={item.userId} onClick={() => handleAddMember(item.userId)}>
-                            <div className="contact-detial-conversation flex">
-                              <div className="flex">
+                        {friendOptions.map((item, index) => {
+                          const isChecked = dataCreateGr.listMember.includes(item.userId);
+                          const statuses = ["Online", "Last seen 2h ago", "Busy", "Offline"];
+                          const statusIdx = Math.abs(
+                            String(item.userId || index)
+                              .split("")
+                              .reduce((acc, char) => acc + char.charCodeAt(0), 0)
+                          ) % statuses.length;
+                          const statusText = statuses[statusIdx];
+
+                          return (
+                            <li
+                              key={item.userId || index}
+                              onClick={() => handleAddMember(item.userId)}
+                              className="contact-member-item"
+                            >
+                              <div className="contact-detial-conversation flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className="contact-avatar-friend">
+                                    {item.avatarUrl ? (
+                                      <img src={item.avatarUrl} alt="" />
+                                    ) : (
+                                      <div className="avatar-initials">
+                                        {(item.displayName || "?").charAt(0).toUpperCase()}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="contact-overview-mess">
+                                    <h3>{item.displayName}</h3>
+                                    <span className={`status-text ${statusText.toLowerCase().replace(/ /g, "-")}`}>
+                                      {statusText}
+                                    </span>
+                                  </div>
+                                </div>
                                 <div className="checkbox-add">
-                                  <input
-                                    type="button"
-                                    className={`${
-                                      dataCreateGr.listMember.includes(item.userId)
-                                        ? "active"
-                                        : ""
-                                    }`}
-                                  />
-                                </div>
-                                <div className="contact-avatar-friend">
-                                  <img src={item.avatarUrl} alt="" />
-                                </div>
-                                <div className="contact-overview-mess">
-                                  <h3>{item.displayName}</h3>
+                                  <div className={`custom-checkbox ${isChecked ? "checked" : ""}`}>
+                                    {isChecked ? (
+                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                                      </svg>
+                                    ) : null}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          </li>
-                        ))}
+                            </li>
+                          );
+                        })}
                       </div>
                       {createGroupError ? (
                         <p className="contact-feedback-error">
@@ -1446,43 +1465,46 @@ useEffect(() => {
                       {isCreatingGroup ? (
                         <p className="contact-feedback-error">Đang tạo nhóm...</p>
                       ) : null}
-                      <div className="btn-find-friend flex">
-                        <button
-                          onClick={() => handleShowAddGroup(false)}
-                          disabled={isCreatingGroup}
-                        >
-                          Hủy
-                        </button>
-                        <button
-                          onClick={handleCreateGroup}
-                          disabled={
+                    </div>
+
+                    <div className="modal-footer flex">
+                      <button
+                        className="btn-cancel"
+                        type="button"
+                        onClick={() => handleShowAddGroup(false)}
+                        disabled={isCreatingGroup}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        className="btn-submit"
+                        type="button"
+                        onClick={handleCreateGroup}
+                        disabled={
+                          isCreatingGroup ||
+                          !String(dataCreateGr.username || "").trim() ||
+                          dataCreateGr.listMember.length < 2
+                        }
+                        style={{
+                          backgroundColor:
                             isCreatingGroup ||
                             !String(dataCreateGr.username || "").trim() ||
                             dataCreateGr.listMember.length < 2
-                          }
-                          style={{
-                            backgroundColor:
-                              isCreatingGroup ||
-                              !String(dataCreateGr.username || "").trim() ||
-                              dataCreateGr.listMember.length < 2
-                                ? "#9bbdf4"
-                                : "#0068ff",
-                            width: "125px",
-                            color: "white",
-                            cursor:
-                              isCreatingGroup ||
-                              !String(dataCreateGr.username || "").trim() ||
-                              dataCreateGr.listMember.length < 2
-                                ? "not-allowed"
-                                : "pointer",
-                          }}
-                        >
-                    Tạo nhóm
-                          {dataCreateGr.listMember.length > 0
-                            ? ` (${dataCreateGr.listMember.length})`
-                            : ""}
-                        </button>
-                      </div>
+                              ? "#93c5fd"
+                              : "#0068ff",
+                          cursor:
+                            isCreatingGroup ||
+                            !String(dataCreateGr.username || "").trim() ||
+                            dataCreateGr.listMember.length < 2
+                              ? "not-allowed"
+                              : "pointer",
+                        }}
+                      >
+                        Create Group
+                        {dataCreateGr.listMember.length > 0
+                          ? ` (${dataCreateGr.listMember.length})`
+                          : ""}
+                      </button>
                     </div>
                   </div>
                 </div>

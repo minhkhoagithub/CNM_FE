@@ -3,7 +3,7 @@ import { ContactContext } from "../../Context/ContactConext";
 import MenuContact from "./MenuContact";
 import ContentMenuContact from "./ContentMenuContact";
 
-export default function AddressBook() {
+export default function AddressBook({ onOpenChat }) {
   const [openChatError, setOpenChatError] = useState("");
   const [showContentMenuContact, setShowContentMenuContact] = useState({
     state: false,
@@ -23,6 +23,7 @@ export default function AddressBook() {
       } else {
         await openPrivateConversationForUser(value);
       }
+      onOpenChat?.();
     } catch (err) {
       console.error(err);
       setOpenChatError("Không thể mở cuộc trò chuyện này.");

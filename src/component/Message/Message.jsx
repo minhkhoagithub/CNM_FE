@@ -119,7 +119,13 @@ export default function Message({ showPageAddressBook, onConversationSelect }) {
           String(image?.id || image?.url) === String(prevState.activeImageId)
       );
       const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
-      const nextIndex = (safeCurrentIndex + direction + images.length) % images.length;
+      const nextIndex = Math.min(
+        Math.max(safeCurrentIndex + direction, 0),
+        images.length - 1
+      );
+      if (nextIndex === safeCurrentIndex) {
+        return prevState;
+      }
 
       return {
         ...prevState,

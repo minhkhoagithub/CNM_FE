@@ -647,13 +647,6 @@
   color: #64748b;
 }
 
-.group-card-description {
-  margin: 0 0 12px;
-  font-size: 13px;
-  color: #475569;
-  min-height: 34px;
-}
-
 .group-card-actions {
   display: flex;
   flex-wrap: wrap;
@@ -811,6 +804,12 @@
   gap: 10px;
 }
 
+.group-detail-member-list {
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 .member-preview-item {
   display: flex;
   align-items: center;
@@ -870,23 +869,6 @@
   margin: 0;
   font-size: 13px;
   color: #1f2937;
-}
-
-.admin-actions-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 8px;
-}
-
-.admin-actions-grid button {
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid #d7dee8;
-  background: #f8fafc;
-  font-size: 12px;
-  font-weight: 600;
-  color: #1f2937;
-  cursor: pointer;
 }
 
 .empty-state {
@@ -1423,15 +1405,6 @@
   padding: 4px 8px;
   border-radius: 999px;
   font-weight: 700;
-}
-
-.privacy-badge {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: #f1f5f9;
-  color: #475569;
 }
 
 .group-detail-drawer-overlay {

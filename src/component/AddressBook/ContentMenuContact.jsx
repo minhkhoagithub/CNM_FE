@@ -2,7 +2,6 @@
 import "../../resource/style/AddressBook/contentMenuContact.css";
 import {
   LoiMoiKetBan,
-  LoiMoiVaoNhom,
   DanhSachBanBe,
   DanhSachNhom,
   DanhSachChan,
@@ -43,6 +42,7 @@ import { updateCloseFriendStatusForCurrentUser } from "../../services/closeFrien
 import {
   leaveConversationV1,
   openOrCreatePrivateConversationV1,
+  transferConversationOwnershipV1,
   updateConversationMuteV1,
   updateConversationPinV1,
 } from "../../services/chat/conversationApi";
@@ -111,8 +111,6 @@ const GROUP_SORT_RECENT = "recent";
 const GROUP_SORT_NEWEST = "newest";
 const GROUP_SORT_MEMBERS = "members";
 const GROUP_SORT_NAME = "name";
-const GROUP_SORT_PUBLIC = "public";
-const GROUP_SORT_PRIVATE = "private";
 
 const GROUP_CATEGORIES = GROUP_LABEL_OPTIONS.map((option) => ({
   id: option.value,
@@ -336,7 +334,11 @@ export default function ContentMenuContact({
   handleShowSoftConversation,
 }) {
   const { userData } = useContext(UserContext);
-  const { upsertConversation } = useContext(ContactContext) || {};
+  const {
+    upsertConversation,
+    updateConversationById,
+    removeConversationById,
+  } = useContext(ContactContext) || {};
   const currentUserId = userData?._id || userData?.userId || null;
   const [friendReq, setFriendReq] = useState([]);
   // const [listData, setListData] = useState(() => buildListData(dataContentContac, title));
@@ -872,6 +874,32 @@ const handleSeachContact = (e) => {
       setGroupActionError("");
       const conversationPayload = buildGroupConversationPayload(group);
       const conversationId = conversationPayload?.id;
+      const groupId = group?.id || group?._id || group?.userId || conversationId;
+      const members = Array.isArray(group?.members)
+        ? group.members
+        : Array.isArray(group?.raw?.members)
+        ? group.raw.members
+        : [];
+      const memberCount = Number.isFinite(Number(group?.memberCount))
+        ? Number(group.memberCount)
+        : members.length;
+      const currentRole = String(
+        group?.currentUserRole || resolveCurrentUserRole({ ...group, members }, currentUserId)
+      ).toUpperCase();
+      const getMemberId = (member) => member?.userId || member?.id || member?._id || "";
+      const replacementOwner =
+        currentRole === "OWNER" && memberCount > 1
+          ? members.find(
+              (member) =>
+                String(getMemberId(member)) !== String(currentUserId || "") &&
+                String(member?.role || "").toUpperCase() === "ADMIN"
+            ) ||
+            members.find(
+              (member) =>
+                String(getMemberId(member)) !== String(currentUserId || "")
+            )
+          : null;
+      const replacementOwnerId = getMemberId(replacementOwner);
 
       if (!conversationId) {
         setGroupActionError("Không xác định được hội thoại nhóm.");
@@ -879,36 +907,67 @@ const handleSeachContact = (e) => {
       }
 
       if (action === "leave") {
-        const confirmed = window.confirm("Bạn có chắc muốn rời nhóm này?");
+        if (currentRole === "OWNER" && memberCount > 1 && !replacementOwnerId) {
+          setGroupActionError(
+            "Không tìm thấy thành viên khác để chuyển quyền trưởng nhóm trước khi rời."
+          );
+          return;
+        }
+
+        const replacementName =
+          replacementOwner?.displayName || replacementOwner?.username || "thành viên khác";
+        const confirmed = window.confirm(
+          currentRole === "OWNER" && memberCount > 1
+            ? `Bạn là trưởng nhóm. Quyền trưởng nhóm sẽ được chuyển cho ${replacementName} trước khi bạn rời nhóm. Tiếp tục?`
+            : "Bạn có chắc muốn rời nhóm này?"
+        );
         if (!confirmed) {
           return;
         }
       }
 
-      const actionKey = `${conversationId}:${action}`;
+      const actionKey = `${groupId}:${action}`;
       setPendingGroupActionKey(actionKey);
 
       try {
         if (action === "mute") {
           const nextMuted = !(group?.muted || group?.raw?.muted);
-          await updateConversationMuteV1(conversationId, nextMuted);
-          patchGroupState(group.id, { muted: nextMuted });
+          const response = await updateConversationMuteV1(conversationId, nextMuted);
+          const patch = {
+            muted: nextMuted,
+            notificationLevel: nextMuted ? "NONE" : "ALL",
+          };
+          patchGroupState(groupId, patch);
+          updateConversationById?.(conversationId, patch);
+          if (response?.id || response?.raw?.id) {
+            upsertConversation?.(response, { source: "address-book-group-mute" });
+          }
           return;
         }
 
         if (action === "pin") {
           const nextPinned = !(group?.pinned || group?.raw?.pinned || group?.isFeatured);
-          await updateConversationPinV1(conversationId, nextPinned);
-          patchGroupState(group.id, {
+          const response = await updateConversationPinV1(conversationId, nextPinned);
+          const patch = {
             pinned: nextPinned,
             isFeatured: nextPinned,
-          });
+          };
+          patchGroupState(groupId, patch);
+          updateConversationById?.(conversationId, patch);
+          if (response?.id || response?.raw?.id) {
+            upsertConversation?.(response, { source: "address-book-group-pin" });
+          }
           return;
         }
 
         if (action === "leave") {
+          if (currentRole === "OWNER" && memberCount > 1) {
+            await transferConversationOwnershipV1(conversationId, replacementOwnerId);
+          }
           await leaveConversationV1(conversationId);
-          removeGroupState(group.id);
+          removeGroupState(groupId);
+          removeConversationById?.(conversationId);
+          setIsGroupDetailOpen(false);
           return;
         }
       } catch (error) {
@@ -918,7 +977,15 @@ const handleSeachContact = (e) => {
         setPendingGroupActionKey("");
       }
     },
-    [buildGroupConversationPayload, patchGroupState, removeGroupState]
+    [
+      buildGroupConversationPayload,
+      currentUserId,
+      patchGroupState,
+      removeGroupState,
+      removeConversationById,
+      updateConversationById,
+      upsertConversation,
+    ]
   );
 
   const resolveGroupActionMeta = (group) => {
@@ -960,6 +1027,11 @@ const handleSeachContact = (e) => {
         const accessState = String(
           group.accessState || group.raw?.accessState || "JOINED"
         ).toUpperCase();
+        const members = Array.isArray(group.members)
+          ? group.members
+          : Array.isArray(group.raw?.members)
+          ? group.raw.members
+          : [];
 
         return {
           id: groupId,
@@ -973,10 +1045,9 @@ const handleSeachContact = (e) => {
           accessState,
           status: resolveGroupStatus(group),
           memberCount: resolveMemberCount(group),
-          memberPreview: Array.isArray(group.members)
-            ? group.members.slice(0, 3)
-            : [],
-          currentUserRole: resolveCurrentUserRole(group, currentUserId),
+          members,
+          memberPreview: members.slice(0, 3),
+          currentUserRole: resolveCurrentUserRole({ ...group, members }, currentUserId),
           muted: Boolean(group.muted || group.raw?.muted),
           pinned: Boolean(group.pinned || group.raw?.pinned),
           lastActiveAt:
@@ -1055,13 +1126,6 @@ const handleSeachContact = (e) => {
       if (groupSort === GROUP_SORT_NEWEST) {
         return new Date(b.joinedAt || 0).getTime() - new Date(a.joinedAt || 0).getTime();
       }
-      if (groupSort === GROUP_SORT_PUBLIC) {
-        return a.privacy === "PUBLIC" ? -1 : 1;
-      }
-      if (groupSort === GROUP_SORT_PRIVATE) {
-        return a.privacy === "PUBLIC" ? 1 : -1;
-      }
-
       return new Date(b.lastActiveAt || 0).getTime() - new Date(a.lastActiveAt || 0).getTime();
     });
 
@@ -1238,8 +1302,6 @@ const handleSeachContact = (e) => {
                         <option value={GROUP_SORT_NEWEST}>Nhóm mới nhất</option>
                         <option value={GROUP_SORT_MEMBERS}>Nhiều thành viên</option>
                         <option value={GROUP_SORT_NAME}>Tên A-Z</option>
-                        <option value={GROUP_SORT_PUBLIC}>Công khai trước</option>
-                        <option value={GROUP_SORT_PRIVATE}>Riêng tư trước</option>
                       </select>
                       <HiOutlineChevronDown />
                     </div>
@@ -1317,9 +1379,6 @@ const handleSeachContact = (e) => {
                                   {featuredGroup.categoryLabel.toUpperCase()}
                                 </span>
                               </div>
-                              <p className="group-card-description">
-                                {featuredGroup.description || "Không có mô tả."}
-                              </p>
                               <div className="group-card-footer">
                                 <span className="member-pill">
                                   {featuredGroup.memberCount} thành viên
@@ -1348,12 +1407,6 @@ const handleSeachContact = (e) => {
                           actionMeta.disabled ||
                           group.status === "ARCHIVED" ||
                           group.accessState === "DISABLED";
-                        const privacyLabel =
-                          group.privacy === "PUBLIC"
-                            ? "Công khai"
-                            : group.privacy === "INVITE_ONLY"
-                            ? "Chỉ mời"
-                            : "Riêng tư";
 
                         return (
                           <div
@@ -1386,9 +1439,6 @@ const handleSeachContact = (e) => {
                                     {group.categoryLabel.toUpperCase()}
                                   </span>
                                 </div>
-                                <p className="group-card-description">
-                                  {group.description || "Chưa có mô tả."}
-                                </p>
                                 <div className="group-card-meta">
                                   <span>{group.memberCount} thành viên</span>
                                   <span>•</span>
@@ -1403,7 +1453,6 @@ const handleSeachContact = (e) => {
                                     <statusMeta.icon />
                                     {statusMeta.label}
                                   </span>
-                                  <span className="privacy-badge">{privacyLabel}</span>
                                 </div>
                                 <div className="group-card-footer">
                                   <div className="member-preview">
@@ -1542,11 +1591,16 @@ const handleSeachContact = (e) => {
                         >
                           Vào chat
                         </button>
-                        {['OWNER', 'ADMIN'].includes(selectedGroup.currentUserRole) ? (
-                          <button type="button" className="btn-outline">
-                            Quản lý nhóm
-                          </button>
-                        ) : null}
+                        <button
+                          type="button"
+                          className="btn-outline"
+                          disabled={pendingGroupActionKey === `${selectedGroup.id}:mute`}
+                          onClick={() => {
+                            void handleGroupMenuAction(selectedGroup, "mute");
+                          }}
+                        >
+                          {selectedGroup.muted ? "Bật thông báo" : "Tắt thông báo"}
+                        </button>
                         <button
                           type="button"
                           className="btn-danger"
@@ -1563,22 +1617,12 @@ const handleSeachContact = (e) => {
                         <h5>Thông tin nhóm</h5>
                         <div className="group-info-grid">
                           <div>
-                            <span>Mô tả</span>
-                            <p>{selectedGroup.description || "Chưa có mô tả."}</p>
-                          </div>
-                          <div>
                             <span>Danh mục</span>
                             <p>{selectedGroup.categoryLabel}</p>
                           </div>
                           <div>
-                            <span>Quyền riêng tư</span>
-                            <p>
-                              {selectedGroup.privacy === "PUBLIC"
-                                ? "Công khai"
-                                : selectedGroup.privacy === "INVITE_ONLY"
-                                ? "Chỉ mời"
-                                : "Riêng tư"}
-                            </p>
+                            <span>Thông báo</span>
+                            <p>{selectedGroup.muted ? "Đã tắt" : "Đang bật"}</p>
                           </div>
                           <div>
                             <span>Hoạt động gần nhất</span>
@@ -1588,13 +1632,16 @@ const handleSeachContact = (e) => {
                       </div>
 
                       <div className="group-detail-section">
-                        <h5>Thành viên nổi bật</h5>
-                        {selectedGroup.memberPreview.length === 0 ? (
+                        <h5>Thành viên ({selectedGroup.memberCount})</h5>
+                        {selectedGroup.members.length === 0 ? (
                           <p className="muted">Chưa có dữ liệu thành viên.</p>
                         ) : (
-                          <div className="member-preview-list">
-                            {selectedGroup.memberPreview.map((member) => (
-                              <div key={member.userId} className="member-preview-item">
+                          <div className="member-preview-list group-detail-member-list">
+                            {selectedGroup.members.map((member, index) => (
+                              <div
+                                key={member.userId || `${selectedGroup.id}-member-${index}`}
+                                className="member-preview-item"
+                              >
                                 <div className="member-avatar">
                                   {member.avatarUrl ? (
                                     <img src={member.avatarUrl} alt="" />
@@ -1612,24 +1659,7 @@ const handleSeachContact = (e) => {
                             ))}
                           </div>
                         )}
-                        <button type="button" className="btn-outline small">
-                          Xem tất cả thành viên
-                        </button>
                       </div>
-
-                      {['OWNER', 'ADMIN'].includes(selectedGroup.currentUserRole) ? (
-                        <div className="group-detail-section admin">
-                          <h5>Quản trị nhóm</h5>
-                          <div className="admin-actions-grid">
-                            <button type="button">Sửa tên nhóm</button>
-                            <button type="button">Đổi ảnh nhóm</button>
-                            <button type="button">Quản lý thành viên</button>
-                            <button type="button">Phân quyền quản trị</button>
-                            <button type="button">Duyệt yêu cầu tham gia</button>
-                            <button type="button">Thiết lập quyền nhóm</button>
-                          </div>
-                        </div>
-                      ) : null}
                     </div>
                   </aside>
                 </div>

@@ -34,7 +34,7 @@ import {
   CLOSE_FRIEND_STATUS_CHANGED_EVENT,
   getCloseFriendIdsForCurrentUser,
 } from "../../services/closeFriendApi";
-import { uploadAttachmentV1 } from "../../services/chat/messageApi";
+import { searchMessagesV1, uploadAttachmentV1 } from "../../services/chat/messageApi";
 import {
   mapConversation,
   resolveConversationPreviewText,
@@ -91,6 +91,18 @@ const getConversationDisplayName = (conversation) =>
 
 const getConversationAvatarUrl = (conversation) =>
   conversation?.avatarUrl || conversation?.trustedAvatarUrl || "";
+
+const normalizeContactSearchText = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLocaleLowerCase("vi");
+
+const getSidebarSearchItemKey = (item) =>
+  item?.id
+    ? `conversation:${item.id}`
+    : `contact:${item?.userId || item?._id || item?.username || ""}`;
 
 const isGroupConversationItem = (conversation) =>
   String(conversation?.type || "").toLowerCase() === "group" ||
@@ -326,6 +338,8 @@ function Contact({
   const [dataSearch, setDataSearch] = useState({
     recent: [],
     response: [],
+    loading: false,
+    error: "",
   });
   const [addUser, setAddUser] = useState({
     friend: false,
@@ -408,6 +422,7 @@ function Contact({
 const getSearchItemId = (item) => item?.userId || item?._id || item?.id || null;
 
   const searchTimeout = useRef(null);
+  const searchRequestIdRef = useRef(0);
   const baseDisplayedConversationList = useMemo(
     () =>
       (showArchived ? archivedConversations : conversations)?.filter(
@@ -620,6 +635,13 @@ const getSearchItemId = (item) => item?.userId || item?._id || item?.id || null;
   useEffect(() => {
     if (textSearch === "") {
       clearTimeout(searchTimeout.current);
+      searchRequestIdRef.current += 1;
+      setDataSearch((prevState) => ({
+        ...prevState,
+        response: [],
+        loading: false,
+        error: "",
+      }));
       setIsSearch((prevState) => {
         return {
           ...prevState,
@@ -667,36 +689,134 @@ const getSearchItemId = (item) => item?.userId || item?._id || item?.id || null;
   // };
 
 const handleSearchDb = (value) => {
-  if (value !== "") {
-    if (searchTimeout.current) {
-      clearTimeout(searchTimeout.current);
+  const keyword = String(value || "").trim();
+  if (searchTimeout.current) {
+    clearTimeout(searchTimeout.current);
+  }
+
+  if (!keyword) {
+    return;
+  }
+
+  const requestId = searchRequestIdRef.current + 1;
+  searchRequestIdRef.current = requestId;
+  setDataSearch((prevState) => ({
+    ...prevState,
+    loading: true,
+    error: "",
+  }));
+
+  searchTimeout.current = setTimeout(async () => {
+    const normalizedKeyword = normalizeContactSearchText(keyword);
+    const localConversationResults = baseDisplayedConversationList
+      .filter((conversation) => {
+        const displayName = normalizeContactSearchText(
+          getConversationDisplayName(conversation)
+        );
+        const preview = normalizeContactSearchText(
+          getConversationPreview(conversation, currentUserId)
+        );
+        return displayName.includes(normalizedKeyword) || preview.includes(normalizedKeyword);
+      })
+      .map((conversation) => ({
+        ...conversation,
+        _searchMatch: {
+          type: "conversation",
+          content: getConversationPreview(conversation, currentUserId),
+        },
+      }));
+
+    const [usersResult, messagesResult] = await Promise.allSettled([
+      searchUsersV2({ keyword }),
+      searchMessagesV1(keyword),
+    ]);
+
+    if (requestId !== searchRequestIdRef.current) {
+      return;
     }
 
-    searchTimeout.current = setTimeout(async () => {
-      const response = await searchUsersV2({ keyword: value });
-
-      const nextResults = Array.isArray(response.data)
-        ? response.data
+    const matchedUsers =
+      usersResult.status === "fulfilled" && Array.isArray(usersResult.value?.data)
+        ? usersResult.value.data
             .filter((item) => item.relationshipStatus === "FRIEND")
             .map(mapSearchUserToUi)
         : [];
+    const matchedMessages =
+      messagesResult.status === "fulfilled" && Array.isArray(messagesResult.value)
+        ? messagesResult.value
+        : [];
+    const conversationById = new Map(
+      baseDisplayedConversationList.map((conversation) => [
+        String(conversation?.id || ""),
+        conversation,
+      ])
+    );
+    const privateConversationByPeerId = new Map(
+      baseDisplayedConversationList
+        .filter((conversation) => String(conversation?.type || "").toLowerCase() === "private")
+        .map((conversation) => [
+          String(conversation?.peerUserId || ""),
+          conversation,
+        ])
+    );
+    const mergedResults = new Map();
 
-      setDataSearch((prevState) => {
-        return {
-          ...prevState,
-          response: nextResults,
-        };
-      });
+    localConversationResults.forEach((conversation) => {
+      mergedResults.set(getSidebarSearchItemKey(conversation), conversation);
+    });
+    matchedMessages.forEach((message) => {
+      const conversation = conversationById.get(String(message?.conversationId || ""));
+      if (!conversation) {
+        return;
+      }
 
-      setIsSearch((prevState) => {
-        return {
-          ...prevState,
-          response: true,
-          recent: false,
-        };
+      const resultKey = getSidebarSearchItemKey(conversation);
+      if (mergedResults.get(resultKey)?._searchMatch?.type === "message") {
+        return;
+      }
+
+      mergedResults.set(resultKey, {
+        ...conversation,
+        _searchMatch: {
+          type: "message",
+          content: message?.content || "",
+          senderDisplayName: message?.senderDisplayName || "",
+        },
       });
-    }, 300);
-  }
+    });
+    matchedUsers.forEach((user) => {
+      const privateConversation = privateConversationByPeerId.get(String(user?.userId || ""));
+      const result = privateConversation
+        ? {
+            ...privateConversation,
+            _searchMatch: {
+              type: "contact",
+              content: "Liên hệ trong danh sách bạn bè",
+            },
+          }
+        : user;
+      const resultKey = getSidebarSearchItemKey(result);
+      if (!mergedResults.has(resultKey)) {
+        mergedResults.set(resultKey, result);
+      }
+    });
+
+    setDataSearch((prevState) => ({
+      ...prevState,
+      response: Array.from(mergedResults.values()),
+      loading: false,
+      error:
+        usersResult.status === "rejected" && messagesResult.status === "rejected"
+          ? "Không thể tìm kiếm lúc này."
+          : "",
+    }));
+
+    setIsSearch((prevState) => ({
+      ...prevState,
+      response: true,
+      recent: false,
+    }));
+  }, 300);
 };
 
 
@@ -718,6 +838,7 @@ const handleSearchDb = (value) => {
       };
     });
     if (!value) {
+      searchRequestIdRef.current += 1;
       setTextSearch("");
     }
   };
@@ -1541,7 +1662,7 @@ const isCreateGroupSubmitDisabled =
                 </div>
               )}
               {dataCreateGr.showAvt && (
-                <div className="screen-mask" style={{ zIndex: 1001 }}>
+                <div className="screen-mask" style={{ zIndex: 12001 }}>
                   <div className="choice-avatar-gr">
                     <div className="header-add-friend flex">
                       <p>Cập nhật ảnh đại diện</p>
@@ -1926,34 +2047,44 @@ const isCreateGroupSubmitDisabled =
               {isSearch.response && (
                 <div>
                   <div className="wrap-result-search">
-                    {/* {isSearch.response &&
-                      dataSearch.response !== null &&
+                      {dataSearch.loading ? (
+                        <p className="contact-search-feedback">Đang tìm kiếm...</p>
+                      ) : null}
+                      {dataSearch.error ? (
+                        <p className="contact-search-feedback contact-search-feedback-error">
+                          {dataSearch.error}
+                        </p>
+                      ) : null}
+                      {!dataSearch.loading &&
+                      !dataSearch.error &&
                       Array.isArray(dataSearch.response) &&
-                      dataSearch.response.map((item, index) => (
-                        <li
-                          key={index}
-                          onClick={() => handleChoiceContact(item)}
-                        >
-                          <div className="flex">
-                            <img src={item.avatarUrl} alt="" />
-                            <p>{item.displayName}</p>
-                          </div>
-                        </li>
-                      ))} */}
-                      {isSearch.response &&
-                        dataSearch.response !== null &&
-                        Array.isArray(dataSearch.response) &&
+                      dataSearch.response.length === 0 ? (
+                        <p className="contact-search-feedback">Không tìm thấy kết quả.</p>
+                      ) : null}
+                      {Array.isArray(dataSearch.response) &&
                         dataSearch.response.map((item, index) => (
                           <li
-                            key={item.userId || item._id || index}
+                            key={getSidebarSearchItemKey(item) || index}
                             onClick={() => handleChoiceContact(item)}
                           >
-                            <div className="flex">
+                            <div className="contact-search-result-main flex">
                               <img
                                 src={item.avatar || item.avatarUrl || undefined}
                                 alt=""
                               />
-                              <p>{item.displayName || item.username}</p>
+                              <div className="contact-search-result-copy">
+                                <p className="contact-search-result-name">
+                                  {item.displayName || item.username}
+                                </p>
+                                {item?._searchMatch?.content ? (
+                                  <p className="contact-search-result-snippet">
+                                    {item._searchMatch.senderDisplayName
+                                      ? `${item._searchMatch.senderDisplayName}: `
+                                      : ""}
+                                    {item._searchMatch.content}
+                                  </p>
+                                ) : null}
+                              </div>
                             </div>
                           </li>
                         ))}
