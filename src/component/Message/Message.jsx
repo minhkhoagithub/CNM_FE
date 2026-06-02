@@ -1,91 +1,278 @@
-import React, { useContext, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useState } from "react";
 import { ContactContext } from "../../Context/ContactConext";
+import { UserContext } from "../../Context/UserContext";
 import MessageInfor from "./MessageInfor";
 import Contact from "./Contact";
-import WellCome from "./WellCome";
 import ContainerMess from "./ContainerMess";
-import { UserContext } from "../../Context/UserContext";
-import { getConversationByIdFriend, getFriendById } from "../../util/api";
+import ConversationImageGallery from "./ConversationImageGallery";
+import { fetchConversationSharedAttachments } from "./conversationMedia";
 
-export default function Message({ showPageAddressBook }) {
-  const [dataContact, setDataContact] = useState(null);
-  const { socket } = useContext(UserContext);
+const INFO_PANEL_BREAKPOINT = 1180;
+const getInitialInfoPanelVisibility = () => {
+  if (typeof window === "undefined") {
+    return true;
+  }
 
-  const handleChangeSoftContact = (value) => {
-    setDataContact(value);
-  };
+  return window.innerWidth > INFO_PANEL_BREAKPOINT;
+};
+
+export default function Message({ showPageAddressBook, onConversationSelect }) {
+  const {
+    currentConversationNormalized,
+    openConversation,
+    openPrivateConversationForUser,
+    clearSelectedConversation,
+  } =
+    useContext(ContactContext);
+  const { userData } = useContext(UserContext);
+  const [openChatError, setOpenChatError] = React.useState("");
+  const [imageGalleryState, setImageGalleryState] = useState({
+    isOpen: false,
+    loading: false,
+    error: "",
+    images: [],
+    activeImageId: null,
+    isPartial: false,
+  });
+  const [isInfoPanelVisible, setIsInfoPanelVisible] = useState(
+    getInitialInfoPanelVisibility
+  )
+  const [isAddMemberModalRequested, setIsAddMemberModalRequested] = useState(false)
+
+  const activeConversation = currentConversationNormalized;
+  const currentUserId = userData?.userId || userData?._id || null;
+  const conversationId = activeConversation?.id || null;
+  const conversationName =
+    activeConversation?.displayName ||
+    activeConversation?.trustedDisplayName ||
+    "Ảnh trong hội thoại";
 
   const handleChangeContact = async (value) => {
+    setOpenChatError("");
+
     try {
-      if (value.idConversation === null || value.idConversation === undefined) {
-        const response = await getConversationByIdFriend({
-          userId: value.userId,
-          friendId: value._id,
-        });
-        if (response.status === 200) {
-          delete value.userId;
-          delete value._id;
-
-          const resData = response.data;
-          const format = {
-            ...resData,
-            ...value,
-          };
-          setDataContact(format);
-          return;
-        }
-        if (response.status === 204) {
-          const data = {
-            userId: value.userId,
-            friendId: value._id,
-          };
-
-          const response = await getFriendById({
-            friendId: data.friendId,
-          });
-          if (response.status === 200) {
-            setDataContact({ ...response.data, idChatWith: response.data._id });
-          }
-        }
-      } else {
-        setDataContact(value);
+      if (value?.id) {
+        openConversation(value);
+        return;
       }
+
+      await openPrivateConversationForUser(value);
     } catch (err) {
       console.error(err);
+      setOpenChatError("Không thể mở cuộc trò chuyện này.");
     }
   };
 
   const handleDisableContainer = () => {
-    console.log("ceh");
-    setDataContact(null);
+    clearSelectedConversation();
   };
+
+  const handleCloseImageGallery = useCallback(() => {
+    setImageGalleryState({
+      isOpen: false,
+      loading: false,
+      error: "",
+      images: [],
+      activeImageId: null,
+      isPartial: false,
+    });
+  }, []);
+
+  useEffect(() => {
+    handleCloseImageGallery();
+    if (onConversationSelect) {
+      onConversationSelect(conversationId);
+    }
+  }, [conversationId, handleCloseImageGallery, onConversationSelect]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleResponsiveInfoPanel = () => {
+      setIsInfoPanelVisible(window.innerWidth > INFO_PANEL_BREAKPOINT);
+    };
+
+    window.addEventListener("resize", handleResponsiveInfoPanel);
+    return () => {
+      window.removeEventListener("resize", handleResponsiveInfoPanel);
+    };
+  }, []);
+
+  const handleSelectGalleryImage = useCallback((imageId) => {
+    setImageGalleryState((prevState) => ({
+      ...prevState,
+      activeImageId: imageId,
+    }));
+  }, []);
+
+  const handleNavigateGallery = useCallback((direction) => {
+    setImageGalleryState((prevState) => {
+      const images = Array.isArray(prevState.images) ? prevState.images : [];
+      if (images.length <= 1) {
+        return prevState;
+      }
+
+      const currentIndex = images.findIndex(
+        (image) =>
+          String(image?.id || image?.url) === String(prevState.activeImageId)
+      );
+      const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
+      const nextIndex = Math.min(
+        Math.max(safeCurrentIndex + direction, 0),
+        images.length - 1
+      );
+      if (nextIndex === safeCurrentIndex) {
+        return prevState;
+      }
+
+      return {
+        ...prevState,
+        activeImageId: images[nextIndex]?.id || images[nextIndex]?.url || null,
+      };
+    });
+  }, []);
+
+  const handleOpenConversationImageGallery = useCallback(
+    async (clickedImage) => {
+      if (!conversationId || !clickedImage?.url) {
+        return;
+      }
+
+      const fallbackImage = {
+        id: clickedImage.id || clickedImage.url,
+        url: clickedImage.url,
+        fileName: clickedImage.fileName || "Ảnh trong hội thoại",
+      };
+
+      setImageGalleryState({
+        isOpen: true,
+        loading: true,
+        error: "",
+        images: [fallbackImage],
+        activeImageId: fallbackImage.id,
+        isPartial: false,
+      });
+
+      try {
+        const { attachments, isPartial } = await fetchConversationSharedAttachments({
+          conversationId,
+          currentUserId,
+        });
+        const imageItems = attachments
+          .filter((attachment) => attachment.isImage)
+          .map((attachment) => ({
+            id: attachment.id || attachment.url,
+            url: attachment.url,
+            fileName: attachment.fileName || "Ảnh trong hội thoại",
+            createdAt: attachment.createdAt || null,
+          }));
+
+        if (!imageItems.length) {
+          setImageGalleryState({
+            isOpen: true,
+            loading: false,
+            error: "Không tìm thấy ảnh trong hội thoại này.",
+            images: [fallbackImage],
+            activeImageId: fallbackImage.id,
+            isPartial: false,
+          });
+          return;
+        }
+
+        const matchedImage = imageItems.find(
+          (image) =>
+            String(image.id) === String(fallbackImage.id) || image.url === fallbackImage.url
+        );
+
+        setImageGalleryState({
+          isOpen: true,
+          loading: false,
+          error: "",
+          images: imageItems,
+          activeImageId: matchedImage?.id || imageItems[0]?.id || null,
+          isPartial,
+        });
+      } catch (error) {
+        console.error("Failed to load conversation image gallery:", error);
+
+        setImageGalleryState({
+          isOpen: true,
+          loading: false,
+          error: "Không thể tải thư viện ảnh lúc này.",
+          images: [fallbackImage],
+          activeImageId: fallbackImage.id,
+          isPartial: false,
+        });
+      }
+    },
+    [conversationId, currentUserId]
+  );
+
   return (
     <>
-      <div className="container-mess flex">
-        <div>
+      <div className="container-mess message-layout flex">
+        <div className="message-layout-sidebar">
           <Contact
-            handleChangeSoftContact={handleChangeSoftContact}
             handleChangeContact={handleChangeContact}
             showPageAddressBook={showPageAddressBook}
             disableContainer={handleDisableContainer}
           />
         </div>
-        <div>
-          {dataContact !== null ? (
-            <ContainerMess contactData={dataContact} />
+        <div className="message-layout-chat">
+          {openChatError ? (
+            <div style={{ color: "#b42318", padding: "12px 16px", fontSize: "14px" }}>
+              {openChatError}
+            </div>
+          ) : null}
+          {activeConversation !== null ? (
+            <ContainerMess
+              onOpenConversationImageGallery={handleOpenConversationImageGallery}
+              isInfoPanelVisible={isInfoPanelVisible}
+              onToggleInfoPanel={() =>
+                setIsInfoPanelVisible((previousState) => !previousState)
+              }
+              onOpenAddMember={() => {
+                setIsInfoPanelVisible(true)
+                setIsAddMemberModalRequested(true)
+              }}
+            />
           ) : (
-            ""
+            <div className="message-empty-state" aria-label="Zalo">
+              <div className="message-empty-zalo-mark" aria-hidden="true">
+                <h2>Zalo</h2>
+                <p>connect you with everyone...</p>
+              </div>
+            </div>
           )}
         </div>
-        <div>
-          {dataContact !== null ? (
-            <MessageInfor contactData={dataContact} />
-          ) : (
-            ""
-            // <WellCome />
-          )}
-        </div>
+        {activeConversation !== null && isInfoPanelVisible ? (
+          <div className="message-layout-info">
+            <MessageInfor
+              onOpenConversationImageGallery={handleOpenConversationImageGallery}
+              onRequestClose={() => setIsInfoPanelVisible(false)}
+              autoOpenAddMember={isAddMemberModalRequested}
+              onCloseAddMemberModal={() => setIsAddMemberModalRequested(false)}
+            />
+          </div>
+        ) : null}
       </div>
+      <ConversationImageGallery
+        isOpen={imageGalleryState.isOpen}
+        images={imageGalleryState.images}
+        activeImageId={imageGalleryState.activeImageId}
+        conversationName={conversationName}
+        loading={imageGalleryState.loading}
+        error={imageGalleryState.error}
+        isPartial={imageGalleryState.isPartial}
+        onClose={handleCloseImageGallery}
+        onSelectImage={handleSelectGalleryImage}
+        onNavigate={handleNavigateGallery}
+      />
     </>
   );
 }
+
+
+

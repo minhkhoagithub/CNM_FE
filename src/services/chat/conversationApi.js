@@ -1,0 +1,260 @@
+import chatHttpClient from "./chatHttpClient";
+import { mapConversation } from "../../mappers/conversationMapper";
+
+const unwrapResponseData = (response) => response.data?.data ?? response.data;
+
+const resolveConversationAvatarUrl = (payload, fallbackAvatarUrl = "") =>
+  String(
+    payload?.avatarUrl ||
+      payload?.groupAvatarUrl ||
+      payload?.avatar ||
+      payload?.trustedAvatarUrl ||
+      payload?.fileUrl ||
+      payload?.url ||
+      payload?.data?.avatarUrl ||
+      fallbackAvatarUrl ||
+      ""
+  ).trim();
+
+const normalizeConversationAvatarResponse = (payload, conversationId, fallbackAvatarUrl) => {
+  const normalizedPayload = payload && typeof payload === "object" ? payload : {};
+  const resolvedAvatarUrl = resolveConversationAvatarUrl(normalizedPayload, fallbackAvatarUrl);
+  const resolvedConversationId =
+    normalizedPayload.id || normalizedPayload.conversationId || conversationId;
+  const rawPayload =
+    normalizedPayload.raw && typeof normalizedPayload.raw === "object"
+      ? normalizedPayload.raw
+      : normalizedPayload;
+
+  return {
+    ...normalizedPayload,
+    id: resolvedConversationId,
+    avatarUrl: resolvedAvatarUrl || normalizedPayload.avatarUrl || "",
+    trustedAvatarUrl:
+      resolvedAvatarUrl || normalizedPayload.trustedAvatarUrl || normalizedPayload.avatarUrl || "",
+    groupAvatarUrl:
+      resolvedAvatarUrl || normalizedPayload.groupAvatarUrl || normalizedPayload.avatarUrl || "",
+    raw: {
+      ...rawPayload,
+      id: rawPayload.id || resolvedConversationId,
+      avatarUrl: resolvedAvatarUrl || rawPayload.avatarUrl || "",
+      groupAvatarUrl: resolvedAvatarUrl || rawPayload.groupAvatarUrl || rawPayload.avatarUrl || "",
+    },
+  };
+};
+
+export const getConversations = async ({ archived = false, groupLabel = null } = {}) => {
+  const params = { archived };
+  if (groupLabel) {
+    params.groupLabel = groupLabel;
+  }
+
+  const response = await chatHttpClient.get("/conversations", {
+    params,
+  });
+
+  return unwrapResponseData(response);
+};
+
+export const getCreatedConversations = async ({ archived = false } = {}) => {
+  const response = await chatHttpClient.get("/conversations/created-by-me", {
+    params: { archived },
+  });
+
+  return unwrapResponseData(response);
+};
+
+export const createConversationV1 = async (payload) => {
+  const response = await chatHttpClient.post("/conversations", payload);
+  return unwrapResponseData(response);
+};
+
+export const openOrCreatePrivateConversationV1 = async (participantUserId) => {
+  if (!participantUserId) {
+    throw new Error("Participant user id is required");
+  }
+
+  const conversation = await createConversationV1({
+    type: "PRIVATE",
+    participantIds: [participantUserId],
+  });
+
+  return mapConversation(conversation);
+};
+
+export const updateConversationMuteV1 = async (conversationId, muted) => {
+  const response = await chatHttpClient.patch(`/conversations/${conversationId}/mute`, {
+    muted,
+  });
+  return unwrapResponseData(response);
+};
+
+export const updateConversationArchiveV1 = async (conversationId, archived) => {
+  const response = await chatHttpClient.patch(`/conversations/${conversationId}/archive`, {
+    archived,
+  });
+  return unwrapResponseData(response);
+};
+
+export const updateConversationPinV1 = async (conversationId, pinned) => {
+  const response = await chatHttpClient.patch(`/conversations/${conversationId}/pin`, {
+    pinned,
+  });
+  return unwrapResponseData(response);
+};
+
+export const updateConversationBackgroundV1 = async (
+  conversationId,
+  payload
+) => {
+  const requestPayload =
+    typeof payload === "string"
+      ? {
+          backgroundType: "COLOR",
+          backgroundColor: payload,
+        }
+      : payload;
+
+  const response = await chatHttpClient.patch(
+    `/conversations/${conversationId}/background`,
+    requestPayload
+  );
+  return unwrapResponseData(response);
+};
+
+export const uploadConversationBackgroundImageV1 = async (
+  conversationId,
+  file
+) => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await chatHttpClient.post(
+    `/conversations/${conversationId}/background-image`,
+    formData,
+    {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    }
+  );
+  return unwrapResponseData(response);
+};
+
+export const updateConversationNotificationLevelV1 = async (
+  conversationId,
+  notificationLevel
+) => {
+  const response = await chatHttpClient.patch(
+    `/conversations/${conversationId}/notification-level`,
+    {
+      notificationLevel,
+    }
+  );
+  return unwrapResponseData(response);
+};
+
+export const updateConversationCustomNameV1 = async (conversationId, customName) => {
+  const response = await chatHttpClient.patch(
+    `/conversations/${conversationId}/custom-name`,
+    {
+      customName,
+    }
+  );
+  return unwrapResponseData(response);
+};
+
+export const renameConversationV1 = async (conversationId, name) => {
+  const response = await chatHttpClient.patch(`/conversations/${conversationId}`, {
+    name,
+  });
+  return unwrapResponseData(response);
+};
+
+export const updateConversationAvatarV1 = async (conversationId, avatarUrl) => {
+  const response = await chatHttpClient.patch(`/conversations/${conversationId}/avatar`, {
+    avatarUrl,
+  });
+  return normalizeConversationAvatarResponse(
+    unwrapResponseData(response),
+    conversationId,
+    avatarUrl
+  );
+};
+
+export const addConversationMemberV1 = async (conversationId, userId) => {
+  const response = await chatHttpClient.post(`/conversations/${conversationId}/members`, {
+    userId,
+  });
+  return unwrapResponseData(response);
+};
+
+export const removeConversationMemberV1 = async (conversationId, memberUserId) => {
+  const response = await chatHttpClient.delete(
+    `/conversations/${conversationId}/members/${memberUserId}`
+  );
+  return unwrapResponseData(response);
+};
+
+export const getConversationGroupLabelPresetsV1 = async () => {
+  const response = await chatHttpClient.get("/conversations/group-labels");
+  return unwrapResponseData(response);
+};
+
+export const getConversationGroupLabelV1 = async (conversationId) => {
+  const response = await chatHttpClient.get(`/conversations/${conversationId}/group-label`);
+  return unwrapResponseData(response);
+};
+
+export const updateConversationGroupLabelV1 = async (conversationId, groupLabel) => {
+  const response = await chatHttpClient.patch(`/conversations/${conversationId}/group-label`, {
+    groupLabel,
+  });
+  return unwrapResponseData(response);
+};
+
+export const updateConversationMemberNicknameV1 = async (
+  conversationId,
+  memberUserId,
+  nickname
+) => {
+  const response = await chatHttpClient.patch(
+    `/conversations/${conversationId}/members/${memberUserId}/nickname`,
+    {
+      nickname,
+    }
+  );
+  return unwrapResponseData(response);
+};
+
+export const leaveConversationV1 = async (conversationId) => {
+  const response = await chatHttpClient.post(`/conversations/${conversationId}/leave`);
+  return unwrapResponseData(response);
+};
+
+export const transferConversationOwnershipV1 = async (conversationId, userId) => {
+  const response = await chatHttpClient.post(
+    `/conversations/${conversationId}/transfer-ownership`,
+    { userId }
+  );
+  return unwrapResponseData(response);
+};
+
+export const promoteConversationAdminV1 = async (conversationId, userId) => {
+  const response = await chatHttpClient.post(`/conversations/${conversationId}/admins`, {
+    userId,
+  });
+  return unwrapResponseData(response);
+};
+
+export const demoteConversationAdminV1 = async (conversationId, targetUserId) => {
+  const response = await chatHttpClient.delete(
+    `/conversations/${conversationId}/admins/${targetUserId}`
+  );
+  return unwrapResponseData(response);
+};
+
+export const closeConversationV1 = async (conversationId) => {
+  const response = await chatHttpClient.delete(`/conversations/${conversationId}`);
+  return unwrapResponseData(response);
+};

@@ -1,30 +1,52 @@
-import { createContext, useEffect, useState, useRef, useContext } from "react";
-import io from "socket.io-client";
+/* eslint-disable react-refresh/only-export-components */
+import { createContext, useCallback, useMemo, useState } from "react";
+import { setChatUserId } from "../services/chat/chatSession";
 
 export const UserContext = createContext(null);
 
 export const UserProvider = ({ children }) => {
-  const [userData, setUserData] = useState(null);
-  const optionSocket = {
-    transports: ["websocket"],
-  };
-  const socket = useRef();
+  const [userData, setUserDataState] = useState(null);
 
-  useEffect(() => {
-    if (userData !== null) {
-      socket.current = io("https://192.168.41.26");
-      socket.current.emit("add-user", { id: userData._id });
+  // Wrapper để transform user data từ BE sang format FE
+  const setUserData = useCallback((beUserData) => {
+    if (!beUserData) {
+      setChatUserId(null);
+      setUserDataState(null);
+      return;
     }
-  }, [userData]);
+
+    const transformedData = {
+      _id: beUserData.userId || beUserData._id,
+      userId: beUserData.userId || beUserData._id,
+      avatar: beUserData.avatarUrl || beUserData.avatar,
+      avatarUrl: beUserData.avatarUrl || beUserData.avatar,
+      coverUrl: beUserData.coverUrl || beUserData.cover_url || '',
+      username: beUserData.username,
+      displayName: beUserData.displayName,
+      firstName: beUserData.firstName,
+      lastName: beUserData.lastName,
+      phone: beUserData.phone,
+      gender: beUserData.gender,
+      dob: beUserData.dob,
+      bio: beUserData.bio,
+      createdAt: beUserData.createdAt,
+      updatedAt: beUserData.updatedAt,
+    };
+
+    setChatUserId(transformedData.userId);
+    setUserDataState(transformedData);
+  }, []);
+
+  const contextValue = useMemo(
+    () => ({
+      userData,
+      setUserData,
+    }),
+    [setUserData, userData],
+  );
 
   return (
-    <UserContext.Provider
-      value={{
-        userData,
-        socket,
-        setUserData,
-      }}
-    >
+    <UserContext.Provider value={contextValue}>
       {children}
     </UserContext.Provider>
   );

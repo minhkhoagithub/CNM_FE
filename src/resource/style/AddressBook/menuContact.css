@@ -1,20 +1,69 @@
+.menu-contact {
+  padding: 10px 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .menu-contact li {
-  height: 60px;
-  transition: background-color 0.3s;
-  /* justify-content: center; */
+  height: auto;
+  min-height: 52px;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
   align-items: center;
-  padding-left: 20px;
+  padding: 8px 12px;
   cursor: pointer;
+  border-radius: 12px;
+  color: #1f2a37;
 }
+
 .menu-contact li:hover {
-  background-color: #e5efff;
-  transition: background-color 0.3s;
+  background-color: #eef5ff;
 }
+
+.menu-contact .menu-contact-item-active {
+  background-color: #e6f0ff;
+  box-shadow: inset 3px 0 0 #0068ff;
+}
+
 .menu-contact .icon-contact {
   padding: 8px;
   font-size: 20px;
+  color: #2f6fed;
 }
+
 .menu-contact li p {
-  font-weight: 500;
-  line-height: 61px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.menu-contact-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background-color: #e53935;
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.friend-search-results {
+  max-height: 280px;
+  overflow-y: auto;
+  padding-bottom: 72px;
+}
+
+.friend-search-feedback {
+  margin: 12px 16px;
+  color: #7589a3;
+  font-size: 14px;
+}
+
+.friend-search-subtitle {
+  font-size: 13px;
+  color: #8c8c8c;
+  margin-top: 4px;
 }

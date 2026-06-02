@@ -1,7 +1,41 @@
-import React from "react";
+import React, { useState } from "react";
 import "../../resource/style/Chat/icon.css";
 
-export default function Icon({ handleGetIcon }) {
+const gifItems = [
+  {
+    id: "happy-cat",
+    label: "Happy",
+    url: "https://media.giphy.com/media/JIX9t2j0ZTN9S/giphy.gif",
+  },
+  {
+    id: "yes",
+    label: "Yes",
+    url: "https://media.giphy.com/media/111ebonMs90YLu/giphy.gif",
+  },
+  {
+    id: "wow",
+    label: "Wow",
+    url: "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif",
+  },
+  {
+    id: "excited",
+    label: "Excited",
+    url: "https://media.giphy.com/media/5GoVLqeAOo6PK/giphy.gif",
+  },
+  {
+    id: "thanks",
+    label: "Thanks",
+    url: "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
+  },
+  {
+    id: "celebrate",
+    label: "Celebrate",
+    url: "https://media.giphy.com/media/26u4cqiYI30juCOGY/giphy.gif",
+  },
+];
+
+export default function Icon({ handleGetIcon, handleGetGif }) {
+  const [activeTab, setActiveTab] = useState("emoji");
   const listIcon = [
     "🙂",
     "😀",
@@ -949,14 +983,54 @@ export default function Icon({ handleGetIcon }) {
     // "🆕",
   ];
   return (
-    <>
-      <ul className="wraper-list-icon flex">
-        {listIcon.map((item, index) => (
-          <li key={index} onClick={() => handleGetIcon(item)}>
-            {item}
-          </li>
-        ))}
-      </ul>
-    </>
+    <div className="icon-picker-panel">
+      <div className="icon-picker-tabs" role="tablist" aria-label="Chọn biểu tượng">
+        <button
+          type="button"
+          className={`icon-picker-tab ${activeTab === "emoji" ? "active" : ""}`}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => setActiveTab("emoji")}
+        >
+          Icon
+        </button>
+        <button
+          type="button"
+          className={`icon-picker-tab ${activeTab === "gif" ? "active" : ""}`}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => setActiveTab("gif")}
+        >
+          GIF
+        </button>
+      </div>
+
+      {activeTab === "emoji" ? (
+        <ul className="wraper-list-icon flex">
+          {listIcon.map((item, index) => (
+            <li
+              key={index}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => handleGetIcon(item)}
+            >
+              {item}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="gif-library-grid">
+          {gifItems.map((item) => (
+            <button
+              type="button"
+              key={item.id}
+              className="gif-library-item"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => handleGetGif?.(item)}
+              title={item.label}
+            >
+              <img src={item.url} alt={item.label} loading="lazy" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

@@ -1,82 +1,32 @@
-import React, { useContext, useRef, useState } from "react";
+import React, { useContext, useState } from "react";
 import { ContactContext } from "../../Context/ContactConext";
-import { UserContext } from "../../Context/UserContext";
-import MessageInfor from "../Message/MessageInfor";
-import ContainerMess from "../Message/ContainerMess";
-import axios from "axios";
 import MenuContact from "./MenuContact";
 import ContentMenuContact from "./ContentMenuContact";
-import { useEffect } from "react";
-import { getConversationByIdFriend, getFriendById } from "../../util/api";
 
-export default function AddressBook() {
-  const [dataContact, setDataContact] = useState(null);
+export default function AddressBook({ onOpenChat }) {
+  const [openChatError, setOpenChatError] = useState("");
   const [showContentMenuContact, setShowContentMenuContact] = useState({
     state: false,
     data: null,
     title: null,
     count: null,
   });
-  const { socket, userData } = useContext(UserContext);
-  const handleChangeSoftContact = (value) => {
-    setDataContact(value);
-    setShowContentMenuContact({
-      state: false,
-      data: null,
-      title: null,
-      count: null,
-    });
-  };
+  const { openConversation, openPrivateConversationForUser } =
+    useContext(ContactContext);
 
   const handleChangeContact = async (value) => {
+    setOpenChatError("");
+
     try {
-      if (value.idConversation === null || value.idConversation === undefined) {
-        const response = await getConversationByIdFriend({
-          userId: userData._id,
-          friendId: value._id,
-        });
-        if (response.status === 200) {
-          delete value.userId;
-          delete value._id;
-
-          const resData = response.data;
-          const format = {
-            ...resData,
-            ...value,
-          };
-          setDataContact(format);
-          setShowContentMenuContact({
-            state: false,
-            data: null,
-            title: null,
-            count: null,
-          });
-          return;
-        }
-        if (response.status === 204) {
-          const data = {
-            userId: value.userId,
-            friendId: value._id,
-          };
-
-          const response = await getFriendById({
-            friendId: data.friendId,
-          });
-          if (response.status === 200) {
-            setDataContact({ ...response.data, idChatWith: response.data._id });
-          }
-        }
+      if (value?.id) {
+        openConversation(value);
       } else {
-        setDataContact(value);
-        setShowContentMenuContact({
-          state: false,
-          data: null,
-          title: null,
-          count: null,
-        });
+        await openPrivateConversationForUser(value);
       }
+      onOpenChat?.();
     } catch (err) {
       console.error(err);
+      setOpenChatError("Không thể mở cuộc trò chuyện này.");
     }
   };
 
@@ -86,46 +36,35 @@ export default function AddressBook() {
 
   const handleShowSoftConversation = (conversation) => {
     handleChangeContact(conversation);
-    setShowContentMenuContact({
-      state: false,
-      data: null,
-      title: null,
-      count: null,
-    });
   };
 
   return (
-    <>
-      <div className="container-mess flex">
-        <div>
-          <MenuContact
-            // Mo conversation
-            handleChangeContact={handleChangeContact}
-            // Mo conversation da co tn
-            handleChangeSoftContact={handleChangeSoftContact}
-            // Mo content cua menu contact AddressBook
-            handleSetContentMenuContact={handleSetContentMenuContact}
-          />
-        </div>
-
-        <div className="fetch-menu-contact">
-          {showContentMenuContact.state && (
-            <ContentMenuContact
-              dataContentContac={showContentMenuContact?.data}
-              title={showContentMenuContact?.title}
-              count={showContentMenuContact?.count}
-              handleShowSoftConversation={handleShowSoftConversation}
-            />
-          )}
-        </div>
-
-        <div>
-          {dataContact !== null && <ContainerMess contactData={dataContact} />}
-        </div>
-        <div>
-          {dataContact !== null && <MessageInfor contactData={dataContact} />}
-        </div>
+    <div className="container-mess address-book-layout flex">
+      <div className="address-book-menu">
+        <MenuContact
+          handleChangeContact={handleChangeContact}
+          handleSetContentMenuContact={handleSetContentMenuContact}
+        />
       </div>
-    </>
+
+      <div className="fetch-menu-contact address-book-content">
+        {openChatError ? (
+          <div style={{ color: "#b42318", padding: "12px 16px", fontSize: "14px" }}>
+            {openChatError}
+          </div>
+        ) : null}
+        {showContentMenuContact.state ? (
+          <ContentMenuContact
+            key={`${showContentMenuContact?.title || "none"}-${
+              showContentMenuContact?.count || "0"
+            }`}
+            dataContentContac={showContentMenuContact?.data}
+            title={showContentMenuContact?.title}
+            count={showContentMenuContact?.count}
+            handleShowSoftConversation={handleShowSoftConversation}
+          />
+        ) : null}
+      </div>
+    </div>
   );
 }
