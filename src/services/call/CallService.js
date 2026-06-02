@@ -21,6 +21,7 @@ class CallService {
     this._roomId = null;
     this._peerId = null;
     this._ws = null;           // raw WebSocket (protoo protocol)
+    this._connectPromise = null;
     this._requestId = 0;
     this._pendingRequests = new Map(); // id -> { resolve, reject }
     this._onRemoteStream = null; // callback(stream)
@@ -261,7 +262,15 @@ class CallService {
   }
 
   async _connectProtoo() {
-    return new Promise((resolve, reject) => {
+    if (this._ws?.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    if (this._connectPromise) {
+      return this._connectPromise;
+    }
+
+    this._connectPromise = new Promise((resolve, reject) => {
       // mediasoup-demo server dùng protoo WebSocket protocol
       // URL format: ws://host:port/?roomId=XXX&peerId=YYY
       const url = this._buildProtooUrl();
@@ -269,16 +278,19 @@ class CallService {
 
       this._ws.addEventListener('open', () => {
         console.log('[CallService] Protoo WS connected');
+        this._connectPromise = null;
         resolve();
       });
 
       this._ws.addEventListener('error', (err) => {
         console.error('[CallService] Protoo WS error:', err);
+        this._connectPromise = null;
         reject(err);
       });
 
       this._ws.addEventListener('close', () => {
         console.log('[CallService] Protoo WS closed');
+        this._connectPromise = null;
         this._cleanup();
         this._onCallEnded?.();
         this._onStateChange?.('ended');
@@ -288,6 +300,8 @@ class CallService {
         this._handleProtooMessage(JSON.parse(event.data));
       });
     });
+
+    return this._connectPromise;
   }
 
   _buildProtooUrl() {
@@ -335,16 +349,88 @@ class CallService {
     if (message.request && message.method === 'newConsumer') {
       this._handleNewConsumer(message.data)
         .then(() => {
-          this._ws.send(JSON.stringify({ response: true, id: message.id, ok: true, data: {} }));
+          this._sendResponse(message.id, true, {});
         })
         .catch(err => {
-          this._ws.send(JSON.stringify({ response: true, id: message.id, ok: false, errorReason: err.message }));
+          this._sendResponse(message.id, false, {}, err.message);
         });
     }
   }
 
-  _sendRequest(method, data = {}) {
+  _sendResponse(id, ok, data = {}, errorReason = undefined) {
+    if (!this._ws || this._ws.readyState !== WebSocket.OPEN) {
+      console.warn('[CallService] Cannot send protoo response, WebSocket is not open:', {
+        id,
+        readyState: this._ws?.readyState,
+      });
+      return;
+    }
+
+    this._ws.send(JSON.stringify({
+      response: true,
+      id,
+      ok,
+      data,
+      ...(errorReason ? { errorReason } : {}),
+    }));
+  }
+
+  async _waitForOpenWebSocket(timeoutMs = 5000) {
+    if (!this._ws) {
+      throw new Error('Protoo WebSocket is not initialized');
+    }
+
+    if (this._ws.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    if (this._ws.readyState !== WebSocket.CONNECTING) {
+      throw new Error(`Protoo WebSocket is not open (readyState=${this._ws.readyState})`);
+    }
+
+    await new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        cleanup();
+        reject(new Error('Timed out waiting for Protoo WebSocket to open'));
+      }, timeoutMs);
+
+      const cleanup = () => {
+        clearTimeout(timeoutId);
+        this._ws?.removeEventListener('open', handleOpen);
+        this._ws?.removeEventListener('error', handleError);
+        this._ws?.removeEventListener('close', handleClose);
+      };
+
+      const handleOpen = () => {
+        cleanup();
+        resolve();
+      };
+
+      const handleError = (event) => {
+        cleanup();
+        reject(event);
+      };
+
+      const handleClose = () => {
+        cleanup();
+        reject(new Error('Protoo WebSocket closed before opening'));
+      };
+
+      this._ws.addEventListener('open', handleOpen);
+      this._ws.addEventListener('error', handleError);
+      this._ws.addEventListener('close', handleClose);
+    });
+  }
+
+  async _sendRequest(method, data = {}) {
+    await this._waitForOpenWebSocket();
+
     return new Promise((resolve, reject) => {
+      if (!this._ws || this._ws.readyState !== WebSocket.OPEN) {
+        reject(new Error(`Cannot send ${method}: Protoo WebSocket is not open`));
+        return;
+      }
+
       const id = ++this._requestId;
       const request = {
         request: true,
@@ -488,14 +574,9 @@ class CallService {
 
     this._consumers.set(consumerId, consumer);
 
-    // Kích hoạt ngay lập tức trên Server (SỬ DỤNG REQUEST ĐỂ ĐẢM BẢO SERVER NHẬN ĐƯỢC)
-    console.log('[CallService] 📤 Resuming consumer:', consumerId);
-    try {
-      await this._sendRequest('resumeConsumer', { consumerId });
-      console.log('[CallService] ✅ Consumer resumed successfully:', consumerId);
-    } catch (err) {
-      console.error('[CallService] ❌ Failed to resume consumer:', err);
-    }
+    // mediasoup-demo resumes the server-side Consumer after this client accepts
+    // the newConsumer request. Sending resumeConsumer as a request is invalid.
+    console.log('[CallService] Consumer accepted; server will resume it:', consumerId);
 
     // Web: track.enabled mặc định là true, nhưng ta ép lại lần nữa
     if (consumer.track) consumer.track.enabled = true;
@@ -569,6 +650,8 @@ class CallService {
       this._ws.close();
     }
     this._ws = null;
+    this._connectPromise = null;
+    this._pendingRequests.clear();
 
     this._activeCallId = null;
   }

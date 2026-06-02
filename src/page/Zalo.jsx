@@ -41,6 +41,8 @@ export default function Zalo() {
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
   const [isRemoteVideoOff, setIsRemoteVideoOff] = useState(false);
+  const [isAcceptingCall, setIsAcceptingCall] = useState(false);
+  const isAcceptingCallRef = useRef(false);
 
   // [FIX Bug 2] Dùng ref để tránh stale closure trong event listeners
   const callStateRef = useRef("idle");
@@ -402,6 +404,8 @@ export default function Zalo() {
       setLocalStream(null);
       setRemoteStream(null);
       setIsRemoteVideoOff(false);
+      setIsAcceptingCall(false);
+      isAcceptingCallRef.current = false;
       callService.finishRemoteCall();
     };
 
@@ -425,7 +429,11 @@ export default function Zalo() {
   }, [userData]); // [FIX Bug 2] Bỏ callState khỏi deps - dùng ref thay thế
 
   const handleAcceptCall = async () => {
-    if (!callData) return;
+    if (!callData || isAcceptingCallRef.current) return;
+
+    isAcceptingCallRef.current = true;
+    setIsAcceptingCall(true);
+
     try {
       await callService.acceptCall({
          callId: callData.callId,
@@ -445,35 +453,49 @@ export default function Zalo() {
             setLocalStream(null);
             setRemoteStream(null);
             setIsRemoteVideoOff(false);
+            setIsAcceptingCall(false);
+            isAcceptingCallRef.current = false;
          },
          onStateChange: (state) => {
             if (state === "connected") {
                setCallState("connected");
                setLocalStream(callService.getLocalStream());
+               setIsAcceptingCall(false);
+               isAcceptingCallRef.current = false;
             } else if (state === "ended") {
                setCallState("idle");
                setIsRemoteVideoOff(false);
+               setIsAcceptingCall(false);
+               isAcceptingCallRef.current = false;
             }
          }
       });
     } catch (err) {
       console.error("Accept call error", err);
       setCallState("idle");
+      setIsAcceptingCall(false);
+      isAcceptingCallRef.current = false;
     }
   };
 
   const handleRejectCall = () => {
+    if (isAcceptingCallRef.current) return;
+
     if (callData?.callId) {
        callService.rejectCall(callData.callId);
     }
     setCallState("idle");
     setCallData(null);
+    setIsAcceptingCall(false);
+    isAcceptingCallRef.current = false;
   };
 
   const handleEndCall = () => {
     callService.endCall();
     setCallState("idle");
     setCallData(null);
+    setIsAcceptingCall(false);
+    isAcceptingCallRef.current = false;
   };
 
   return (
@@ -484,6 +506,7 @@ export default function Zalo() {
           callType={callData.callType}
           onAccept={handleAcceptCall}
           onReject={handleRejectCall}
+          isAccepting={isAcceptingCall}
         />
       )}
       {callState === "outgoing" && (
